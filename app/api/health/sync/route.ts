@@ -246,7 +246,6 @@ export async function GET(request: NextRequest) {
         score,
         status,
         checks,
-        payload, // Store raw mapped data for debugging
       })
       .select()
       .single();

@@ -271,9 +271,9 @@ export default function NewTestPage() {
             <Card>
               <CardContent className="pt-4 space-y-2">
                 <div className="text-xs text-[#A1A1A1]">Ideal Customer Profile</div>
-                <div className="text-sm">{aiResult.icp}</div>
+                <div className="text-sm">{typeof aiResult.icp === 'string' ? aiResult.icp : JSON.stringify(aiResult.icp, null, 2)}</div>
                 <div className="text-xs text-[#A1A1A1] mt-2">Value Proposition</div>
-                <div className="text-sm">{aiResult.value_prop}</div>
+                <div className="text-sm">{typeof aiResult.value_prop === 'string' ? aiResult.value_prop : JSON.stringify(aiResult.value_prop, null, 2)}</div>
               </CardContent>
             </Card>
 
