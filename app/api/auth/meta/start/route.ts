@@ -1,8 +1,12 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
   const META_APP_ID = process.env.META_APP_ID;
-  const redirectUri = `${request.nextUrl.origin}/api/auth/meta/callback`;
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
+  const redirectUri = `${APP_URL}/api/auth/meta/callback`;
 
   if (!META_APP_ID) {
     return Response.json(

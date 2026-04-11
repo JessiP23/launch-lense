@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -10,41 +11,69 @@ import {
   Target,
   Users,
   XCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useAppStore } from '@/lib/store';
 
-const demoReport = {
-  id: 'report-demo-1',
-  test_name: 'AI for Dentists',
-  verdict: 'NO-GO' as string,
-  created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+interface Report {
+  id: string;
+  test_name: string;
+  verdict: string;
+  created_at: string;
   stats: {
-    spend_cents: 48700,
-    impressions: 12340,
-    clicks: 148,
-    lp_views: 126,
-    leads: 2,
-    ctr: 0.012,
-    cvr: 0.0159,
-    cpa_cents: 24350,
-  },
+    spend_cents: number;
+    impressions: number;
+    clicks: number;
+    lp_views: number;
+    leads: number;
+    ctr: number;
+    cvr: number;
+    cpa_cents: number;
+  };
   benchmarks: {
-    vertical: 'saas',
-    avg_cpa_cents: 4500,
-    avg_cvr: 0.025,
-  },
-};
+    vertical: string;
+    avg_cpa_cents: number;
+    avg_cvr: number;
+  };
+}
 
 export default function ReportsPage() {
   const router = useRouter();
-  const { isDemo } = useAppStore();
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const report = demoReport;
-  const verdictColor = report.verdict === 'GO' ? '#22C55E' : '#EF4444';
-  const savedAmount = 35000; // $35k theoretical MVP build cost
+  useEffect(() => {
+    async function fetchReports() {
+      try {
+        // Fetch completed tests that have verdicts
+        const res = await fetch('/api/tests?status=completed');
+        if (res.ok) {
+          const data = await res.json();
+          setReports(data.reports || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch reports:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchReports();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Reports</h1>
+          <p className="text-sm text-[#A1A1A1] mt-1">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const report = reports[0]; // Show the latest report
 
   return (
     <div className="space-y-6">
@@ -57,21 +86,21 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {isDemo && (
+      {report ? (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
           {/* Verdict banner */}
-          <Card className="border-[#EF4444]/20 mb-6">
+          <Card className={`border-${report.verdict === 'GO' ? '[#22C55E]' : '[#EF4444]'}/20 mb-6`}>
             <CardContent className="pt-6 pb-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div
                     className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold"
                     style={{
-                      border: `3px solid ${verdictColor}`,
-                      color: verdictColor,
+                      border: `3px solid ${report.verdict === 'GO' ? '#22C55E' : '#EF4444'}`,
+                      color: report.verdict === 'GO' ? '#22C55E' : '#EF4444',
                     }}
                   >
                     {report.verdict}
@@ -83,7 +112,13 @@ export default function ReportsPage() {
                     </p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    window.open(`/api/reports/${report.id}`, '_blank');
+                  }}
+                >
                   <Download className="w-4 h-4 mr-2" />
                   Download PDF
                 </Button>
@@ -97,11 +132,11 @@ export default function ReportsPage() {
               <div className="text-3xl font-mono font-bold tabular-nums text-[#FAFAFA]">
                 ${(report.stats.spend_cents / 100).toFixed(0)}{' '}
                 <span className="text-base font-normal text-[#A1A1A1]">spent to avoid</span>{' '}
-                <span className="text-[#22C55E]">${savedAmount.toLocaleString()}</span>{' '}
+                <span className="text-[#22C55E]">$35,000</span>{' '}
                 <span className="text-base font-normal text-[#A1A1A1]">build</span>
               </div>
               <p className="text-sm text-[#A1A1A1] mt-2">
-                ROI: {((savedAmount / (report.stats.spend_cents / 100)) * 100).toFixed(0)}% return on validation spend
+                ROI: {((35000 / (report.stats.spend_cents / 100 || 1)) * 100).toFixed(0)}% return on validation spend
               </p>
             </CardContent>
           </Card>
@@ -181,7 +216,11 @@ export default function ReportsPage() {
                       &lt; ${(report.benchmarks.avg_cpa_cents * 0.8 / 100).toFixed(0)}
                     </td>
                     <td className="py-2 px-3 text-center">
-                      <XCircle className="w-4 h-4 text-[#EF4444] mx-auto" />
+                      {report.stats.cpa_cents < report.benchmarks.avg_cpa_cents * 0.8 ? (
+                        <CheckCircle2 className="w-4 h-4 text-[#22C55E] mx-auto" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-[#EF4444] mx-auto" />
+                      )}
                     </td>
                   </tr>
                   <tr className="border-b border-[#262626]/50 h-10">
@@ -191,7 +230,11 @@ export default function ReportsPage() {
                     </td>
                     <td className="py-2 px-3 text-right font-mono tabular-nums">&gt; 2.00%</td>
                     <td className="py-2 px-3 text-center">
-                      <XCircle className="w-4 h-4 text-[#EF4444] mx-auto" />
+                      {report.stats.cvr > 0.02 ? (
+                        <CheckCircle2 className="w-4 h-4 text-[#22C55E] mx-auto" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-[#EF4444] mx-auto" />
+                      )}
                     </td>
                   </tr>
                   <tr className="border-b border-[#262626]/50 h-10">
@@ -201,7 +244,11 @@ export default function ReportsPage() {
                     </td>
                     <td className="py-2 px-3 text-right font-mono tabular-nums">&gt; 5</td>
                     <td className="py-2 px-3 text-center">
-                      <XCircle className="w-4 h-4 text-[#EF4444] mx-auto" />
+                      {report.stats.leads > 5 ? (
+                        <CheckCircle2 className="w-4 h-4 text-[#22C55E] mx-auto" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-[#EF4444] mx-auto" />
+                      )}
                     </td>
                   </tr>
                 </tbody>
@@ -209,9 +256,7 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
         </motion.div>
-      )}
-
-      {!isDemo && (
+      ) : (
         <Card>
           <CardContent className="pt-6 pb-6 text-center">
             <FileText className="w-12 h-12 mx-auto text-[#262626] mb-3" />

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use, Suspense } from 'react';
+import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -31,9 +31,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { HealthgateRing } from '@/components/healthgate-ring';
 import { StatusDot } from '@/components/status-dot';
-import { AnimatedNumber } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
-import { getDemoMetrics } from '@/lib/healthgate';
+import { pauseTest } from './actions';
 
 interface Metrics {
   impressions: number;
@@ -52,9 +51,10 @@ export default function TestDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const { healthSnapshot, isDemo } = useAppStore();
-  const isPageDemo = isDemo;
+  const { healthSnapshot } = useAppStore();
 
+  const [testName, setTestName] = useState<string>(id);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
   const [status, setStatus] = useState<'active' | 'paused' | 'completed'>('active');
   const [metrics, setMetrics] = useState<Metrics>({
     impressions: 0,
@@ -66,28 +66,59 @@ export default function TestDetailPage({
     cpa_cents: 0,
   });
   const [metricsHistory, setMetricsHistory] = useState<Metrics[]>([]);
+  const [annotations, setAnnotations] = useState<{ created_at: string; message: string }[]>([]);
+  const [killSwitchLoading, setKillSwitchLoading] = useState(false);
 
-  // Simulated real-time metrics polling (demo mode)
+  // Fetch test data and metrics from API
   useEffect(() => {
-    if (!isPageDemo || status !== 'active') return;
+    async function fetchTest() {
+      try {
+        const res = await fetch(`/api/tests/${id}/metrics`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.test) {
+            setTestName(data.test.name || id);
+            setCampaignId(data.test.campaign_id || null);
+            setStatus(data.test.status || 'active');
+          }
+          if (data.metrics) {
+            setMetrics(data.metrics);
+            setMetricsHistory((prev) => [...prev.slice(-20), data.metrics]);
+          }
+          if (data.annotations) {
+            setAnnotations(data.annotations);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch test data:', err);
+      }
+    }
 
-    const createdAt = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-
-    const update = () => {
-      const m = getDemoMetrics(createdAt);
-      setMetrics(m);
-      setMetricsHistory((prev) => [...prev.slice(-20), m]);
-    };
-
-    update();
-    const interval = setInterval(update, 10000); // every 10s
+    fetchTest();
+    // Poll every 30s for live tests
+    const interval = setInterval(() => {
+      if (status === 'active') fetchTest();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [isPageDemo, status]);
+  }, [id, status]);
 
   const handleKillSwitch = async () => {
-    setStatus('paused');
-    // In production: POST to pause campaign
-    console.log(`Kill-Switch activated for test ${id}`);
+    setKillSwitchLoading(true);
+    try {
+      const result = await pauseTest({
+        testId: id,
+        reason: 'Kill-Switch activated by user',
+      });
+      if (result.success) {
+        setStatus('paused');
+      } else {
+        console.error('Kill-Switch failed:', result.error);
+      }
+    } catch (err) {
+      console.error('Kill-Switch error:', err);
+    } finally {
+      setKillSwitchLoading(false);
+    }
   };
 
   const kpiCards = [
@@ -95,7 +126,6 @@ export default function TestDetailPage({
       label: 'Spend',
       value: metrics.spend_cents,
       format: (v: number) => `$${(v / 100).toFixed(0)}`,
-      prefix: '$',
       icon: DollarSign,
       color: '#FAFAFA',
     },
@@ -157,7 +187,7 @@ export default function TestDetailPage({
           )}
           <div>
             <h1 className="text-xl font-semibold flex items-center gap-2">
-              Test: {id.startsWith('test-demo') ? 'AI for Dentists' : id}
+              Test: {testName}
               {status === 'active' && (
                 <Badge variant="success" className="ml-2">
                   <StatusDot status="green" pulse className="mr-1.5" />
@@ -168,9 +198,11 @@ export default function TestDetailPage({
                 <Badge variant="warning" className="ml-2">Paused</Badge>
               )}
             </h1>
-            <p className="text-xs text-[#A1A1A1] mt-0.5">
-              Campaign ID: demo_campaign_{id}
-            </p>
+            {campaignId && (
+              <p className="text-xs text-[#A1A1A1] mt-0.5">
+                Campaign ID: {campaignId}
+              </p>
+            )}
           </div>
         </div>
 
@@ -333,12 +365,23 @@ export default function TestDetailPage({
         <CardContent>
           <table className="w-full text-sm">
             <tbody>
-              <tr className="border-b border-[#262626]/50 h-10">
-                <td className="py-2 text-[#A1A1A1] text-xs w-40">
-                  {new Date().toLocaleString()}
-                </td>
-                <td className="py-2">Test created in demo mode</td>
-              </tr>
+              {annotations.length > 0 ? (
+                annotations.map((a, i) => (
+                  <tr key={i} className="border-b border-[#262626]/50 h-10">
+                    <td className="py-2 text-[#A1A1A1] text-xs w-40">
+                      {new Date(a.created_at).toLocaleString()}
+                    </td>
+                    <td className="py-2">{a.message}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr className="border-b border-[#262626]/50 h-10">
+                  <td className="py-2 text-[#A1A1A1] text-xs w-40">
+                    {new Date().toLocaleString()}
+                  </td>
+                  <td className="py-2">Test loaded</td>
+                </tr>
+              )}
               {status === 'paused' && (
                 <tr className="border-b border-[#262626]/50 h-10">
                   <td className="py-2 text-[#A1A1A1] text-xs">

@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextRequest } from 'next/server';
 
 const BANNED_WORDS = ['guarantee', 'guaranteed', 'you will', 'before/after', 'cure', 'miracle'];

@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
+import { createTest } from './actions';
 
 interface Angle {
   headline: string;
@@ -37,7 +38,7 @@ const steps = ['Input', 'Review Angles', 'Preview & Deploy'];
 
 export default function NewTestPage() {
   const router = useRouter();
-  const { canLaunch, isDemo, healthSnapshot } = useAppStore();
+  const { canLaunch, healthSnapshot } = useAppStore();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -84,7 +85,6 @@ export default function NewTestPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(isDemo ? { 'x-demo-mode': '1' } : {}),
         },
         body: JSON.stringify({ idea, audience, offer }),
       });
@@ -117,19 +117,22 @@ export default function NewTestPage() {
   const handleDeploy = async () => {
     setDeploying(true);
     try {
-      // In demo mode, simulate campaign creation
-      await new Promise((r) => setTimeout(r, 2000));
-      const testId = `test-${Date.now()}`;
-
-      // Simulate creating campaign objects
-      console.log('Campaign created:', {
-        test_id: testId,
+      const result = await createTest({
         idea,
+        audience,
+        offer,
         angle: editedAngles[selectedAngle],
-        campaign_id: `demo_campaign_${Date.now()}`,
+        orgId: useAppStore.getState().orgId || undefined,
+        adAccountId: useAppStore.getState().activeAccountId || undefined,
+        budgetCents: 50000,
+        vertical: 'saas',
       });
 
-      router.push(`/tests/${testId}?demo=1`);
+      if (result.success && result.testId) {
+        router.push(`/tests/${result.testId}`);
+      } else {
+        console.error('Deploy failed:', result.error);
+      }
     } catch (err) {
       console.error('Deploy failed:', err);
     } finally {

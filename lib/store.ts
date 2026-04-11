@@ -3,10 +3,6 @@ import { create } from 'zustand';
 import type { HealthSnapshot } from './healthgate';
 
 interface AppState {
-  // Demo mode
-  isDemo: boolean;
-  setDemo: (v: boolean) => void;
-
   // Current org
   orgId: string | null;
   setOrgId: (id: string) => void;
@@ -25,10 +21,7 @@ interface AppState {
   setCmdkOpen: (v: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  isDemo: false,
-  setDemo: (v) => set({ isDemo: v }),
-
+export const useAppStore = create<AppState>((set) => ({
   orgId: null,
   setOrgId: (id) => set({ orgId: id }),
 

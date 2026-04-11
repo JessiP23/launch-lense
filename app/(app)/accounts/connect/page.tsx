@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Shield, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,44 +14,46 @@ import type { HealthCheck, HealthSnapshot } from '@/lib/healthgate';
 
 function ConnectAccountContent() {
   const router = useRouter();
-  const isDemo = useAppStore((s) => s.isDemo);
-  const { setDemo, setHealthSnapshot, setActiveAccountId, healthSnapshot } = useAppStore();
+  const searchParams = useSearchParams();
+  const { setHealthSnapshot, setActiveAccountId, healthSnapshot } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [demoMode, setDemoMode] = useState<'red' | 'green'>('red');
 
-  const handleConnect = async () => {
-    if (isDemo) {
-      setLoading(true);
-      // Simulate API call
-      await new Promise((r) => setTimeout(r, 1200));
-      
-      const res = await fetch(`/api/health/sync?demo=1&mode=${demoMode}`);
-      const data = await res.json();
-      
-      setHealthSnapshot(data.snapshot);
-      setActiveAccountId(data.accountId || 'demo-account');
+  // Handle OAuth callback redirect
+  useEffect(() => {
+    const connectedParam = searchParams.get('connected');
+    const accountId = searchParams.get('account_id');
+    if (connectedParam === '1' && accountId) {
+      setActiveAccountId(accountId);
       setConnected(true);
+      // Fetch health for the newly connected account
+      fetchHealth(accountId);
+    }
+  }, [searchParams]);
+
+  const fetchHealth = async (accountId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/health/sync?account_id=${encodeURIComponent(accountId)}`);
+      const data = await res.json();
+      if (data.snapshot) {
+        setHealthSnapshot(data.snapshot);
+      }
+    } catch (err) {
+      console.error('Health sync failed:', err);
+    } finally {
       setLoading(false);
-    } else {
-      // Real Meta OAuth flow
-      window.location.href = '/api/auth/meta/start';
     }
   };
 
-  const handleRefreshDemo = async () => {
-    setLoading(true);
-    const newMode = demoMode === 'red' ? 'green' : 'red';
-    setDemoMode(newMode);
+  const handleConnect = () => {
+    window.location.href = '/api/auth/meta/start';
+  };
 
-    await new Promise((r) => setTimeout(r, 800));
-
-    const res = await fetch(`/api/health/sync?demo=1&mode=${newMode}`);
-    const data = await res.json();
-
-    setHealthSnapshot(data.snapshot);
-    setConnected(true);
-    setLoading(false);
+  const handleRefreshHealth = async () => {
+    const accountId = useAppStore.getState().activeAccountId;
+    if (!accountId) return;
+    await fetchHealth(accountId);
   };
 
   return (
@@ -64,7 +66,6 @@ function ConnectAccountContent() {
             Connect your Meta ad account to run Healthgate™ diagnostics
           </p>
         </div>
-        {isDemo && <Badge variant="warning">DEMO MODE</Badge>}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -99,20 +100,21 @@ function ConnectAccountContent() {
                   <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
                   <span>Account connected</span>
                 </div>
-                {isDemo && (
-                  <Button
-                    onClick={handleRefreshDemo}
-                    variant="outline"
-                    disabled={loading}
-                    className="w-full"
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh Demo ({demoMode === 'red' ? 'Switch to GREEN' : 'Switch to RED'})
-                  </Button>
-                )}
+                <Button
+                  onClick={handleRefreshHealth}
+                  variant="outline"
+                  disabled={loading}
+                  className="w-full"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh Healthgate
+                </Button>
                 <Button
                   variant="outline"
-                  onClick={() => router.push('/accounts/demo-account')}
+                  onClick={() => {
+                    const accountId = useAppStore.getState().activeAccountId;
+                    if (accountId) router.push(`/accounts/${accountId}`);
+                  }}
                   className="w-full"
                 >
                   View Account Details →

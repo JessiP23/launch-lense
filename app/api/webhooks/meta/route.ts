@@ -1,56 +1,95 @@
-import { NextRequest } from 'next/server';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-// Meta webhook handler
-// Subscribe to ad_account status changes
-export async function POST(request: NextRequest) {
-  const body = await request.json();
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { updateCampaignStatus } from '@/lib/meta-api';
 
-  // Verify webhook signature in production
-  // const signature = request.headers.get('x-hub-signature-256');
+// Meta webhook verification (GET)
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  if (
+    searchParams.get('hub.mode') === 'subscribe' &&
+    searchParams.get('hub.verify_token') === process.env.META_WEBHOOK_VERIFY_TOKEN
+  ) {
+    return new Response(searchParams.get('hub.challenge'), { status: 200 });
+  }
+  return new Response('Forbidden', { status: 403 });
+}
+
+// Meta webhook handler (POST)
+export async function POST(req: NextRequest) {
+  const body = await req.json();
 
   try {
-    const { entry } = body;
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        if (change.field === 'account_status' && change.value !== 'ACTIVE') {
+          const accountId = `act_${entry.id}`;
 
-    if (!entry) {
-      return Response.json({ received: true });
-    }
+          // Find the ad account and its token
+          const { data: account } = await supabaseAdmin
+            .from('ad_accounts')
+            .select('id, access_token')
+            .eq('account_id', accountId)
+            .single();
 
-    for (const e of entry) {
-      const changes = e.changes || [];
-      for (const change of changes) {
-        if (change.field === 'account_status') {
-          const accountId = e.id;
-          const newStatus = change.value?.account_status;
+          if (!account) continue;
 
-          if (newStatus !== 'ACTIVE') {
-            // TODO: Pause all tests for this ad_account_id within 60s
-            console.log(
-              `[WEBHOOK] Account ${accountId} status changed to ${newStatus}. Pausing all tests.`
-            );
+          // Get the real token from Vault if it's a vault reference
+          const accessToken = await resolveToken(account.access_token);
+
+          // Find all active tests for this account
+          const { data: tests } = await supabaseAdmin
+            .from('tests')
+            .select('id, campaign_id')
+            .eq('ad_account_id', account.id)
+            .eq('status', 'active');
+
+          for (const t of tests || []) {
+            try {
+              // Pause on Meta
+              if (t.campaign_id && accessToken) {
+                await updateCampaignStatus(t.campaign_id, accessToken, 'PAUSED');
+              }
+
+              // Update DB
+              await supabaseAdmin
+                .from('tests')
+                .update({ status: 'paused' })
+                .eq('id', t.id);
+
+              // Annotation
+              await supabaseAdmin.from('annotations').insert({
+                test_id: t.id,
+                author: 'system',
+                message: `Auto-paused: Account ${accountId} status changed by Meta`,
+              });
+            } catch (pauseErr) {
+              console.error(`[WEBHOOK] Failed to pause test ${t.id}:`, pauseErr);
+            }
           }
         }
       }
     }
 
-    return Response.json({ received: true });
+    return NextResponse.json({ received: true });
   } catch (error) {
     console.error('Webhook error:', error);
-    return Response.json({ error: 'Webhook processing failed' }, { status: 500 });
+    return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
 
-// Meta webhook verification
-export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const mode = searchParams.get('hub.mode');
-  const token = searchParams.get('hub.verify_token');
-  const challenge = searchParams.get('hub.challenge');
-
-  const VERIFY_TOKEN = process.env.META_WEBHOOK_VERIFY_TOKEN || 'launchlense_verify';
-
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    return new Response(challenge, { status: 200 });
+// Resolve access token — if stored as vault reference, fetch from Vault
+async function resolveToken(tokenOrRef: string | null): Promise<string | null> {
+  if (!tokenOrRef) return null;
+  // If it's already a raw token (starts with EAA), return as-is
+  if (tokenOrRef.startsWith('EAA')) return tokenOrRef;
+  // Otherwise try Vault lookup
+  try {
+    const { data } = await supabaseAdmin.rpc('vault.decrypted_secrets', {}).select('decrypted_secret').eq('name', tokenOrRef).single();
+    return data?.decrypted_secret || tokenOrRef;
+  } catch {
+    return tokenOrRef;
   }
-
-  return Response.json({ error: 'Verification failed' }, { status: 403 });
 }

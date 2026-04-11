@@ -9,17 +9,30 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { HealthgateRing } from '@/components/healthgate-ring';
-import { calculateHealthChecks, getDemoAccountData } from '@/lib/healthgate';
+import { calculateHealthChecks } from '@/lib/healthgate';
 
 export default function LandingPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
-  const [showDemo, setShowDemo] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // Demo: show a RED healthgate + NO-GO
-  const redData = getDemoAccountData('red');
-  const redHealth = calculateHealthChecks(redData);
+  // Example: show a RED healthgate for marketing illustration
+  const exampleAccountData = {
+    account_status: 2,
+    balance: 0,
+    spend_cap: 500,
+    disapproved_90d: 7,
+    page_quality: 0.2,
+    pixel_active: false,
+    funding_source: false,
+    two_factor_enabled: false,
+    domain_verified: false,
+    has_advertiser_access: true,
+    spend_30d: 0,
+    policy_issues: 3,
+  };
+  const redHealth = calculateHealthChecks(exampleAccountData);
 
   const handleEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,9 +52,9 @@ export default function LandingPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => router.push('/accounts/connect?demo=1')}
+          onClick={() => router.push('/accounts/connect')}
         >
-          Try Demo
+          Get Started
           <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
         </Button>
       </nav>
@@ -68,15 +81,15 @@ export default function LandingPage() {
           <div className="flex items-center justify-center gap-4 mt-8">
             <Button
               size="lg"
-              onClick={() => router.push('/accounts/connect?demo=1')}
+              onClick={() => router.push('/accounts/connect')}
             >
               <Zap className="w-4 h-4 mr-2" />
-              Start Demo
+              Get Started
             </Button>
             <Button
               variant="outline"
               size="lg"
-              onClick={() => setShowDemo(!showDemo)}
+              onClick={() => setShowPreview(!showPreview)}
             >
               See it work
             </Button>
@@ -84,8 +97,8 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
-      {/* Interactive demo */}
-      {showDemo && (
+      {/* Interactive preview */}
+      {showPreview && (
         <motion.section
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
