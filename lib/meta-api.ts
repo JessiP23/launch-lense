@@ -51,6 +51,7 @@ async function metaFetch<T = Record<string, unknown>>(
 }
 
 // Fetch ad account details for Healthgate
+// Only request fields valid for the Marketing API (including Sandbox)
 export async function fetchAdAccountHealth(
   accountId: string,
   accessToken: string
@@ -60,11 +61,12 @@ export async function fetchAdAccountHealth(
     'balance',
     'spend_cap',
     'amount_spent',
-    'ads_volume',
-    'has_advertiser_access',
     'adspixels{last_fired_time}',
     'funding_source_details',
-    'agency_client_declaration',
+    'disable_reason',
+    'name',
+    'currency',
+    'business',
   ].join(',');
 
   return metaFetch(`/act_${accountId}?fields=${fields}`, accessToken);
