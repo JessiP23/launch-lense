@@ -167,8 +167,9 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     const adSetResult = await createAdSet(metaAccountId, accessToken, {
       campaign_id: campaignId,
       name: `${angle.headline.slice(0, 40)} - Broad US`,
-      billing_event: 'LINK_CLICKS',
-      optimization_goal: 'LINK_CLICKS',
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'REACH',
+      bid_amount: 100,
       daily_budget: Math.floor(budgetCents / 2),
       targeting: {
         geo_locations: { countries: ['US'] },
