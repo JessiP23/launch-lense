@@ -15,19 +15,34 @@ import type { HealthCheck, HealthSnapshot } from '@/lib/healthgate';
 function ConnectAccountContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setHealthSnapshot, setActiveAccountId, healthSnapshot } = useAppStore();
+  const { setHealthSnapshot, setActiveAccountId, setOrgId, healthSnapshot, activeAccountId } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
+
+  // On mount: check if we already have a connected account in persisted store
+  useEffect(() => {
+    if (activeAccountId && !connected) {
+      setConnected(true);
+      // Refresh health if we don't have a snapshot yet
+      if (!healthSnapshot) {
+        fetchHealth(activeAccountId);
+      }
+    }
+  }, []);
 
   // Handle OAuth callback redirect
   useEffect(() => {
     const connectedParam = searchParams.get('connected');
     const accountId = searchParams.get('account_id');
+    const metaAccountId = searchParams.get('meta_account_id');
+    const orgId = searchParams.get('org_id');
+
     if (connectedParam === '1' && accountId) {
       setActiveAccountId(accountId);
+      if (orgId) setOrgId(orgId);
       setConnected(true);
-      // Fetch health for the newly connected account
-      fetchHealth(accountId);
+      // Fetch health using the Meta account ID (act_...) if available, else the internal ID
+      fetchHealth(metaAccountId || accountId);
     }
   }, [searchParams]);
 
@@ -38,6 +53,10 @@ function ConnectAccountContent() {
       const data = await res.json();
       if (data.snapshot) {
         setHealthSnapshot(data.snapshot);
+      }
+      // Fallback: set orgId from health/sync response if not already set
+      if (data.orgId && !useAppStore.getState().orgId) {
+        setOrgId(data.orgId);
       }
     } catch (err) {
       console.error('Health sync failed:', err);
@@ -99,7 +118,25 @@ function ConnectAccountContent() {
                 <div className="flex items-center gap-2 text-sm">
                   <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
                   <span>Account connected</span>
+                  {activeAccountId && (
+                    <span className="text-xs text-[#A1A1A1] font-mono ml-auto truncate max-w-[180px]">
+                      {activeAccountId}
+                    </span>
+                  )}
                 </div>
+                <Button
+                  onClick={handleConnect}
+                  variant="outline"
+                  disabled={loading}
+                  className="w-full"
+                >
+                  {loading ? (
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                  )}
+                  {loading ? 'Syncing...' : 'Reconnect / Switch Account'}
+                </Button>
                 <Button
                   onClick={handleRefreshHealth}
                   variant="outline"

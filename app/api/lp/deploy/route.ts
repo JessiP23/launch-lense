@@ -37,24 +37,34 @@ export async function POST(request: NextRequest) {
 
     // Upload to Supabase Storage
     const fileName = `lp/${test_id}/index.html`;
-    const { error: uploadError } = await supabase.storage
-      .from('landing-pages')
-      .upload(fileName, fullHtml, {
-        contentType: 'text/html',
-        upsert: true,
-      });
+    let lpUrl: string | null = null;
 
-    if (uploadError) {
-      console.error('[lp/deploy] Upload error:', uploadError);
-      // Fall back to storing in DB
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from('landing-pages')
+        .upload(fileName, fullHtml, {
+          contentType: 'text/html',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('[lp/deploy] Upload error:', uploadError);
+        // Bucket may not exist — fall through to fallback
+      } else {
+        // Get public URL from storage
+        const { data: urlData } = supabase.storage
+          .from('landing-pages')
+          .getPublicUrl(fileName);
+        lpUrl = urlData?.publicUrl || null;
+      }
+    } catch (storageErr) {
+      console.error('[lp/deploy] Storage exception:', storageErr);
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('landing-pages')
-      .getPublicUrl(fileName);
-
-    const lpUrl = urlData?.publicUrl || `${process.env.NEXT_PUBLIC_APP_URL}/lp/${test_id}`;
+    // Fallback: use app URL as LP endpoint
+    if (!lpUrl) {
+      lpUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://launchlense.app'}/lp/${test_id}`;
+    }
 
     // Update test record with LP data
     await supabase
@@ -62,6 +72,7 @@ export async function POST(request: NextRequest) {
       .update({
         lp_url: lpUrl,
         lp_json: gjsData || null,
+        lp_html: fullHtml,
       })
       .eq('id', test_id);
 

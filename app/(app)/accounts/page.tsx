@@ -131,7 +131,7 @@ export default function AccountsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => router.push(`/accounts/${a.account_id}`)}
+                        onClick={() => router.push(`/accounts/${a.id}`)}
                       >
                         Manage
                       </Button>

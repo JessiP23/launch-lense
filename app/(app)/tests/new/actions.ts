@@ -26,6 +26,8 @@ interface CreateTestInput {
   adAccountId?: string;
   budgetCents?: number;
   vertical?: string;
+  imageHash?: string;
+  brandName?: string;
 }
 
 interface CreateTestResult {
@@ -44,6 +46,8 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     adAccountId,
     budgetCents = 50000,
     vertical = 'saas',
+    imageHash,
+    brandName,
   } = input;
 
   if (!orgId || !adAccountId) {
@@ -72,11 +76,19 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
   // ── Resolve access token ─────────────────────────────────────────────
   const { data: account } = await supabaseAdmin
     .from('ad_accounts')
-    .select('access_token')
+    .select('access_token, account_id')
     .eq('id', adAccountId)
     .single();
 
-  let accessToken = account?.access_token;
+  if (!account) {
+    return { success: false, error: 'Ad account not found in database.' };
+  }
+
+  // Meta account ID is the act_xxx string — NOT the internal UUID
+  // Strip act_ prefix since meta-api.ts functions add it back
+  const metaAccountId = account.account_id.replace(/^act_/, ''); // e.g. "727146616453623"
+
+  let accessToken = account.access_token;
   if (!accessToken || !String(accessToken).startsWith('EAA')) {
     accessToken = process.env.AD_ACCESS_TOKEN;
   }
@@ -141,7 +153,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     }
 
     // ── 3. Create campaign ─────────────────────────────────────────────
-    const campaignResult = await createCampaign(adAccountId, accessToken, {
+    const campaignResult = await createCampaign(metaAccountId, accessToken, {
       name: `[LaunchLense] ${idea.slice(0, 60)}`,
       objective: 'OUTCOME_LEADS',
       status: 'PAUSED',
@@ -151,7 +163,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     createdObjects.push({ type: 'campaign', id: campaignId });
 
     // ── 4. Create ad set ───────────────────────────────────────────────
-    const adSetResult = await createAdSet(adAccountId, accessToken, {
+    const adSetResult = await createAdSet(metaAccountId, accessToken, {
       campaign_id: campaignId,
       name: `${angle.headline.slice(0, 40)} - Broad US`,
       billing_event: 'IMPRESSIONS',
@@ -173,23 +185,28 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     createdObjects.push({ type: 'adset', id: adSetId });
 
     // ── 5. Create ad creative (with real LP URL) ───────────────────────
-    const creativeResult = await createAdCreative(adAccountId, accessToken, {
+    const linkData: Record<string, unknown> = {
+      message: angle.primary_text,
+      name: angle.headline,
+      call_to_action: { type: angle.cta || 'LEARN_MORE' },
+      link: lpUrl,
+    };
+    if (imageHash) {
+      linkData.image_hash = imageHash;
+    }
+
+    const creativeResult = await createAdCreative(metaAccountId, accessToken, {
       name: `Creative - ${angle.headline.slice(0, 40)}`,
       object_story_spec: {
         page_id: process.env.META_PAGE_ID,
-        link_data: {
-          message: angle.primary_text,
-          name: angle.headline,
-          call_to_action: { type: angle.cta || 'LEARN_MORE' },
-          link: lpUrl,
-        },
+        link_data: linkData,
       },
     });
     const creativeId = (creativeResult as { id: string }).id;
     createdObjects.push({ type: 'creative', id: creativeId });
 
     // ── 6. Create ad ───────────────────────────────────────────────────
-    const adResult = await createAd(adAccountId, accessToken, {
+    const adResult = await createAd(metaAccountId, accessToken, {
       name: `Ad - ${angle.headline.slice(0, 40)}`,
       adset_id: adSetId,
       creative: { creative_id: creativeId },
@@ -254,6 +271,103 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
  * Generate a simple LP HTML body from the test angle.
  * The /api/lp/deploy route wraps this in a full page template.
  */
+/**
+ * Demo Deploy — creates a test row with simulated Meta IDs + fake GO metrics.
+ * Does NOT call Meta API. Used for investor demos / pre-seed recordings.
+ */
+export async function createDemoTest(input: CreateTestInput): Promise<CreateTestResult> {
+  const {
+    idea,
+    audience,
+    offer,
+    angle,
+    orgId,
+    adAccountId,
+    budgetCents = 50000,
+    vertical = 'saas',
+  } = input;
+
+  if (!orgId || !adAccountId) {
+    return { success: false, error: 'Missing required account information. Connect an ad account first.' };
+  }
+
+  const supabase = createServiceClient();
+
+  try {
+    // 1. Insert test row
+    const shareToken = crypto.randomUUID().slice(0, 8);
+    const demoId = `demo_${Date.now()}`;
+
+    const { data: testData, error: insertError } = await supabase
+      .from('tests')
+      .insert({
+        org_id: orgId,
+        ad_account_id: adAccountId,
+        name: idea.slice(0, 120),
+        status: 'active',
+        budget_cents: budgetCents,
+        vertical,
+        idea,
+        audience,
+        offer,
+        angles: [angle],
+        share_token: shareToken,
+        campaign_id: `demo_campaign_${demoId}`,
+        adset_id: `demo_adset_${demoId}`,
+        ad_id: `demo_ad_${demoId}`,
+        creative_id: `demo_creative_${demoId}`,
+        lp_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/lp/${demoId}`,
+      })
+      .select('id')
+      .single();
+
+    if (insertError || !testData) {
+      throw new Error(`DB insert failed: ${insertError?.message || 'unknown'}`);
+    }
+
+    // 2. Insert realistic demo metrics (GO-quality)
+    await supabase.from('events').insert({
+      test_id: testData.id,
+      type: 'metrics',
+      payload: {
+        impressions: 2247,
+        clicks: 94,
+        spend_cents: 48700,
+        lp_views: 218,
+        leads: 14,
+      },
+    });
+
+    // 3. Insert a second event row for realism (day 2)
+    await supabase.from('events').insert({
+      test_id: testData.id,
+      type: 'metrics',
+      payload: {
+        impressions: 1834,
+        clicks: 72,
+        spend_cents: 41200,
+        lp_views: 167,
+        leads: 11,
+      },
+    });
+
+    // 4. Insert launch annotation
+    await supabase.from('annotations').insert({
+      test_id: testData.id,
+      author: 'system',
+      message: `[DEMO] Campaign deployed. Budget: $${(budgetCents / 100).toFixed(0)} | Angle: "${angle.headline}"`,
+    });
+
+    return { success: true, testId: testData.id };
+  } catch (error) {
+    console.error('[createDemoTest] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Demo deploy failed',
+    };
+  }
+}
+
 function generateSimpleLPHtml(idea: string, angle: Angle, offer: string): string {
   return `
     <h1>${escapeHtml(angle.headline)}</h1>

@@ -93,8 +93,17 @@ export async function GET(request: NextRequest) {
 
     const firstAccount = accountsData.data[0];
 
+    // Look up the internal DB id for the first account
+    const { data: dbAccount } = await supabaseAdmin
+      .from('ad_accounts')
+      .select('id')
+      .eq('account_id', firstAccount.id)
+      .single();
+
+    const internalId = dbAccount?.id || firstAccount.id;
+
     return Response.redirect(
-      `${request.nextUrl.origin}/accounts/connect?connected=1&account_id=${firstAccount.id}`
+      `${request.nextUrl.origin}/accounts/connect?connected=1&account_id=${encodeURIComponent(internalId)}&meta_account_id=${encodeURIComponent(firstAccount.id)}&org_id=${encodeURIComponent(ORG_ID)}`
     );
   } catch (err) {
     console.error('Meta callback error:', err);

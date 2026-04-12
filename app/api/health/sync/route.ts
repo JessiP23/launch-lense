@@ -193,12 +193,50 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // 1. Fetch ad account row from DB
-    const { data: account, error: accountError } = await supabaseAdmin
-      .from('ad_accounts')
-      .select('id, account_id, access_token, org_id, name')
-      .eq('account_id', accountId)
-      .single();
+    // 1. Fetch ad account row from DB — support both internal UUID and Meta account_id (act_...)
+    const isMetaId = accountId.startsWith('act_');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(accountId);
+
+    let account: { id: string; account_id: string; access_token: string; org_id: string; name: string } | null = null;
+    let accountError: unknown = null;
+
+    if (isMetaId) {
+      // Lookup by Meta account_id (act_xxx)
+      const result = await supabaseAdmin
+        .from('ad_accounts')
+        .select('id, account_id, access_token, org_id, name')
+        .eq('account_id', accountId)
+        .single();
+      account = result.data;
+      accountError = result.error;
+    } else if (isUuid) {
+      // Lookup by internal Supabase UUID
+      const result = await supabaseAdmin
+        .from('ad_accounts')
+        .select('id, account_id, access_token, org_id, name')
+        .eq('id', accountId)
+        .single();
+      account = result.data;
+      accountError = result.error;
+    } else {
+      // Try account_id first, then id
+      const r1 = await supabaseAdmin
+        .from('ad_accounts')
+        .select('id, account_id, access_token, org_id, name')
+        .eq('account_id', accountId)
+        .single();
+      if (r1.data) {
+        account = r1.data;
+      } else {
+        const r2 = await supabaseAdmin
+          .from('ad_accounts')
+          .select('id, account_id, access_token, org_id, name')
+          .eq('id', accountId)
+          .single();
+        account = r2.data;
+        accountError = r2.error;
+      }
+    }
 
     if (accountError || !account) {
       return Response.json(
@@ -216,8 +254,8 @@ export async function GET(request: NextRequest) {
       accessToken = process.env.AD_ACCESS_TOKEN || accessToken;
     }
 
-    // 3. Call Meta API directly with validated fields
-    const rawId = accountId.replace('act_', '');
+    // 3. Call Meta API directly with validated fields — always use the Meta account_id from DB
+    const rawId = account.account_id.replace('act_', '');
     const metaUrl = `${META_API}/act_${rawId}?fields=${HEALTH_FIELDS}&access_token=${encodeURIComponent(accessToken)}`;
     const metaRes = await fetch(metaUrl);
     const meta = await metaRes.json() as Record<string, unknown>;
@@ -273,6 +311,7 @@ export async function GET(request: NextRequest) {
       snapshot: result,
       accountId: account.account_id,
       accountName: account.name,
+      orgId: account.org_id,
       data_format: Object.keys(meta),
     });
   } catch (error) {

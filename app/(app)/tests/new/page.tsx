@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
-import { createTest } from './actions';
+import { createTest, createDemoTest } from './actions';
 
 interface Angle {
   headline: string;
@@ -60,6 +60,13 @@ export default function NewTestPage() {
   // Step 3 state
   const [deploying, setDeploying] = useState(false);
   const [approved, setApproved] = useState(false);
+  const [brandName, setBrandName] = useState('');
+  const [brandImagePreview, setBrandImagePreview] = useState<string | null>(null);
+  const [adImagePreview, setAdImagePreview] = useState<string | null>(null);
+  const [imageHash, setImageHash] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [demoDeploying, setDemoDeploying] = useState(false);
 
   // Block if healthgate is red
   if (!canLaunch) {
@@ -116,8 +123,40 @@ export default function NewTestPage() {
 
   const handleDeploy = async () => {
     setDeploying(true);
+    setDeployError(null);
     try {
       const result = await createTest({
+        idea,
+        audience,
+        offer,
+        angle: editedAngles[selectedAngle],
+        orgId: useAppStore.getState().orgId || undefined,
+        adAccountId: useAppStore.getState().activeAccountId || undefined,
+        budgetCents: 50000,
+        vertical: 'saas',
+        imageHash: imageHash || undefined,
+        brandName: brandName || undefined,
+      });
+
+      if (result.success && result.testId) {
+        router.push(`/tests/${result.testId}`);
+      } else {
+        setDeployError(result.error || 'Deploy failed');
+        console.error('Deploy failed:', result.error);
+      }
+    } catch (err) {
+      setDeployError(err instanceof Error ? err.message : 'Deploy failed');
+      console.error('Deploy failed:', err);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const handleDemoDeploy = async () => {
+    setDemoDeploying(true);
+    setDeployError(null);
+    try {
+      const result = await createDemoTest({
         idea,
         audience,
         offer,
@@ -131,12 +170,12 @@ export default function NewTestPage() {
       if (result.success && result.testId) {
         router.push(`/tests/${result.testId}`);
       } else {
-        console.error('Deploy failed:', result.error);
+        setDeployError(result.error || 'Demo deploy failed');
       }
     } catch (err) {
-      console.error('Deploy failed:', err);
+      setDeployError(err instanceof Error ? err.message : 'Demo deploy failed');
     } finally {
-      setDeploying(false);
+      setDemoDeploying(false);
     }
   };
 
@@ -144,6 +183,48 @@ export default function NewTestPage() {
     const updated = [...editedAngles];
     updated[index] = { ...updated[index], [field]: value };
     setEditedAngles(updated);
+  };
+
+  const handleBrandImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setBrandImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleAdImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Show local preview immediately
+    const reader = new FileReader();
+    reader.onload = () => setAdImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+
+    // Upload to Meta to get image_hash
+    const adAccountId = useAppStore.getState().activeAccountId;
+    if (!adAccountId) return;
+
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('ad_account_id', adAccountId);
+
+      const res = await fetch('/api/meta/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.image_hash) {
+        setImageHash(data.image_hash);
+      }
+    } catch (err) {
+      console.error('Image upload failed:', err);
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   return (
@@ -450,29 +531,90 @@ export default function NewTestPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm">Ad Preview</CardTitle>
+                <CardDescription>
+                  Click the brand name, image, or ad creative to customize
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="max-w-sm mx-auto bg-[#111111] rounded-lg overflow-hidden border border-[#262626]">
+                  {/* Brand header — editable */}
                   <div className="p-3 flex items-center gap-2 border-b border-[#262626]">
-                    <div className="w-8 h-8 rounded-full bg-[#262626]" />
-                    <div>
-                      <div className="text-xs font-medium">Your Brand</div>
+                    <label className="relative cursor-pointer group shrink-0">
+                      {brandImagePreview ? (
+                        <img
+                          src={brandImagePreview}
+                          alt="Brand"
+                          className="w-8 h-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-[#262626] flex items-center justify-center group-hover:bg-[#333]">
+                          <Upload className="w-3.5 h-3.5 text-[#A1A1A1]" />
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={handleBrandImageUpload}
+                      />
+                    </label>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={brandName}
+                        onChange={(e) => setBrandName(e.target.value)}
+                        placeholder="Your Brand Name"
+                        className="bg-transparent text-xs font-medium w-full outline-none border-b border-transparent hover:border-[#333] focus:border-[#FAFAFA] transition-colors placeholder:text-[#666]"
+                      />
                       <div className="text-[10px] text-[#A1A1A1]">Sponsored</div>
                     </div>
                   </div>
+                  {/* Primary text */}
                   <div className="p-3 text-sm">
                     {editedAngles[selectedAngle]?.primary_text}
                   </div>
-                  <div className="aspect-square bg-[#262626] flex items-center justify-center">
-                    <Upload className="w-8 h-8 text-[#A1A1A1]" />
-                  </div>
+                  {/* Ad image — uploadable */}
+                  <label className="block aspect-square bg-[#262626] cursor-pointer relative group overflow-hidden">
+                    {adImagePreview ? (
+                      <img
+                        src={adImagePreview}
+                        alt="Ad creative"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full gap-2 group-hover:bg-[#333] transition-colors">
+                        <Upload className="w-8 h-8 text-[#A1A1A1]" />
+                        <span className="text-xs text-[#A1A1A1]">Upload ad image</span>
+                      </div>
+                    )}
+                    {uploadingImage && (
+                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-[#FAFAFA]" />
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={handleAdImageUpload}
+                    />
+                  </label>
+                  {/* Headline + CTA */}
                   <div className="p-3 border-t border-[#262626]">
-                    <div className="text-xs text-[#A1A1A1]">yourbrand.com</div>
+                    <div className="text-xs text-[#A1A1A1]">
+                      {brandName ? brandName.toLowerCase().replace(/\s+/g, '') + '.com' : 'yourbrand.com'}
+                    </div>
                     <div className="text-sm font-semibold mt-0.5">
                       {editedAngles[selectedAngle]?.headline}
                     </div>
                   </div>
                 </div>
+                {imageHash && (
+                  <div className="mt-3 flex items-center justify-center gap-2 text-xs text-[#22C55E]">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Image uploaded to Meta
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -490,23 +632,49 @@ export default function NewTestPage() {
               </label>
             </div>
 
+            {/* Deploy error */}
+            {deployError && (
+              <div className="p-4 rounded-lg border border-[#EF4444]/20 bg-[#EF4444]/5">
+                <div className="flex items-center gap-2 text-sm text-[#EF4444] font-medium mb-1">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  Deploy Failed
+                </div>
+                <p className="text-xs text-[#A1A1A1] font-mono break-all">{deployError}</p>
+              </div>
+            )}
+
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(1)}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back
               </Button>
-              <Button
-                onClick={handleDeploy}
-                disabled={!approved || deploying}
-                variant="success"
-              >
-                {deploying ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Zap className="w-4 h-4 mr-2" />
-                )}
-                {deploying ? 'Deploying...' : 'Deploy Campaign'}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleDemoDeploy}
+                  disabled={demoDeploying || deploying}
+                  variant="outline"
+                  title="Simulates a campaign with fake metrics — no real ad spend"
+                >
+                  {demoDeploying ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 mr-2" />
+                  )}
+                  {demoDeploying ? 'Creating Demo...' : 'Demo Deploy'}
+                </Button>
+                <Button
+                  onClick={handleDeploy}
+                  disabled={!approved || deploying || demoDeploying}
+                  variant="success"
+                >
+                  {deploying ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4 mr-2" />
+                  )}
+                  {deploying ? 'Deploying...' : 'Deploy Live'}
+                </Button>
+              </div>
             </div>
           </motion.div>
         )}

@@ -17,6 +17,7 @@ import {
   Upload,
   ImagePlus,
   Loader2,
+  PenLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -315,6 +316,15 @@ export default function TestDetailPage({
               >
                 <ImagePlus className="w-4 h-4 mr-1.5" />
                 Edit Creative
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/editor/${id}`)}
+              >
+                <PenLine className="w-4 h-4 mr-1.5" />
+                Edit Landing Page
               </Button>
 
               {/* Force GO — dev only */}

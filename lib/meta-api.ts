@@ -25,9 +25,9 @@ async function metaFetch<T = Record<string, unknown>>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = new URL(`${META_BASE}${path}`);
-  if (!options.method || options.method === 'GET') {
-    url.searchParams.set('access_token', accessToken);
-  }
+
+  // Always include access_token in URL for all request types
+  url.searchParams.set('access_token', accessToken);
 
   const res = await fetch(url.toString(), {
     ...options,
