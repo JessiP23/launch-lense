@@ -80,7 +80,7 @@ export function AppSidebar() {
       {/* Footer */}
       <div className="px-4 py-3 border-t border-[#262626]">
         <div className="text-[10px] text-[#A1A1A1]">
-          LaunchLense v0.1 • Demo
+          LaunchLense v0.1
         </div>
       </div>
     </aside>

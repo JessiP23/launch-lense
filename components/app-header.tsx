@@ -3,10 +3,9 @@
 import { Search, Command } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { HealthgateRing } from '@/components/healthgate-ring';
-import { Badge } from '@/components/ui/badge';
 
 export function AppHeader() {
-  const { healthSnapshot, isDemo, setCmdkOpen } = useAppStore();
+  const { healthSnapshot, setCmdkOpen } = useAppStore();
 
   return (
     <header className="flex items-center justify-between h-14 px-6 border-b border-[#262626] bg-[#0A0A0A]">
@@ -22,9 +21,6 @@ export function AppHeader() {
             />
             <span className="text-xs text-[#A1A1A1]">Healthgate™</span>
           </div>
-        )}
-        {isDemo && (
-          <Badge variant="warning">DEMO MODE</Badge>
         )}
       </div>
 

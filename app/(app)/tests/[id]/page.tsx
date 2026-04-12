@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use, Suspense } from 'react';
+import { useState, useEffect, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -14,6 +14,10 @@ import {
   DollarSign,
   Users,
   Target,
+  Upload,
+  ImagePlus,
+  Loader2,
+  PenLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,9 +35,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { HealthgateRing } from '@/components/healthgate-ring';
 import { StatusDot } from '@/components/status-dot';
-import { AnimatedNumber } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
-import { getDemoMetrics } from '@/lib/healthgate';
+import { pauseTest, duplicateAd } from './actions';
 
 interface Metrics {
   impressions: number;
@@ -52,9 +55,12 @@ export default function TestDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const { healthSnapshot, isDemo } = useAppStore();
-  const isPageDemo = isDemo;
+  const { healthSnapshot } = useAppStore();
 
+  const [testName, setTestName] = useState<string>(id);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [adAccountId, setAdAccountId] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<string | null>(null);
   const [status, setStatus] = useState<'active' | 'paused' | 'completed'>('active');
   const [metrics, setMetrics] = useState<Metrics>({
     impressions: 0,
@@ -66,28 +72,151 @@ export default function TestDetailPage({
     cpa_cents: 0,
   });
   const [metricsHistory, setMetricsHistory] = useState<Metrics[]>([]);
+  const [annotations, setAnnotations] = useState<{ created_at: string; message: string }[]>([]);
+  const [killSwitchLoading, setKillSwitchLoading] = useState(false);
 
-  // Simulated real-time metrics polling (demo mode)
+  // Edit Creative state
+  const [editCreativeOpen, setEditCreativeOpen] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Force GO state
+  const [forcingGo, setForcingGo] = useState(false);
+
+  // Fetch test data and metrics from API
   useEffect(() => {
-    if (!isPageDemo || status !== 'active') return;
+    async function fetchTest() {
+      try {
+        const res = await fetch(`/api/tests/${id}/metrics`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.test) {
+            setTestName(data.test.name || id);
+            setCampaignId(data.test.campaign_id || null);
+            setAdAccountId(data.test.ad_account_id || null);
+            setStatus(data.test.status || 'active');
+            setVerdict(data.test.verdict || null);
+          }
+          if (data.metrics) {
+            setMetrics(data.metrics);
+            setMetricsHistory((prev) => [...prev.slice(-20), data.metrics]);
+          }
+          if (data.annotations) {
+            setAnnotations(data.annotations);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch test data:', err);
+      }
+    }
 
-    const createdAt = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-
-    const update = () => {
-      const m = getDemoMetrics(createdAt);
-      setMetrics(m);
-      setMetricsHistory((prev) => [...prev.slice(-20), m]);
-    };
-
-    update();
-    const interval = setInterval(update, 10000); // every 10s
+    fetchTest();
+    // Poll every 30s for live tests
+    const interval = setInterval(() => {
+      if (status === 'active') fetchTest();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [isPageDemo, status]);
+  }, [id, status]);
 
   const handleKillSwitch = async () => {
-    setStatus('paused');
-    // In production: POST to pause campaign
-    console.log(`Kill-Switch activated for test ${id}`);
+    setKillSwitchLoading(true);
+    try {
+      const result = await pauseTest({
+        testId: id,
+        reason: 'Kill-Switch activated by user',
+      });
+      if (result.success) {
+        setStatus('paused');
+      } else {
+        console.error('Kill-Switch failed:', result.error);
+      }
+    } catch (err) {
+      console.error('Kill-Switch error:', err);
+    } finally {
+      setKillSwitchLoading(false);
+    }
+  };
+
+  // Edit Creative: upload image → duplicate ad
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !adAccountId) return;
+
+    // Show preview
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setUploadingImage(true);
+    try {
+      // 1. Upload to Meta
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('ad_account_id', adAccountId);
+
+      const uploadRes = await fetch('/api/upload/adimage', {
+        method: 'POST',
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadData.hash) {
+        console.error('Upload failed:', uploadData.error);
+        return;
+      }
+
+      // 2. Duplicate ad with new image
+      const result = await duplicateAd(id, uploadData.hash);
+      if (result.success) {
+        setEditCreativeOpen(false);
+        setImagePreview(null);
+        // Re-fetch to show annotation
+        const res = await fetch(`/api/tests/${id}/metrics`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.annotations) setAnnotations(data.annotations);
+        }
+      } else {
+        console.error('Duplicate ad failed:', result.error);
+      }
+    } catch (err) {
+      console.error('Image upload error:', err);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Force GO verdict (dev only)
+  const handleForceGo = async () => {
+    setForcingGo(true);
+    try {
+      const res = await fetch('/api/force-go', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test_id: id }),
+      });
+      if (res.ok) {
+        // Wait a beat then re-fetch
+        await new Promise((r) => setTimeout(r, 1500));
+        const metricsRes = await fetch(`/api/tests/${id}/metrics`);
+        if (metricsRes.ok) {
+          const data = await metricsRes.json();
+          if (data.test) {
+            setStatus(data.test.status || 'active');
+            setVerdict(data.test.verdict || null);
+          }
+          if (data.metrics) setMetrics(data.metrics);
+          if (data.annotations) setAnnotations(data.annotations);
+        }
+      } else {
+        const err = await res.json();
+        console.error('Force GO failed:', err.error);
+      }
+    } catch (err) {
+      console.error('Force GO error:', err);
+    } finally {
+      setForcingGo(false);
+    }
   };
 
   const kpiCards = [
@@ -95,7 +224,6 @@ export default function TestDetailPage({
       label: 'Spend',
       value: metrics.spend_cents,
       format: (v: number) => `$${(v / 100).toFixed(0)}`,
-      prefix: '$',
       icon: DollarSign,
       color: '#FAFAFA',
     },
@@ -141,12 +269,22 @@ export default function TestDetailPage({
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-sm text-[#A1A1A1]">
+        <button
+          onClick={() => router.push('/tests')}
+          className="hover:text-[#FAFAFA] transition-colors flex items-center gap-1"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          All Tests
+        </button>
+        <span>/</span>
+        <span className="text-[#FAFAFA] font-medium truncate max-w-xs">{testName}</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
           {healthSnapshot && (
             <HealthgateRing
               score={healthSnapshot.score}
@@ -157,7 +295,7 @@ export default function TestDetailPage({
           )}
           <div>
             <h1 className="text-xl font-semibold flex items-center gap-2">
-              Test: {id.startsWith('test-demo') ? 'AI for Dentists' : id}
+              Test: {testName}
               {status === 'active' && (
                 <Badge variant="success" className="ml-2">
                   <StatusDot status="green" pulse className="mr-1.5" />
@@ -168,43 +306,88 @@ export default function TestDetailPage({
                 <Badge variant="warning" className="ml-2">Paused</Badge>
               )}
             </h1>
-            <p className="text-xs text-[#A1A1A1] mt-0.5">
-              Campaign ID: demo_campaign_{id}
-            </p>
+            {campaignId && (
+              <p className="text-xs text-[#A1A1A1] mt-0.5">
+                Campaign ID: {campaignId}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Kill-Switch — top right */}
-        {status === 'active' && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" size="sm">
-                <OctagonX className="w-4 h-4 mr-2" />
-                Kill-Switch
+        {/* Action buttons — top right */}
+        <div className="flex items-center gap-2">
+          {/* Edit Creative */}
+          {status === 'active' && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditCreativeOpen(true)}
+              >
+                <ImagePlus className="w-4 h-4 mr-1.5" />
+                Edit Creative
               </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2">
-                  <OctagonX className="w-5 h-5 text-[#EF4444]" />
-                  Activate Kill-Switch?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will immediately pause the campaign on Meta. The ad will stop receiving traffic. This action is logged in the audit trail.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handleKillSwitch}
-                  className="bg-[#EF4444] text-[#FAFAFA] hover:bg-[#EF4444]/90"
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/editor/${id}`)}
+              >
+                <PenLine className="w-4 h-4 mr-1.5" />
+                Edit Landing Page
+              </Button>
+
+              {/* Force GO — dev only */}
+              {process.env.NODE_ENV === 'development' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleForceGo}
+                  disabled={forcingGo}
                 >
-                  Confirm Pause
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
+                  {forcingGo ? (
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  ) : (
+                    <Zap className="w-4 h-4 mr-1.5 text-[#22C55E]" />
+                  )}
+                  {forcingGo ? 'Forcing…' : 'Force GO Verdict'}
+                </Button>
+              )}
+            </>
+          )}
+
+          {/* Kill-Switch */}
+          {status === 'active' && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm">
+                  <OctagonX className="w-4 h-4 mr-2" />
+                  Kill-Switch
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2">
+                    <OctagonX className="w-5 h-5 text-[#EF4444]" />
+                    Activate Kill-Switch?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will immediately pause the campaign on Meta. The ad will stop receiving traffic. This action is logged in the audit trail.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleKillSwitch}
+                    className="bg-[#EF4444] text-[#FAFAFA] hover:bg-[#EF4444]/90"
+                  >
+                    Confirm Pause
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
       </div>
 
       {/* Anomaly Alert */}
@@ -333,12 +516,23 @@ export default function TestDetailPage({
         <CardContent>
           <table className="w-full text-sm">
             <tbody>
-              <tr className="border-b border-[#262626]/50 h-10">
-                <td className="py-2 text-[#A1A1A1] text-xs w-40">
-                  {new Date().toLocaleString()}
-                </td>
-                <td className="py-2">Test created in demo mode</td>
-              </tr>
+              {annotations.length > 0 ? (
+                annotations.map((a, i) => (
+                  <tr key={i} className="border-b border-[#262626]/50 h-10">
+                    <td className="py-2 text-[#A1A1A1] text-xs w-40">
+                      {new Date(a.created_at).toLocaleString()}
+                    </td>
+                    <td className="py-2">{a.message}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr className="border-b border-[#262626]/50 h-10">
+                  <td className="py-2 text-[#A1A1A1] text-xs w-40">
+                    {new Date().toLocaleString()}
+                  </td>
+                  <td className="py-2">Test loaded</td>
+                </tr>
+              )}
               {status === 'paused' && (
                 <tr className="border-b border-[#262626]/50 h-10">
                   <td className="py-2 text-[#A1A1A1] text-xs">
@@ -353,6 +547,102 @@ export default function TestDetailPage({
           </table>
         </CardContent>
       </Card>
+
+      {/* Verdict banner */}
+      {status === 'completed' && verdict && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`p-5 rounded-lg border ${
+            verdict === 'GO'
+              ? 'border-[#22C55E]/30 bg-[#22C55E]/5'
+              : verdict === 'NO-GO'
+              ? 'border-[#EF4444]/30 bg-[#EF4444]/5'
+              : 'border-[#EAB308]/30 bg-[#EAB308]/5'
+          }`}
+        >
+          <div className={`flex items-center gap-2 font-bold text-xl ${
+            verdict === 'GO' ? 'text-[#22C55E]' : verdict === 'NO-GO' ? 'text-[#EF4444]' : 'text-[#EAB308]'
+          }`}>
+            <Shield className="w-6 h-6" />
+            Verdict: {verdict}
+          </div>
+          <p className="text-sm text-[#A1A1A1] mt-2">
+            {verdict === 'GO'
+              ? `$${(metrics.spend_cents / 100).toFixed(0)} spent to validate — saved ~$35k on a bad MVP build.`
+              : verdict === 'NO-GO'
+              ? `$${(metrics.spend_cents / 100).toFixed(0)} spent to kill the idea early — saved ~$35k.`
+              : 'Insufficient data for conclusive verdict. Consider extending the test.'}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => window.open(`/api/reports/${id}`, '_blank')}
+          >
+            Download PDF Report
+          </Button>
+        </motion.div>
+      )}
+
+      {/* Edit Creative Dialog */}
+      {editCreativeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#0A0A0A] border border-[#262626] rounded-lg p-6 w-full max-w-md space-y-4"
+          >
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <ImagePlus className="w-5 h-5" />
+              Edit Creative
+            </h3>
+            <p className="text-sm text-[#A1A1A1]">
+              Upload a new image. The current ad will be paused and a new ad (v2+) will be created with the same copy.
+            </p>
+
+            {imagePreview && (
+              <div className="rounded-md overflow-hidden border border-[#262626]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imagePreview} alt="Preview" className="w-full h-48 object-cover" />
+              </div>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleImageUpload}
+            />
+
+            <div className="flex gap-2">
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingImage}
+                className="flex-1"
+              >
+                {uploadingImage ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4 mr-2" />
+                )}
+                {uploadingImage ? 'Uploading & Creating Ad…' : 'Choose Image'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditCreativeOpen(false);
+                  setImagePreview(null);
+                }}
+                disabled={uploadingImage}
+              >
+                Cancel
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

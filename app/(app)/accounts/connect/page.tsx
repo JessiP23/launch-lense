@@ -1,7 +1,7 @@
 'use client';
 
-import { Suspense, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Shield, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,44 +14,65 @@ import type { HealthCheck, HealthSnapshot } from '@/lib/healthgate';
 
 function ConnectAccountContent() {
   const router = useRouter();
-  const isDemo = useAppStore((s) => s.isDemo);
-  const { setDemo, setHealthSnapshot, setActiveAccountId, healthSnapshot } = useAppStore();
+  const searchParams = useSearchParams();
+  const { setHealthSnapshot, setActiveAccountId, setOrgId, healthSnapshot, activeAccountId } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [demoMode, setDemoMode] = useState<'red' | 'green'>('red');
 
-  const handleConnect = async () => {
-    if (isDemo) {
-      setLoading(true);
-      // Simulate API call
-      await new Promise((r) => setTimeout(r, 1200));
-      
-      const res = await fetch(`/api/health/sync?demo=1&mode=${demoMode}`);
-      const data = await res.json();
-      
-      setHealthSnapshot(data.snapshot);
-      setActiveAccountId(data.accountId || 'demo-account');
+  // On mount: check if we already have a connected account in persisted store
+  useEffect(() => {
+    if (activeAccountId && !connected) {
       setConnected(true);
+      // Refresh health if we don't have a snapshot yet
+      if (!healthSnapshot) {
+        fetchHealth(activeAccountId);
+      }
+    }
+  }, []);
+
+  // Handle OAuth callback redirect
+  useEffect(() => {
+    const connectedParam = searchParams.get('connected');
+    const accountId = searchParams.get('account_id');
+    const metaAccountId = searchParams.get('meta_account_id');
+    const orgId = searchParams.get('org_id');
+
+    if (connectedParam === '1' && accountId) {
+      setActiveAccountId(accountId);
+      if (orgId) setOrgId(orgId);
+      setConnected(true);
+      // Fetch health using the Meta account ID (act_...) if available, else the internal ID
+      fetchHealth(metaAccountId || accountId);
+    }
+  }, [searchParams]);
+
+  const fetchHealth = async (accountId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/health/sync?account_id=${encodeURIComponent(accountId)}`);
+      const data = await res.json();
+      if (data.snapshot) {
+        setHealthSnapshot(data.snapshot);
+      }
+      // Fallback: set orgId from health/sync response if not already set
+      if (data.orgId && !useAppStore.getState().orgId) {
+        setOrgId(data.orgId);
+      }
+    } catch (err) {
+      console.error('Health sync failed:', err);
+    } finally {
       setLoading(false);
-    } else {
-      // Real Meta OAuth flow
-      window.location.href = '/api/auth/meta/start';
     }
   };
 
-  const handleRefreshDemo = async () => {
-    setLoading(true);
-    const newMode = demoMode === 'red' ? 'green' : 'red';
-    setDemoMode(newMode);
+  const handleConnect = () => {
+    window.location.href = '/api/auth/meta/start';
+  };
 
-    await new Promise((r) => setTimeout(r, 800));
-
-    const res = await fetch(`/api/health/sync?demo=1&mode=${newMode}`);
-    const data = await res.json();
-
-    setHealthSnapshot(data.snapshot);
-    setConnected(true);
-    setLoading(false);
+  const handleRefreshHealth = async () => {
+    const accountId = useAppStore.getState().activeAccountId;
+    if (!accountId) return;
+    await fetchHealth(accountId);
   };
 
   return (
@@ -64,7 +85,6 @@ function ConnectAccountContent() {
             Connect your Meta ad account to run Healthgate™ diagnostics
           </p>
         </div>
-        {isDemo && <Badge variant="warning">DEMO MODE</Badge>}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -98,21 +118,27 @@ function ConnectAccountContent() {
                 <div className="flex items-center gap-2 text-sm">
                   <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
                   <span>Account connected</span>
+                  {activeAccountId && (
+                    <span className="text-xs text-[#A1A1A1] font-mono ml-auto truncate max-w-[180px]">
+                      {activeAccountId}
+                    </span>
+                  )}
                 </div>
-                {isDemo && (
-                  <Button
-                    onClick={handleRefreshDemo}
-                    variant="outline"
-                    disabled={loading}
-                    className="w-full"
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh Demo ({demoMode === 'red' ? 'Switch to GREEN' : 'Switch to RED'})
-                  </Button>
-                )}
+                <Button
+                  onClick={handleRefreshHealth}
+                  variant="outline"
+                  disabled={loading}
+                  className="w-full"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  {loading ? 'Syncing…' : 'Refresh Healthgate'}
+                </Button>
                 <Button
                   variant="outline"
-                  onClick={() => router.push('/accounts/demo-account')}
+                  onClick={() => {
+                    const accountId = useAppStore.getState().activeAccountId;
+                    if (accountId) router.push(`/accounts/${accountId}`);
+                  }}
                   className="w-full"
                 >
                   View Account Details →
@@ -194,74 +220,6 @@ function ConnectAccountContent() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Checks table */}
-      {healthSnapshot && healthSnapshot.checks.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>12-Point Health Checks</CardTitle>
-              <CardDescription>
-                Each check contributes to your overall Healthgate™ score
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#262626]">
-                      <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Status</th>
-                      <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Check</th>
-                      <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Value</th>
-                      <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium tabular-nums">Points</th>
-                      <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Fix</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {healthSnapshot.checks.map((check: HealthCheck) => (
-                      <tr
-                        key={check.key}
-                        className="border-b border-[#262626]/50 h-10 hover:bg-[#111111]"
-                      >
-                        <td className="py-2 px-3">
-                          <StatusDot status={check.passed ? 'green' : 'red'} />
-                        </td>
-                        <td className="py-2 px-3 font-medium">{check.name}</td>
-                        <td className="py-2 px-3 text-[#A1A1A1] tabular-nums">{check.value}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">
-                          <span className={check.passed ? 'text-[#22C55E]' : 'text-[#EF4444]'}>
-                            {check.points}
-                          </span>
-                          <span className="text-[#A1A1A1]">/{check.maxPoints}</span>
-                        </td>
-                        <td className="py-2 px-3 text-xs text-[#A1A1A1] max-w-[200px]">
-                          {!check.passed && check.fix}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-[#262626]">
-                      <td colSpan={3} className="py-2 px-3 font-semibold">
-                        Total Score
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono font-bold tabular-nums text-lg">
-                        {healthSnapshot.score}
-                        <span className="text-[#A1A1A1] text-sm font-normal">/115</span>
-                      </td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
     </div>
   );
 }

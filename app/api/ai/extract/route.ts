@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextRequest } from 'next/server';
 
 export async function POST(request: NextRequest) {
@@ -8,37 +11,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Missing idea field' }, { status: 400 });
   }
 
-  // Check for demo mode
-  const isDemo = request.headers.get('x-demo-mode') === '1';
-
-  if (isDemo) {
-    // Return mock AI-generated angles
-    const mockResult = {
-      icp: audience || 'Small business owners in US, 25-55, tech-savvy',
-      value_prop: `AI-powered solution that saves ${audience || 'professionals'} 10+ hours/week`,
-      angles: [
-        {
-          headline: `Stop Wasting Time on ${idea}`,
-          primary_text: `${idea} is broken. Our AI fixes it in minutes, not weeks. ${offer || 'Try free for 14 days'}.`,
-          cta: 'LEARN_MORE',
-        },
-        {
-          headline: `${idea}: The Smart Way`,
-          primary_text: `Join 500+ businesses using AI to transform ${idea}. ${offer || 'Start your free trial today'}.`,
-          cta: 'SIGN_UP',
-        },
-        {
-          headline: `Why Top Companies Choose AI for ${idea}`,
-          primary_text: `Reduce costs by 60% with automated ${idea}. ${offer || 'Book a demo in 30 seconds'}.`,
-          cta: 'LEARN_MORE',
-        },
-      ],
-    };
-
-    return Response.json(mockResult);
-  }
-
-  // Production: Call Groq API
+  // Call Groq API
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) {
     return Response.json(

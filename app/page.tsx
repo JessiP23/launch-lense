@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-// Root page redirects to the marketing landing page
+// Root page redirects to account connect
 export default function Home() {
-  redirect('/accounts/connect?demo=1');
+  redirect('/accounts/connect');
 }
