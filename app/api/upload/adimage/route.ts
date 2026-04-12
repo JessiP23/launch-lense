@@ -19,26 +19,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Get access token from DB
-    const { data: account } = await supabaseAdmin
+    // 1. Get access token + Meta account_id from DB
+    // adAccountId is the internal UUID from the store
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adAccountId);
+    const query = supabaseAdmin
       .from('ad_accounts')
-      .select('access_token')
-      .eq('account_id', adAccountId)
-      .single();
+      .select('access_token, account_id');
+
+    const { data: account } = await (isUuid
+      ? query.eq('id', adAccountId).single()
+      : query.eq('account_id', adAccountId).single());
 
     let accessToken = account?.access_token;
     if (!accessToken) {
-      // Fall back to env var
       accessToken = process.env.AD_ACCESS_TOKEN;
     }
     if (!accessToken) {
       return Response.json({ error: 'No access token for this account' }, { status: 400 });
     }
-
-    // Resolve vault ref if needed
     if (!accessToken.startsWith('EAA')) {
       accessToken = process.env.AD_ACCESS_TOKEN || accessToken;
     }
+
+    // Use the real Meta account_id (act_xxx), not the UUID
+    const metaAccountId = account?.account_id || adAccountId;
 
     // 2. Upload to Meta as multipart/form-data
     const metaForm = new FormData();
@@ -50,7 +54,7 @@ export async function POST(request: NextRequest) {
     metaForm.append('filename', blob, file.name);
 
     const metaRes = await fetch(
-      `https://graph.facebook.com/v20.0/${adAccountId}/adimages`,
+      `https://graph.facebook.com/v20.0/${metaAccountId}/adimages`,
       {
         method: 'POST',
         body: metaForm,

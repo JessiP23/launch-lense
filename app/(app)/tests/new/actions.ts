@@ -155,7 +155,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     // ── 3. Create campaign ─────────────────────────────────────────────
     const campaignResult = await createCampaign(metaAccountId, accessToken, {
       name: `[LaunchLense] ${idea.slice(0, 60)}`,
-      objective: 'OUTCOME_LEADS',
+      objective: 'OUTCOME_TRAFFIC',
       status: 'PAUSED',
       special_ad_categories: [],
     });
@@ -166,8 +166,8 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     const adSetResult = await createAdSet(metaAccountId, accessToken, {
       campaign_id: campaignId,
       name: `${angle.headline.slice(0, 40)} - Broad US`,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LEAD_GENERATION',
+      billing_event: 'LINK_CLICKS',
+      optimization_goal: 'LINK_CLICKS',
       daily_budget: Math.floor(budgetCents / 2),
       targeting: {
         geo_locations: { countries: ['US'] },

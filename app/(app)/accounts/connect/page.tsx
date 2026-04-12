@@ -125,26 +125,13 @@ function ConnectAccountContent() {
                   )}
                 </div>
                 <Button
-                  onClick={handleConnect}
-                  variant="outline"
-                  disabled={loading}
-                  className="w-full"
-                >
-                  {loading ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                  )}
-                  {loading ? 'Syncing...' : 'Reconnect / Switch Account'}
-                </Button>
-                <Button
                   onClick={handleRefreshHealth}
                   variant="outline"
                   disabled={loading}
                   className="w-full"
                 >
                   <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh Healthgate
+                  {loading ? 'Syncing…' : 'Refresh Healthgate'}
                 </Button>
                 <Button
                   variant="outline"

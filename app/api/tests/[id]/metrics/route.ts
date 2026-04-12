@@ -15,7 +15,7 @@ export async function GET(
     // Fetch test details
     const { data: test, error: testError } = await supabase
       .from('tests')
-      .select('id, name, status, campaign_id, ad_account_id, verdict, lp_url, lp_json, created_at')
+      .select('id, name, status, campaign_id, ad_account_id, verdict, lp_url, lp_json, angles, created_at')
       .eq('id', id)
       .single();
 
@@ -60,6 +60,7 @@ export async function GET(
         verdict: test.verdict,
         lp_url: test.lp_url,
         lp_json: test.lp_json,
+        angles: test.angles,
       },
       metrics,
       annotations: annotations || [],

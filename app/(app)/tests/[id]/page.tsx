@@ -269,12 +269,22 @@ export default function TestDetailPage({
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-sm text-[#A1A1A1]">
+        <button
+          onClick={() => router.push('/tests')}
+          className="hover:text-[#FAFAFA] transition-colors flex items-center gap-1"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          All Tests
+        </button>
+        <span>/</span>
+        <span className="text-[#FAFAFA] font-medium truncate max-w-xs">{testName}</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
           {healthSnapshot && (
             <HealthgateRing
               score={healthSnapshot.score}

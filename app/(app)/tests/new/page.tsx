@@ -139,9 +139,8 @@ export default function NewTestPage() {
       });
 
       if (result.success && result.testId) {
-        router.push(`/tests/${result.testId}`);
+        router.replace(`/tests/${result.testId}`);
       } else {
-        setDeployError(result.error || 'Deploy failed');
         console.error('Deploy failed:', result.error);
       }
     } catch (err) {
@@ -168,7 +167,7 @@ export default function NewTestPage() {
       });
 
       if (result.success && result.testId) {
-        router.push(`/tests/${result.testId}`);
+        router.replace(`/tests/${result.testId}`);
       } else {
         setDeployError(result.error || 'Demo deploy failed');
       }
