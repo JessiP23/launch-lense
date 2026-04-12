@@ -119,6 +119,7 @@ export async function createCampaign(
     objective: string;
     status: string;
     special_ad_categories: string[];
+    is_adset_budget_sharing_enabled?: boolean;
   }
 ) {
   return metaFetch(`/act_${accountId}/campaigns`, accessToken, {

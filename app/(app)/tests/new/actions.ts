@@ -158,6 +158,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
       objective: 'OUTCOME_TRAFFIC',
       status: 'PAUSED',
       special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false,
     });
     const campaignId = (campaignResult as { id: string }).id;
     createdObjects.push({ type: 'campaign', id: campaignId });
