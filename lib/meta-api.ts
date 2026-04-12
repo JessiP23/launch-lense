@@ -26,20 +26,58 @@ async function metaFetch<T = Record<string, unknown>>(
 ): Promise<T> {
   const url = new URL(`${META_BASE}${path}`);
 
-  // Always include access_token in URL for all request types
-  url.searchParams.set('access_token', accessToken);
+  // Always include access_token in URL for GET/DELETE requests
+  // For POST requests we embed it in the form body instead
+  const isPost = options.method === 'POST';
 
-  const res = await fetch(url.toString(), {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  if (!isPost) {
+    url.searchParams.set('access_token', accessToken);
+  }
+
+  let finalOptions: RequestInit = { ...options };
+
+  if (isPost && options.body) {
+    // Meta Marketing API requires application/x-www-form-urlencoded for POST
+    const parsed = JSON.parse(options.body as string) as Record<string, unknown>;
+    const formData = new URLSearchParams();
+    formData.set('access_token', accessToken);
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value === undefined || value === null) continue;
+      if (Array.isArray(value)) {
+        if (value.length === 0) {
+          // Meta accepts an empty JSON array string for fields like special_ad_categories
+          formData.set(key, '[]');
+        } else {
+          // Send each array element as key[0]=..., key[1]=... or as JSON string
+          // Meta Marketing API accepts JSON-encoded arrays as a single param
+          formData.set(key, JSON.stringify(value));
+        }
+      } else if (typeof value === 'object') {
+        formData.set(key, JSON.stringify(value));
+      } else {
+        formData.set(key, String(value));
+      }
+    }
+    const bodyStr = formData.toString();
+    console.log(`[metaFetch] POST ${path} body:`, bodyStr);
+    finalOptions = {
+      ...options,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: bodyStr,
+    };
+  } else if (!isPost) {
+    finalOptions = {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+    };
+  }
+
+  const res = await fetch(url.toString(), finalOptions);
 
   const data: MetaResponse<T> = await res.json();
 
   if (data.error) {
+    console.error(`[metaFetch] Meta error on ${path}:`, JSON.stringify(data.error));
     throw new MetaAPIError(
       data.error.message,
       data.error.code,

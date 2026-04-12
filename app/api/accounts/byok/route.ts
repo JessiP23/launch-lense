@@ -44,15 +44,25 @@ export async function POST(request: NextRequest) {
     }
     accountName = verifyData.name || accountName;
 
+    // Resolve org_id: use an existing account's org_id so we don't violate FK
+    const { data: existingOrg } = await supabaseAdmin
+      .from('ad_accounts')
+      .select('org_id')
+      .not('org_id', 'is', null)
+      .limit(1)
+      .maybeSingle();
+
     const ORG_ID =
-      process.env.DEFAULT_ORG_ID || '00000000-0000-0000-0000-000000000001';
+      existingOrg?.org_id ||
+      process.env.DEFAULT_ORG_ID ||
+      '00000000-0000-0000-0000-000000000001';
 
     // Upsert account
     const { data: existing } = await supabaseAdmin
       .from('ad_accounts')
       .select('id')
       .eq('account_id', metaAccountId)
-      .single();
+      .maybeSingle();
 
     let internalId: string;
 
