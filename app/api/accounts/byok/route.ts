@@ -20,6 +20,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Meta user/system tokens start with EAA...
+    if (!/^EAA/i.test(access_token)) {
+      return Response.json(
+        { error: 'Only Meta User Access Tokens or System User Tokens are supported' },
+        { status: 400 }
+      );
+    }
+
     // Normalise: ensure act_ prefix
     const metaAccountId = account_id.startsWith('act_')
       ? account_id
@@ -39,6 +47,44 @@ export async function POST(request: NextRequest) {
     if (verifyData.error) {
       return Response.json(
         { error: `Token validation failed: ${verifyData.error.message}` },
+        { status: 400 }
+      );
+    }
+
+    // Validate token owner and account access scope
+    const meRes = await fetch(
+      `https://graph.facebook.com/v20.0/me?fields=id,name&access_token=${encodeURIComponent(access_token)}`
+    );
+    const meData = (await meRes.json()) as { id?: string; error?: { message: string } };
+    if (meData.error || !meData.id) {
+      return Response.json(
+        { error: 'Invalid Meta token. Could not validate /me.' },
+        { status: 400 }
+      );
+    }
+
+    const adAccountsRes = await fetch(
+      `https://graph.facebook.com/v20.0/me/adaccounts?fields=id&access_token=${encodeURIComponent(access_token)}`
+    );
+    const adAccountsData = (await adAccountsRes.json()) as {
+      data?: Array<{ id: string }>;
+      error?: { message: string };
+    };
+
+    if (adAccountsData.error) {
+      return Response.json(
+        { error: `Token ad account check failed: ${adAccountsData.error.message}` },
+        { status: 400 }
+      );
+    }
+
+    const hasAccount = Boolean(
+      adAccountsData.data?.some((a) => a.id === metaAccountId)
+    );
+
+    if (!hasAccount) {
+      return Response.json(
+        { error: 'Token does not have access to the provided Meta ad account' },
         { status: 400 }
       );
     }

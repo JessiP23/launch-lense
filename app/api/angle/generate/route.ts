@@ -6,27 +6,23 @@ import { META_SYSTEM_PROMPT } from '@/lib/groq';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { idea, audience, offer } = body;
+  const { idea, audience, offer } = body as {
+    idea?: string;
+    audience?: string;
+    offer?: string;
+  };
 
   if (!idea) {
     return Response.json({ error: 'Missing idea field' }, { status: 400 });
   }
 
-  // Call Groq API
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
   if (!GROQ_API_KEY) {
-    return Response.json(
-      { error: 'GROQ_API_KEY not configured' },
-      { status: 500 }
-    );
+    return Response.json({ error: 'GROQ_API_KEY not configured' }, { status: 500 });
   }
 
   try {
-  const prompt = `Generate 3 angles for Meta Facebook Feed ads. Output: primary_text<=125, headline<=40, cta from [LEARN_MORE,SHOP_NOW,SIGN_UP].
-
-Given a startup idea, audience, and offer, extract the ICP (ideal customer profile), value proposition, and generate exactly 3 ad angles.
-
-Each angle must have: headline (max 40 chars), primary_text (max 125 chars), cta (one of: LEARN_MORE, SIGN_UP, SHOP_NOW).
+    const prompt = `Generate 3 angles for Meta Facebook Feed ads. Output: primary_text<=125, headline<=40, cta from [LEARN_MORE,SHOP_NOW,SIGN_UP].
 
 Idea: ${idea}
 Audience: ${audience || 'Not specified'}
@@ -37,7 +33,7 @@ Respond in JSON only:
   "icp": "string",
   "value_prop": "string",
   "angles": [
-    {"headline": "string", "primary_text": "string", "cta": "string"}
+    {"headline": "string", "primary_text": "string", "cta": "LEARN_MORE|SHOP_NOW|SIGN_UP"}
   ]
 }`;
 
@@ -66,13 +62,26 @@ Respond in JSON only:
       throw new Error('No response from Groq');
     }
 
-    const result = JSON.parse(content);
-    return Response.json(result);
+    const parsed = JSON.parse(content) as {
+      icp?: string;
+      value_prop?: string;
+      angles?: Array<{ headline?: string; primary_text?: string; cta?: string }>;
+    };
+
+    const allowedCtas = new Set(['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP']);
+    const angles = (parsed.angles || []).slice(0, 3).map((a) => ({
+      headline: String(a.headline || '').slice(0, 40),
+      primary_text: String(a.primary_text || '').slice(0, 125),
+      cta: allowedCtas.has(String(a.cta || '')) ? String(a.cta) : 'LEARN_MORE',
+    }));
+
+    return Response.json({
+      icp: parsed.icp || '',
+      value_prop: parsed.value_prop || '',
+      angles,
+    });
   } catch (err) {
-    console.error('AI extract error:', err);
-    return Response.json(
-      { error: 'AI extraction failed' },
-      { status: 500 }
-    );
+    console.error('Angle generate error:', err);
+    return Response.json({ error: 'Angle generation failed' }, { status: 500 });
   }
 }

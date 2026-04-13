@@ -47,7 +47,7 @@ export default function AccountsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Ad Accounts</h1>
+          <h1 className="text-2xl font-semibold">Meta Ad Accounts</h1>
           <p className="text-sm text-[#A1A1A1] mt-1">
             Manage connected Meta ad accounts
           </p>
@@ -73,9 +73,9 @@ export default function AccountsPage() {
           <CardContent className="flex flex-col items-center justify-center py-16 space-y-4">
             <Shield className="w-12 h-12 text-[#262626]" />
             <div className="text-center">
-              <h3 className="font-semibold">No ad accounts connected</h3>
+              <h3 className="font-semibold">No Meta ad accounts connected</h3>
               <p className="text-sm text-[#A1A1A1] mt-1">
-                Connect your Meta Business ad account to get started
+                Connect your Meta ad account to start
               </p>
             </div>
             <Button onClick={() => { window.location.href = '/api/auth/meta/start'; }}>

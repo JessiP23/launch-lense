@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getToken } from '@/lib/meta';
 
 // ── Valid Sandbox fields ───────────────────────────────────────────────
 const HEALTH_FIELDS = [
@@ -184,6 +185,22 @@ function calculateHealthChecks(data: Record<string, unknown>) {
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const accountId = searchParams.get('account_id') || searchParams.get('ad_account_id');
+  const wantsMockPass = searchParams.get('mock') === 'pass';
+
+  if (wantsMockPass && process.env.NODE_ENV === 'production') {
+    return Response.json({ error: 'Mock disabled in production' }, { status: 403 });
+  }
+
+  const mockPass = wantsMockPass && process.env.NODE_ENV === 'development';
+
+  if (mockPass && accountId === 'act_727146616453623') {
+    console.log('[health/sync] MOCK_PASS for LP testing');
+    return Response.json({
+      score: 95,
+      status: 'green',
+      checks: [{ name: 'Dev Mock', pass: true, pts: 100, value: 'enabled_for_lp_testing' }],
+    });
+  }
 
   if (!accountId) {
     return Response.json(
@@ -197,14 +214,14 @@ export async function GET(request: NextRequest) {
     const isMetaId = accountId.startsWith('act_');
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(accountId);
 
-    let account: { id: string; account_id: string; access_token: string; org_id: string; name: string } | null = null;
+    let account: { id: string; account_id: string; org_id: string; name: string } | null = null;
     let accountError: unknown = null;
 
     if (isMetaId) {
       // Lookup by Meta account_id (act_xxx)
       const result = await supabaseAdmin
         .from('ad_accounts')
-        .select('id, account_id, access_token, org_id, name')
+        .select('id, account_id, org_id, name')
         .eq('account_id', accountId)
         .single();
       account = result.data;
@@ -213,7 +230,7 @@ export async function GET(request: NextRequest) {
       // Lookup by internal Supabase UUID
       const result = await supabaseAdmin
         .from('ad_accounts')
-        .select('id, account_id, access_token, org_id, name')
+        .select('id, account_id, org_id, name')
         .eq('id', accountId)
         .single();
       account = result.data;
@@ -222,7 +239,7 @@ export async function GET(request: NextRequest) {
       // Try account_id first, then id
       const r1 = await supabaseAdmin
         .from('ad_accounts')
-        .select('id, account_id, access_token, org_id, name')
+        .select('id, account_id, org_id, name')
         .eq('account_id', accountId)
         .single();
       if (r1.data) {
@@ -230,7 +247,7 @@ export async function GET(request: NextRequest) {
       } else {
         const r2 = await supabaseAdmin
           .from('ad_accounts')
-          .select('id, account_id, access_token, org_id, name')
+          .select('id, account_id, org_id, name')
           .eq('id', accountId)
           .single();
         account = r2.data;
@@ -246,12 +263,12 @@ export async function GET(request: NextRequest) {
     }
 
     // 2. Resolve the token
-    let accessToken = account.access_token;
+    let accessToken = await getToken(account.account_id);
+    if (!accessToken) {
+      accessToken = process.env.AD_ACCESS_TOKEN || null;
+    }
     if (!accessToken) {
       return Response.json({ error: 'No access token for this account' }, { status: 400 });
-    }
-    if (!accessToken.startsWith('EAA')) {
-      accessToken = process.env.AD_ACCESS_TOKEN || accessToken;
     }
 
     // 3. Call Meta API directly with validated fields — always use the Meta account_id from DB

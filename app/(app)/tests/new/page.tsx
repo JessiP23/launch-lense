@@ -88,7 +88,7 @@ export default function NewTestPage() {
   const handleExtract = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/ai/extract', {
+  const res = await fetch('/api/angle/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

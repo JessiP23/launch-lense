@@ -11,6 +11,8 @@
   --success: #22C55E;
   --warn: #EAB308;
   --danger: #EF4444;
+  --font-geist-sans: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
 }
 
 @theme inline {

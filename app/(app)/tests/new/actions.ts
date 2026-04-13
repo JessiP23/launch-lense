@@ -9,6 +9,7 @@ import {
   createAd,
   deleteMetaObject,
 } from '@/lib/meta-api';
+import { getToken } from '@/lib/meta';
 import { calculateHealthChecks } from '@/lib/healthgate';
 
 interface Angle {
@@ -76,7 +77,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
   // ── Resolve access token ─────────────────────────────────────────────
   const { data: account } = await supabaseAdmin
     .from('ad_accounts')
-    .select('access_token, account_id')
+    .select('account_id, page_id')
     .eq('id', adAccountId)
     .single();
 
@@ -88,9 +89,9 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
   // Strip act_ prefix since meta-api.ts functions add it back
   const metaAccountId = account.account_id.replace(/^act_/, ''); // e.g. "727146616453623"
 
-  let accessToken = account.access_token;
-  if (!accessToken || !String(accessToken).startsWith('EAA')) {
-    accessToken = process.env.AD_ACCESS_TOKEN;
+  let accessToken = await getToken(account.account_id);
+  if (!accessToken) {
+    accessToken = process.env.AD_ACCESS_TOKEN || null;
   }
   if (!accessToken) {
     return { success: false, error: 'No access token available for this ad account.' };
@@ -152,6 +153,24 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
       throw new Error('LP deploy returned no URL');
     }
 
+    const metaAppId = process.env.META_APP_ID;
+    if (!metaAppId) {
+      throw new Error('META_APP_ID is missing');
+    }
+    const assets = await fetch(
+      `https://graph.facebook.com/v20.0/${metaAppId}/advertisable_applications?access_token=${accessToken}`
+    );
+    const assetsData = await assets.json();
+    console.log('[createTest] APP_ASSETS:', assetsData);
+    const assetList = Array.isArray(assetsData?.data) ? assetsData.data : [];
+    const hasAccountAsset = assetList.some((asset: { id?: string; account_id?: string }) => {
+      const id = asset.id || asset.account_id || '';
+      return id === account.account_id || id === metaAccountId || id === `act_${metaAccountId}`;
+    });
+    if (!hasAccountAsset) {
+      throw new Error('Add ad account to App in Marketing API Settings');
+    }
+
     // ── 3. Create campaign ─────────────────────────────────────────────
     const campaignResult = await createCampaign(metaAccountId, accessToken, {
       name: `[LaunchLense] ${idea.slice(0, 60)}`,
@@ -197,12 +216,29 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
       linkData.image_hash = imageHash;
     }
 
+    let objectStorySpec: Record<string, unknown>;
+    if (account.page_id) {
+      try {
+        const pageRes = await fetch(
+          `https://graph.facebook.com/v20.0/${account.page_id}?fields=name&access_token=${accessToken}`
+        );
+        const pageData = await pageRes.json();
+        if (pageData?.error) {
+          throw new Error(pageData.error.message || 'Invalid page_id');
+        }
+        objectStorySpec = { page_id: account.page_id, link_data: linkData };
+        console.log('[createTest] USING_PAGE_ID:', account.page_id);
+      } catch {
+        console.warn('[createTest] PAGE_ID invalid, falling back to unpublished_post');
+        objectStorySpec = { link_data: linkData };
+      }
+    } else {
+      objectStorySpec = { link_data: linkData };
+    }
+
     const creativeResult = await createAdCreative(metaAccountId, accessToken, {
       name: `Creative - ${angle.headline.slice(0, 40)}`,
-      object_story_spec: {
-        page_id: process.env.META_PAGE_ID,
-        link_data: linkData,
-      },
+      object_story_spec: objectStorySpec,
     });
     const creativeId = (creativeResult as { id: string }).id;
     createdObjects.push({ type: 'creative', id: creativeId });

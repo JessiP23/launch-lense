@@ -18,7 +18,6 @@ const TEMPLATES = [
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:#0A0A0A;color:#FAFAFA;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:60px 24px}
@@ -49,7 +48,6 @@ const TEMPLATES = [
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:#080810;color:#FAFAFA;padding:0}
@@ -88,7 +86,6 @@ const TEMPLATES = [
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:#0A0A0A;color:#FAFAFA;padding:80px 24px;min-height:100vh}
@@ -153,6 +150,11 @@ export default function EditorPage({
         setBody(angle?.primary_text || '');
         setCta(angle?.cta || 'Get Started');
         if (data.test?.lp_url) setLpUrl(data.test.lp_url);
+
+        const adAccountId = data.test?.ad_account_id;
+        if (adAccountId) {
+          void fetch(`/api/health/sync?account_id=${encodeURIComponent(adAccountId)}&mock=pass`).catch(() => {});
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));

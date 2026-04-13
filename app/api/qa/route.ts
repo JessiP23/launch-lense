@@ -17,6 +17,7 @@ export async function GET() {
   }
 
   const checks: Check[] = [];
+  let permissions: string[] = [];
 
   // 1. Required env vars
   const requiredEnvVars = [
@@ -134,6 +135,45 @@ export async function GET() {
     });
   }
 
+  if (token) {
+    try {
+      const perms = await fetch(
+        `https://graph.facebook.com/v20.0/me/permissions?access_token=${token}`,
+      );
+      const permData = await perms.json() as {
+        data?: Array<{ permission: string; status: string }>;
+        error?: { message?: string };
+      };
+      if (permData.error) {
+        throw new Error(permData.error.message || 'Failed to load token permissions');
+      }
+      const required = ['ads_management', 'ads_read', 'business_management', 'pages_show_list', 'pages_read_engagement'];
+      const missing = required.filter((p) => !(permData.data || []).find((d) => d.permission === p && d.status === 'granted'));
+      if (missing.length) {
+        throw new Error(`Token missing: ${missing.join(',')}`);
+      }
+      permissions = required.filter((p) => (permData.data || []).find((d) => d.permission === p && d.status === 'granted'));
+      checks.push({
+        name: 'meta:permissions',
+        pass: true,
+        detail: `OK — granted: ${permissions.join(', ')}`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      checks.push({
+        name: 'meta:permissions',
+        pass: false,
+        detail: msg,
+      });
+    }
+  } else {
+    checks.push({
+      name: 'meta:permissions',
+      pass: false,
+      detail: 'Skipped — AD_ACCESS_TOKEN not set',
+    });
+  }
+
   // 5. CRON_SECRET present (already checked in env, but verify non-empty)
   const cronOk = (process.env.CRON_SECRET ?? '').length >= 8;
   checks.push({
@@ -171,5 +211,5 @@ export async function GET() {
 
   const allPass = checks.every((c) => c.pass);
 
-  return NextResponse.json({ pass: allPass, checks }, { status: allPass ? 200 : 503 });
+  return NextResponse.json({ pass: allPass, checks, permissions }, { status: allPass ? 200 : 503 });
 }

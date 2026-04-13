@@ -177,3 +177,37 @@ create index idx_tests_status on tests(status);
 create index idx_events_test on events(test_id, created_at desc);
 create index idx_events_type on events(type);
 create index idx_annotations_test on annotations(test_id, created_at desc);
+
+-- Vault wrappers (public RPC) for server-side token storage/retrieval
+create extension if not exists supabase_vault with schema vault;
+
+create or replace function public.create_secret(secret text, name text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, vault
+as $$
+declare
+  secret_id uuid;
+begin
+  select vault.create_secret(secret, name, null) into secret_id;
+  return secret_id;
+end;
+$$;
+
+create or replace function public.get_secret(id uuid)
+returns text
+language sql
+security definer
+set search_path = public, vault
+as $$
+  select decrypted_secret
+  from vault.decrypted_secrets
+  where decrypted_secrets.id = get_secret.id
+  limit 1;
+$$;
+
+revoke all on function public.create_secret(text, text) from public;
+revoke all on function public.get_secret(uuid) from public;
+grant execute on function public.create_secret(text, text) to service_role;
+grant execute on function public.get_secret(uuid) to service_role;

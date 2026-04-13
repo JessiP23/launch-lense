@@ -80,7 +80,7 @@ function ConnectAccountContent() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Connect Ad Account</h1>
+          <h1 className="text-2xl font-semibold">Connect Meta Ad Account</h1>
           <p className="text-sm text-[#A1A1A1] mt-1">
             Connect your Meta ad account to run Healthgate™ diagnostics
           </p>
@@ -111,7 +111,7 @@ function ConnectAccountContent() {
                 ) : (
                   <ExternalLink className="w-4 h-4 mr-2" />
                 )}
-                {loading ? 'Connecting...' : 'Connect Meta Ad Account'}
+                {loading ? 'Connecting...' : 'Login with Facebook'}
               </Button>
             ) : (
               <div className="space-y-3">
@@ -143,78 +143,6 @@ function ConnectAccountContent() {
                 >
                   View Account Details →
                 </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Healthgate preview */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="w-5 h-5" />
-              Healthgate™ Score
-            </CardTitle>
-            <CardDescription>
-              Your ad account health determines if you can launch tests
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {healthSnapshot ? (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center gap-4"
-              >
-                <HealthgateRing
-                  score={healthSnapshot.score}
-                  status={healthSnapshot.status}
-                  checks={healthSnapshot.checks}
-                  size={96}
-                />
-                <div className="text-center">
-                  <div className="text-3xl font-mono font-bold tabular-nums">
-                    {healthSnapshot.score}
-                    <span className="text-sm text-[#A1A1A1] font-normal">/100</span>
-                  </div>
-                  <Badge
-                    variant={
-                      healthSnapshot.status === 'green'
-                        ? 'success'
-                        : healthSnapshot.status === 'yellow'
-                        ? 'warning'
-                        : 'danger'
-                    }
-                    className="mt-1"
-                  >
-                    {healthSnapshot.status === 'green'
-                      ? 'Launch Ready'
-                      : healthSnapshot.status === 'yellow'
-                      ? 'Review Needed'
-                      : 'Launch Blocked'}
-                  </Badge>
-                </div>
-
-                {healthSnapshot.status === 'red' && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="w-full mt-2 p-3 rounded-md border border-[#EF4444]/20 bg-[#EF4444]/5"
-                  >
-                    <div className="flex items-center gap-2 text-sm text-[#EF4444] font-medium mb-2">
-                      <AlertTriangle className="w-4 h-4" />
-                      Launch Blocked
-                    </div>
-                    <p className="text-xs text-[#A1A1A1]">
-                      Your health score is below 60. Fix the issues below before creating any tests. All &quot;New Test&quot; buttons are disabled.
-                    </p>
-                  </motion.div>
-                )}
-              </motion.div>
-            ) : (
-              <div className="flex flex-col items-center gap-3 py-8 text-[#A1A1A1]">
-                <Shield className="w-12 h-12 opacity-20" />
-                <p className="text-sm">Connect an account to see health score</p>
               </div>
             )}
           </CardContent>

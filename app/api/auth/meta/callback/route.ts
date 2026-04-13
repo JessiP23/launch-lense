@@ -10,8 +10,21 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const code = searchParams.get('code');
   const error = searchParams.get('error');
+  const errorReason = searchParams.get('error_reason');
+  const errorDescription = searchParams.get('error_description');
+  const state = searchParams.get('state');
 
   if (error) {
+    console.error('[oauth/callback] META_OAUTH_ERROR', {
+      error,
+      error_reason: errorReason,
+      error_description: errorDescription,
+      state,
+      request_origin: request.nextUrl.origin,
+      host: request.headers.get('host') || 'unknown',
+      x_forwarded_host: request.headers.get('x-forwarded-host') || 'unknown',
+      x_forwarded_proto: request.headers.get('x-forwarded-proto') || 'unknown',
+    });
     return Response.redirect(
       `${request.nextUrl.origin}/accounts/connect?error=${error}`
     );
@@ -26,6 +39,15 @@ export async function GET(request: NextRequest) {
   const META_APP_ID = process.env.META_APP_ID!;
   const META_APP_SECRET = process.env.META_APP_SECRET!;
   const redirectUri = `${request.nextUrl.origin}/api/auth/meta/callback`;
+
+  console.log('[oauth/callback] META_OAUTH_CALLBACK', {
+    state,
+    request_origin: request.nextUrl.origin,
+    redirect_uri: redirectUri,
+    host: request.headers.get('host') || 'unknown',
+    x_forwarded_host: request.headers.get('x-forwarded-host') || 'unknown',
+    x_forwarded_proto: request.headers.get('x-forwarded-proto') || 'unknown',
+  });
 
   try {
     // 1. Exchange code for short-lived token
@@ -73,9 +95,29 @@ export async function GET(request: NextRequest) {
       .from('organizations')
       .upsert({ id: ORG_ID, name: 'My Studio' }, { onConflict: 'id' });
 
-    // 5. Store each ad account in DB with raw token
+    // 5. Store each ad account in DB with Vault token reference
     for (const acct of accountsData.data) {
       const metaAccountId = acct.id; // already has act_ prefix
+      const { data: vault_id, error: vaultErr } = await supabaseAdmin.rpc('create_secret', {
+        secret: accessToken,
+        name: `ad_token_${metaAccountId}`,
+      });
+
+      if (vaultErr) {
+        const isDev = process.env.NODE_ENV !== 'production';
+        if (!isDev) {
+          throw vaultErr;
+        }
+        // Local/dev projects may not expose vault RPC helpers yet.
+        // In development only, fall back to raw token storage so OAuth connect flow still succeeds.
+        console.warn('[oauth] VAULT_STORE_FALLBACK_DEV_ONLY:', {
+          account_id: metaAccountId,
+          error_code: (vaultErr as { code?: string }).code,
+          error_message: vaultErr.message,
+        });
+      } else {
+        console.log('[oauth] VAULT_STORE:', { vault_id });
+      }
 
       await supabaseAdmin
         .from('ad_accounts')
@@ -84,8 +126,9 @@ export async function GET(request: NextRequest) {
             org_id: ORG_ID,
             platform: 'meta',
             account_id: metaAccountId,
-            access_token: accessToken,
+            access_token: vault_id || (process.env.NODE_ENV !== 'production' ? accessToken : null),
             name: acct.name || metaAccountId,
+            page_id: null,
           },
           { onConflict: 'account_id' }
         );
