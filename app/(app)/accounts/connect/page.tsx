@@ -2,15 +2,10 @@
 
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { motion } from 'framer-motion';
 import { Shield, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { HealthgateRing } from '@/components/healthgate-ring';
-import { StatusDot } from '@/components/status-dot';
 import { useAppStore } from '@/lib/store';
-import type { HealthCheck, HealthSnapshot } from '@/lib/healthgate';
 
 function ConnectAccountContent() {
   const router = useRouter();
@@ -69,12 +64,6 @@ function ConnectAccountContent() {
     window.location.href = '/api/auth/meta/start';
   };
 
-  const handleRefreshHealth = async () => {
-    const accountId = useAppStore.getState().activeAccountId;
-    if (!accountId) return;
-    await fetchHealth(accountId);
-  };
-
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -124,15 +113,6 @@ function ConnectAccountContent() {
                     </span>
                   )}
                 </div>
-                <Button
-                  onClick={handleRefreshHealth}
-                  variant="outline"
-                  disabled={loading}
-                  className="w-full"
-                >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                  {loading ? 'Syncing…' : 'Refresh Healthgate'}
-                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
