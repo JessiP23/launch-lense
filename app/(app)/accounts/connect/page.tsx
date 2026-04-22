@@ -2,30 +2,82 @@
 
 import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Shield, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { motion } from 'framer-motion';
+import {
+  CheckCircle2, ExternalLink, RefreshCw, Unlink, Shield, Zap,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { useAppStore } from '@/lib/store';
+import { Badge } from '@/components/ui/badge';
+import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
 
-function ConnectAccountContent() {
+interface PlatformDef {
+  id: PlatformId;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+  authUrl: string | null;
+  capabilities: string[];
+}
+
+const PLATFORMS: PlatformDef[] = [
+  {
+    id: 'meta',
+    name: 'Meta (Facebook & Instagram)',
+    icon: '📘',
+    color: '#1877F2',
+    description: 'Facebook Feed, Instagram Feed, Reels, and Stories.',
+    authUrl: null,
+    capabilities: ['Paid Ads', 'Audience Insights', 'Pixel Tracking', 'Policy Scan'],
+  },
+  {
+    id: 'google',
+    name: 'Google Ads',
+    icon: '🔍',
+    color: '#4285F4',
+    description: 'Search, Display, and YouTube campaigns.',
+    authUrl: null,
+    capabilities: ['Search Ads', 'Responsive Display', 'Keyword Planner', 'Conversion Tracking'],
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok Ads',
+    icon: '🎵',
+    color: '#FF0050',
+    description: 'Short-form video ads reaching Gen Z and millennial audiences.',
+    authUrl: null,
+    capabilities: ['In-Feed Video', 'TopView', 'Spark Ads', 'TikTok Pixel'],
+  },
+  {
+    id: 'linkedin',
+    name: 'LinkedIn Ads',
+    icon: '💼',
+    color: '#0A66C2',
+    description: 'B2B targeting by job title, company, and seniority.',
+    authUrl: null,
+    capabilities: ['Sponsored Content', 'Message Ads', 'Lead Gen Forms', 'Matched Audiences'],
+  },
+];
+
+function ConnectPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setHealthSnapshot, setActiveAccountId, setOrgId, healthSnapshot, activeAccountId } = useAppStore();
-  const [loading, setLoading] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const {
+    connectedPlatforms,
+    connectPlatform,
+    disconnectPlatform,
+    setHealthSnapshot,
+    setActiveAccountId,
+    setOrgId,
+    healthSnapshot,
+  } = useAppStore();
 
-  // On mount: check if we already have a connected account in persisted store
-  useEffect(() => {
-    if (activeAccountId && !connected) {
-      setConnected(true);
-      // Refresh health if we don't have a snapshot yet
-      if (!healthSnapshot) {
-        fetchHealth(activeAccountId);
-      }
-    }
-  }, []);
+  const [demoConnecting, setDemoConnecting] = useState<PlatformId | null>(null);
+  const [disconnecting, setDisconnecting] = useState<PlatformId | null>(null);
+  const [oauthBanner, setOauthBanner] = useState<string | null>(null);
 
-  // Handle OAuth callback redirect
+  // Handle Meta OAuth callback
   useEffect(() => {
     const connectedParam = searchParams.get('connected');
     const accountId = searchParams.get('account_id');
@@ -34,100 +86,239 @@ function ConnectAccountContent() {
 
     if (connectedParam === '1' && accountId) {
       setActiveAccountId(accountId);
+      connectPlatform({
+        platform: 'meta',
+        accountId,
+        accountName: 'Meta Ad Account',
+        connectedAt: new Date().toISOString(),
+      });
       if (orgId) setOrgId(orgId);
-      setConnected(true);
-      // Fetch health using the Meta account ID (act_...) if available, else the internal ID
-      fetchHealth(metaAccountId || accountId);
+      setOauthBanner('Meta connected successfully!');
+      fetch(`/api/health/sync?account_id=${encodeURIComponent(metaAccountId || accountId)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.snapshot) setHealthSnapshot(data.snapshot);
+          if (data.orgId && !useAppStore.getState().orgId) setOrgId(data.orgId);
+        })
+        .catch(console.error);
     }
-  }, [searchParams]);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchHealth = async (accountId: string) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/health/sync?account_id=${encodeURIComponent(accountId)}`);
-      const data = await res.json();
-      if (data.snapshot) {
-        setHealthSnapshot(data.snapshot);
-      }
-      // Fallback: set orgId from health/sync response if not already set
-      if (data.orgId && !useAppStore.getState().orgId) {
-        setOrgId(data.orgId);
-      }
-    } catch (err) {
-      console.error('Health sync failed:', err);
-    } finally {
-      setLoading(false);
-    }
+  const getConn = (id: PlatformId): ConnectedPlatform | null =>
+    connectedPlatforms.find((c) => c.platform === id) ?? null;
+
+  const handleDemoConnect = async (platform: PlatformDef) => {
+    setDemoConnecting(platform.id);
+    await new Promise((r) => setTimeout(r, 1200));
+    connectPlatform({
+      platform: platform.id,
+      accountId: `demo_${platform.id}_${Date.now()}`,
+      accountName: `Demo ${platform.name} Account`,
+      connectedAt: new Date().toISOString(),
+    });
+    setDemoConnecting(null);
   };
 
-  const handleConnect = () => {
-    window.location.href = '/api/auth/meta/start';
+  const handleDisconnect = async (id: PlatformId) => {
+    setDisconnecting(id);
+    await new Promise((r) => setTimeout(r, 600));
+    disconnectPlatform(id);
+    setDisconnecting(null);
   };
+
+  const connectedCount = connectedPlatforms.length;
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Connect Meta Ad Account</h1>
+          <h1 className="text-2xl font-semibold">Platform Connections</h1>
           <p className="text-sm text-[#A1A1A1] mt-1">
-            Connect your Meta ad account to run Healthgate™ diagnostics
+            Connect ad accounts once — reused across every test you create.
           </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {connectedCount > 0 && (
+            <Badge variant="success">
+              {connectedCount} platform{connectedCount > 1 ? 's' : ''} connected
+            </Badge>
+          )}
+          {healthSnapshot && (
+            <Badge variant={healthSnapshot.status === 'green' ? 'success' : 'warning'}>
+              <Shield className="w-3 h-3 mr-1" />
+              Healthgate {healthSnapshot.score}/100
+            </Badge>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Connect card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="w-5 h-5" />
-              Meta Business
-            </CardTitle>
-            <CardDescription>
-              Connect your Meta Business ad account. We require ads_management, ads_read, and business_management permissions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!connected ? (
-              <Button
-                onClick={handleConnect}
-                disabled={loading}
-                className="w-full"
-              >
-                {loading ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                )}
-                {loading ? 'Connecting...' : 'Login with Facebook'}
-              </Button>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
-                  <span>Account connected</span>
-                  {activeAccountId && (
-                    <span className="text-xs text-[#A1A1A1] font-mono ml-auto truncate max-w-[180px]">
-                      {activeAccountId}
-                    </span>
-                  )}
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    const accountId = useAppStore.getState().activeAccountId;
-                    if (accountId) router.push(`/accounts/${accountId}`);
-                  }}
-                  className="w-full"
-                >
-                  View Account Details →
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {oauthBanner && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/5 text-sm text-[#22C55E]">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {oauthBanner}
+        </div>
+      )}
+
+      <div className="flex items-start gap-3 p-4 rounded-lg border border-[#262626] bg-[#0D0D0D]">
+        <Zap className="w-4 h-4 text-[#FAFAFA] mt-0.5 shrink-0" />
+        <div className="text-sm text-[#A1A1A1]">
+          <strong className="text-[#FAFAFA]">Connect once, use everywhere.</strong>{' '}
+          Once connected, platforms are automatically available when creating tests — no re-login required.
+        </div>
       </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {PLATFORMS.map((platform, i) => {
+          const conn = getConn(platform.id);
+          const isConnected = !!conn;
+          const isDemo = conn?.accountId?.startsWith('demo_');
+          const isConnecting = demoConnecting === platform.id;
+          const isDisconnecting = disconnecting === platform.id;
+
+          return (
+            <motion.div
+              key={platform.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+            >
+              <Card className={`transition-all ${isConnected ? 'border-[#262626] bg-[#0D0D0D]' : 'border-[#1E1E1E]'}`}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center text-xl flex-shrink-0"
+                      style={{ backgroundColor: `${platform.color}18`, border: `1px solid ${platform.color}30` }}
+                    >
+                      {platform.icon}
+                    </div>
+                    <div>
+                      <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                        {platform.name}
+                        {isConnected && (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-[#22C55E]">
+                            <CheckCircle2 className="w-3 h-3" />
+                            {isDemo ? 'Demo' : 'Live'}
+                          </span>
+                        )}
+                      </CardTitle>
+                      <CardDescription className="text-xs mt-0.5">{platform.description}</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap gap-1">
+                    {platform.capabilities.map((cap) => (
+                      <span
+                        key={cap}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-[#1A1A1A] text-[#666] border border-[#262626]"
+                      >
+                        {cap}
+                      </span>
+                    ))}
+                  </div>
+
+                  {isConnected && conn && (
+                    <div className="p-2.5 rounded-md bg-[#22C55E]/5 border border-[#22C55E]/20 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#22C55E] font-medium">{conn.accountName}</span>
+                        <span className="text-[#4A4A4A]">
+                          since {new Date(conn.connectedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="text-[#4A4A4A] font-mono mt-0.5">{conn.accountId}</div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    {!isConnected ? (
+                      <>
+                        {platform.authUrl ? (
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => { window.location.href = platform.authUrl!; }}
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                            Connect {platform.name.split(' ')[0]}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            disabled={isConnecting}
+                            onClick={() => handleDemoConnect(platform)}
+                          >
+                            {isConnecting ? (
+                              <><RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />Connecting...</>
+                            ) : (
+                              <><Zap className="w-3.5 h-3.5 mr-1.5" />Connect (Demo)</>
+                            )}
+                          </Button>
+                        )}
+                        {!platform.authUrl && (
+                          <span className="text-[10px] text-[#4A4A4A]">Live API coming soon</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {platform.id === 'meta' && !isDemo && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => {
+                              const aid = useAppStore.getState().activeAccountId;
+                              if (aid) router.push(`/accounts/${aid}`);
+                            }}
+                          >
+                            <Shield className="w-3.5 h-3.5 mr-1.5" />
+                            View Health
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-[#EF4444] border-[#EF4444]/20 hover:bg-[#EF4444]/5"
+                          disabled={isDisconnecting}
+                          onClick={() => handleDisconnect(platform.id)}
+                        >
+                          {isDisconnecting ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <><Unlink className="w-3.5 h-3.5 mr-1.5" />Disconnect</>
+                          )}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  {!isConnected && (
+                    <p className="text-[10px] text-[#4A4A4A]">
+                      Demo mode generates real AI copy for this channel. Live API in development.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {connectedCount > 0 && (
+        <div className="flex items-center justify-between p-4 rounded-lg border border-[#262626] bg-[#0D0D0D]">
+          <div className="text-sm">
+            <span className="text-[#FAFAFA] font-medium">
+              {connectedCount} platform{connectedCount > 1 ? 's' : ''} ready.
+            </span>
+            <span className="text-[#A1A1A1]"> Start a new test to generate multi-channel campaigns.</span>
+          </div>
+          <Button size="sm" onClick={() => router.push('/tests/new')}>
+            Create Test <Zap className="w-3.5 h-3.5 ml-1.5" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -135,7 +326,7 @@ function ConnectAccountContent() {
 export default function ConnectAccountPage() {
   return (
     <Suspense>
-      <ConnectAccountContent />
+      <ConnectPageContent />
     </Suspense>
   );
 }
