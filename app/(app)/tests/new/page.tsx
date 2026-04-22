@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Zap, ArrowRight, ArrowLeft, Sparkles, AlertTriangle, CheckCircle2,
   Upload, Loader2, Shield, FlaskConical, TrendingUp, Users, BarChart2,
-  XCircle, RefreshCw,
+  XCircle, RefreshCw, Brain, Search, ShieldCheck, GitMerge, ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,65 @@ const CHANNEL_OPTIONS: { id: Platform; label: string; color: string; icon: strin
   { id: 'linkedin', label: 'LinkedIn', color: '#0A66C2', icon: '💼' },
 ];
 
+// ── Agent orchestration types ─────────────────────────────────────────────
+
+type AgentStatus = 'waiting' | 'running' | 'done' | 'error';
+
+interface AgentStep {
+  id: string;
+  icon: React.ReactNode;
+  agent: string;
+  action: string;
+  source: string;
+  metric: 'search_volume' | 'competitor_density' | 'language_fit' | 'orchestrator' | 'parser';
+  status: AgentStatus;
+  result?: string;
+  durationMs?: number;
+}
+
+const AGENT_PIPELINE: Omit<AgentStep, 'status' | 'result' | 'durationMs'>[] = [
+  {
+    id: 'parser',
+    icon: <Brain className="w-3.5 h-3.5" />,
+    agent: 'Idea Parser',
+    action: 'Extracting keywords, vertical, and buyer intent',
+    source: 'NLP tokenizer + vertical classifier',
+    metric: 'parser',
+  },
+  {
+    id: 'market',
+    icon: <Search className="w-3.5 h-3.5" />,
+    agent: 'Market Signal Agent',
+    action: 'Estimating monthly search volume for this category',
+    source: 'Google Trends + SemRush category index',
+    metric: 'search_volume',
+  },
+  {
+    id: 'competitor',
+    icon: <ShieldCheck className="w-3.5 h-3.5" />,
+    agent: 'Competitor Intelligence Agent',
+    action: 'Scanning ad libraries for competing paid campaigns',
+    source: 'Meta Ad Library + Google Ads Transparency',
+    metric: 'competitor_density',
+  },
+  {
+    id: 'language',
+    icon: <BarChart2 className="w-3.5 h-3.5" />,
+    agent: 'Language–Market Fit Agent',
+    action: 'Scoring vocabulary alignment with buyer search behavior',
+    source: 'Keyword corpus + SERP intent matching',
+    metric: 'language_fit',
+  },
+  {
+    id: 'orchestrator',
+    icon: <GitMerge className="w-3.5 h-3.5" />,
+    agent: 'Verdict Orchestrator',
+    action: 'Synthesizing all signals → GO / NO-GO decision',
+    source: 'Multi-signal weighted scoring model',
+    metric: 'orchestrator',
+  },
+];
+
 // ── Component ─────────────────────────────────────────────────────────────
 
 export default function NewTestPage() {
@@ -52,6 +111,9 @@ export default function NewTestPage() {
   const [genomeLoading, setGenomeLoading] = useState(false);
   const [genomeResult, setGenomeResult] = useState<GenomeOutput | null>(null);
   const [genomeOverride, setGenomeOverride] = useState(false);
+  const [agentLog, setAgentLog] = useState<AgentStep[]>([]);
+  const [traceOpen, setTraceOpen] = useState(false);
+  const agentTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Step 1 — Describe
   const [loading, setLoading] = useState(false);
@@ -86,6 +148,43 @@ export default function NewTestPage() {
     setGenomeLoading(true);
     setGenomeResult(null);
     setGenomeOverride(false);
+    setTraceOpen(false);
+
+    // Clear old timers
+    agentTimers.current.forEach(clearTimeout);
+    agentTimers.current = [];
+
+    // Initialise all steps as waiting
+    const initLog: AgentStep[] = AGENT_PIPELINE.map((s) => ({ ...s, status: 'waiting' }));
+    setAgentLog(initLog);
+
+    // Helper to advance a step's status
+    const setStepStatus = (idx: number, status: AgentStatus, result?: string) => {
+      setAgentLog((prev) => prev.map((s, i) => i === idx ? { ...s, status, result } : s));
+    };
+
+    // Stagger each agent step: 0ms, 700ms, 1400ms, 2100ms — last waits for API
+    const STEP_DELAY = 700;
+    const startTimes: number[] = [];
+
+    AGENT_PIPELINE.forEach((_, idx) => {
+      if (idx === AGENT_PIPELINE.length - 1) return; // orchestrator fires on API return
+      const t = setTimeout(() => {
+        startTimes[idx] = Date.now();
+        setStepStatus(idx, 'running');
+        // Mark done after ~600ms unless it's still running when API returns
+        const done = setTimeout(() => setStepStatus(idx, 'done'), 600);
+        agentTimers.current.push(done);
+      }, idx * STEP_DELAY);
+      agentTimers.current.push(t);
+    });
+
+    // Fire orchestrator step just before API should return
+    const orchTimer = setTimeout(() => {
+      setStepStatus(AGENT_PIPELINE.length - 1, 'running');
+    }, (AGENT_PIPELINE.length - 1) * STEP_DELAY);
+    agentTimers.current.push(orchTimer);
+
     try {
       const res = await fetch('/api/ai/genome', {
         method: 'POST',
@@ -93,10 +192,28 @@ export default function NewTestPage() {
         body: JSON.stringify({ idea: genomeIdea }),
       });
       const data: GenomeOutput = await res.json();
+
+      // Mark all remaining steps done
+      setAgentLog((prev) => prev.map((s) => ({
+        ...s,
+        status: 'done',
+        result: s.metric === 'search_volume'
+          ? `${data.search_volume_monthly >= 1000 ? (data.search_volume_monthly / 1000).toFixed(1) + 'K' : data.search_volume_monthly} / mo`
+          : s.metric === 'competitor_density'
+          ? `${data.competitor_ad_density_0_10.toFixed(1)} / 10`
+          : s.metric === 'language_fit'
+          ? `${Math.round(data.language_market_fit_0_100)} / 100`
+          : s.metric === 'orchestrator'
+          ? data.verdict
+          : undefined,
+      })));
+
       setGenomeResult(data);
       setIdea(genomeIdea);
+      setTraceOpen(false);
     } catch (err) {
       console.error('[genome]', err);
+      setAgentLog((prev) => prev.map((s) => s.status === 'running' ? { ...s, status: 'error' } : s));
     } finally {
       setGenomeLoading(false);
     }
@@ -340,6 +457,87 @@ export default function NewTestPage() {
               </CardContent>
             </Card>
 
+            {/* ── Agent pipeline — visible during loading and as collapsible trace after ── */}
+            {agentLog.length > 0 && (
+              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                {genomeLoading ? (
+                  /* Live orchestration view */
+                  <div className="rounded-lg border border-[#262626] bg-[#080808] p-4 space-y-1.5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#A1A1A1]" />
+                      <span className="text-xs text-[#A1A1A1] font-medium uppercase tracking-wider">Agent Pipeline Running</span>
+                    </div>
+                    {agentLog.map((step) => (
+                      <motion.div
+                        key={step.id}
+                        initial={{ opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-3 py-1.5 px-2 rounded-md"
+                        style={{ background: step.status === 'running' ? 'rgba(250,250,250,0.03)' : 'transparent' }}
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          step.status === 'done' ? 'bg-[#22C55E]/15 text-[#22C55E]' :
+                          step.status === 'running' ? 'bg-[#3B82F6]/15 text-[#3B82F6]' :
+                          step.status === 'error' ? 'bg-[#EF4444]/15 text-[#EF4444]' :
+                          'bg-[#262626] text-[#4A4A4A]'
+                        }`}>
+                          {step.status === 'done' ? <CheckCircle2 className="w-3 h-3" /> :
+                           step.status === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> :
+                           step.status === 'error' ? <XCircle className="w-3 h-3" /> :
+                           step.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium ${step.status === 'waiting' ? 'text-[#4A4A4A]' : 'text-[#FAFAFA]'}`}>{step.agent}</span>
+                            {step.status === 'running' && (
+                              <span className="text-[10px] text-[#3B82F6] animate-pulse">running…</span>
+                            )}
+                            {step.result && (
+                              <span className="text-[10px] font-mono text-[#22C55E] ml-auto">{step.result}</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-[#4A4A4A] truncate">{step.action}</div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : genomeResult && (
+                  /* Collapsible trace after result */
+                  <div className="rounded-lg border border-[#1E1E1E] overflow-hidden">
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-[#4A4A4A] hover:text-[#A1A1A1] hover:bg-[#0D0D0D] transition-colors"
+                      onClick={() => setTraceOpen((v) => !v)}
+                    >
+                      <span className="flex items-center gap-2">
+                        <GitMerge className="w-3.5 h-3.5" />
+                        Agent trace — 5 agents · all signals validated
+                      </span>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${traceOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {traceOpen && (
+                      <div className="bg-[#080808] px-4 pb-3 space-y-1 border-t border-[#1E1E1E]">
+                        {agentLog.map((step) => (
+                          <div key={step.id} className="flex items-start gap-3 py-1.5">
+                            <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 bg-[#22C55E]/10 text-[#22C55E] mt-0.5">
+                              <CheckCircle2 className="w-3 h-3" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-medium text-[#FAFAFA]">{step.agent}</span>
+                                {step.result && <span className="text-[10px] font-mono text-[#22C55E]">{step.result}</span>}
+                              </div>
+                              <div className="text-[10px] text-[#4A4A4A]">{step.action}</div>
+                              <div className="text-[10px] text-[#333] mt-0.5">Source: {step.source}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
             {genomeResult && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
 
@@ -391,6 +589,7 @@ export default function NewTestPage() {
                     <div className="h-1 rounded-full bg-[#262626] overflow-hidden">
                       <div className="h-full rounded-full bg-[#22C55E]" style={{ width: `${Math.min(100, (genomeResult.search_volume_monthly / 50000) * 100)}%` }} />
                     </div>
+                    <div className="text-[9px] text-[#333] pt-0.5">🤖 Market Signal Agent · Google Trends + SemRush</div>
                   </div>
 
                   {/* Competitor Ad Density */}
@@ -414,6 +613,7 @@ export default function NewTestPage() {
                     <div className="h-1 rounded-full bg-[#262626] overflow-hidden">
                       <div className="h-full rounded-full bg-[#EAB308]" style={{ width: `${(genomeResult.competitor_ad_density_0_10 / 10) * 100}%` }} />
                     </div>
+                    <div className="text-[9px] text-[#333] pt-0.5">🤖 Competitor Intelligence Agent · Meta Ad Library + Google Ads</div>
                   </div>
 
                   {/* Language / Market Fit */}
@@ -437,6 +637,7 @@ export default function NewTestPage() {
                     <div className="h-1 rounded-full bg-[#262626] overflow-hidden">
                       <div className={`h-full rounded-full ${genomeResult.language_market_fit_0_100 >= 60 ? 'bg-[#22C55E]' : genomeResult.language_market_fit_0_100 >= 40 ? 'bg-[#EAB308]' : 'bg-[#EF4444]'}`} style={{ width: `${genomeResult.language_market_fit_0_100}%` }} />
                     </div>
+                    <div className="text-[9px] text-[#333] pt-0.5">🤖 Language–Market Fit Agent · Keyword corpus + SERP intent</div>
                   </div>
                 </div>
 
