@@ -203,7 +203,6 @@ export default function NewTestPage() {
           className="border-[#E8E4DC] bg-[#FAFAF8] focus:ring-[#111110]/10 text-[#111110] placeholder:text-[#8C8880]/60 resize-none"
         />
         <div className="flex items-center justify-between">
-          <p className="text-[0.75rem] text-[#8C8880]">⌘ Enter to run</p>
           <Button
             onClick={runGenome}
             disabled={!idea.trim() || loading}
@@ -212,7 +211,7 @@ export default function NewTestPage() {
             {loading ? (
               <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Analyzing…</>
             ) : (
-              'Run Genome'
+              'Run'
             )}
           </Button>
         </div>

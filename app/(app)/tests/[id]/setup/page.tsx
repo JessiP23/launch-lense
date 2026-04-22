@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
 import { createTest, createDemoTest } from '../../new/actions';
-import type { GoOutput, Platform, GenomeOutput } from '@/lib/prompts';
+import type { GoOutput, Platform } from '@/lib/prompts';
 import {
   MetaAdPreview, GoogleAdPreview, TikTokAdPreview, LinkedInAdPreview,
 } from '@/components/ad-preview';
@@ -20,16 +20,12 @@ import {
 interface LegacyAngle { headline: string; primary_text: string; cta: string; }
 interface LegacyAIResult { icp: string; value_prop: string; angles: LegacyAngle[]; }
 
-const CHANNEL_OPTIONS: { id: Platform; label: string; color: string; icon: string }[] = [
-  { id: 'meta',     label: 'Meta (FB/IG)',  color: '#1877F2', icon: '📘' },
-  { id: 'google',   label: 'Google Ads',    color: '#4285F4', icon: '🔍' },
-  { id: 'tiktok',  label: 'TikTok Ads',    color: '#FF0050', icon: '🎵' },
-  { id: 'linkedin', label: 'LinkedIn',      color: '#0A66C2', icon: '💼' },
+const CHANNEL_OPTIONS: { id: Platform; label: string; color: string;}[] = [
+  { id: 'meta',     label: 'Meta (FB/IG)',  color: '#1877F2' },
+  { id: 'google',   label: 'Google Ads',    color: '#4285F4' },
+  { id: 'tiktok',  label: 'TikTok Ads',    color: '#FF0050' },
+  { id: 'linkedin', label: 'LinkedIn',      color: '#0A66C2' },
 ];
-
-const STEPS = ['Describe', 'Generate Copy', 'Preview & Deploy'];
-
-// ── Shared sub-components ──────────────────────────────────────────────────
 
 interface EditFieldProps {
   label: string;
@@ -92,8 +88,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
 
   const [step, setStep] = useState(0);
 
-  // Genome context (loaded from the test record)
-  const [genome, setGenome] = useState<GenomeOutput | null>(null);
   const [ideaFromRecord, setIdeaFromRecord] = useState('');
   const [loadingTest, setLoadingTest] = useState(true);
 
@@ -190,9 +184,8 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
       try {
         const cached = sessionStorage.getItem(`test:${id}`);
         if (cached) {
-          const { idea, genome: g } = JSON.parse(cached) as { idea: string; genome: GenomeOutput };
+          const { idea} = JSON.parse(cached) as { idea: string;};
           setIdeaFromRecord(idea);
-          if (g) setGenome(g);
           setLoadingTest(false);
           return; // no need to hit the API
         }
@@ -205,7 +198,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
           const data = await res.json();
           if (data.test) {
             setIdeaFromRecord(data.test.idea || data.test.name || '');
-            if (data.test.genome_result) setGenome(data.test.genome_result as GenomeOutput);
           }
         }
       } catch (e) {
@@ -219,8 +211,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
 
   const toggleChannel = (ch: Platform) =>
     setChannels((prev) => prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]);
-
-  // ── Step 0 → 1: Generate copy ──────────────────────────────────────────
 
   const handleGenerate = async () => {
     if (!ideaFromRecord.trim()) return;
@@ -251,14 +241,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
     } finally {
       setGenerating(false);
     }
-  };
-
-  // ── Step 2: Deploy ────────────────────────────────────────────────────
-
-  const getSelectedAngle = () => {
-    if (legacyResult) return editedAngles[selectedIdx] || legacyResult.angles[0];
-    if (goResult?.meta) return { headline: goResult.meta.headline, primary_text: goResult.meta.primary_text, cta: goResult.meta.cta };
-    return null;
   };
 
   // ── Step 2: Multi-channel deploy ─────────────────────────────────────
@@ -364,51 +346,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
           <span>/</span>
           <span className="font-mono text-[0.75rem] truncate max-w-[200px]">{id}</span>
         </div>
-
-        {/* Genome context */}
-        {genome && (
-          <div className={`flex items-start gap-3 p-3 rounded-xl border text-[0.875rem] ${
-            genome.verdict === 'GO' ? 'border-[#059669]/20 bg-[#ECFDF5]' : 'border-[#E8E4DC] bg-[#F3F0EB]'
-          }`}>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`font-semibold ${genome.verdict === 'GO' ? 'text-[#059669]' : 'text-[#8C8880]'}`}>
-                  Genome: {genome.verdict}
-                </span>
-                <span className="text-[0.75rem] text-[#8C8880]">{genome.reasoning_1_sentence}</span>
-              </div>
-              <div className="flex items-center gap-4 mt-1">
-                <span className="text-[0.6875rem] text-[#8C8880]">
-                  Search: <strong className="text-[#111110]">{genome.search_volume_monthly >= 1000 ? `${(genome.search_volume_monthly / 1000).toFixed(1)}K` : genome.search_volume_monthly}/mo</strong>
-                </span>
-                <span className="text-[0.6875rem] text-[#8C8880]">
-                  Ad density: <strong className="text-[#111110]">{genome.competitor_ad_density_0_10.toFixed(1)}/10</strong>
-                </span>
-                <span className="text-[0.6875rem] text-[#8C8880]">
-                  Language fit: <strong className="text-[#111110]">{Math.round(genome.language_market_fit_0_100)}/100</strong>
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step bar */}
-        <div className="flex items-center gap-2">
-          {STEPS.map((label, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 text-[0.75rem] px-2.5 py-1 rounded-full border transition-all ${
-                i === step ? 'border-[#111110] text-[#111110] bg-[#111110]/5' :
-                i < step   ? 'border-[#E8E4DC] text-[#059669]' :
-                             'border-[#E8E4DC] text-[#8C8880]'
-              }`}>
-                {i < step && <CheckCircle2 className="w-3 h-3" />}
-                {i === step && <span className="w-1.5 h-1.5 rounded-full bg-[#111110] inline-block" />}
-                {label}
-              </div>
-              {i < STEPS.length - 1 && <div className="w-4 h-px bg-[#E8E4DC]" />}
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* ── STEP 0: Describe ── */}
@@ -419,9 +356,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
               <div>
                 <p className="font-display text-[1.0625rem] font-bold tracking-[-0.01em] text-[#111110]">
                   Describe your campaign
-                </p>
-                <p className="text-[0.8125rem] text-[#8C8880] mt-0.5">
-                  Fill in audience and offer — the AI will write production-ready copy for your selected channels.
                 </p>
               </div>
 
@@ -468,11 +402,10 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                             : 'border-[#E8E4DC] bg-white hover:bg-[#FAFAF8]'
                         }`}
                       >
-                        <span className="text-lg">{ch.icon}</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[0.8125rem] font-medium text-[#111110]">{ch.label}</p>
                           <p className="text-[0.6875rem] text-[#8C8880]">
-                            {conn ? '● Connected' : 'Demo mode'}
+                            {conn ? 'Connected' : 'Demo mode'}
                           </p>
                         </div>
                         {selected && <CheckCircle2 className="w-3.5 h-3.5 text-[#111110] shrink-0" />}
@@ -517,7 +450,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                         : 'border-[#E8E4DC] text-[#8C8880] hover:bg-[#F3F0EB]'
                     }`}
                   >
-                    {opt?.icon} {opt?.label}
+                    {opt?.label}
                   </button>
                 );
               })}
@@ -862,7 +795,6 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                   const err = channelErrors[ch];
                   return (
                     <div key={ch} className="flex items-center gap-3 px-4 py-3">
-                      <span className="text-base w-5">{opt.icon}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-[0.875rem] font-medium text-[#111110]">{opt.label}</p>
                         <p className="text-[0.6875rem] text-[#8C8880]">
