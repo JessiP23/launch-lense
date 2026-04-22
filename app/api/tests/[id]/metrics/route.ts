@@ -15,7 +15,7 @@ export async function GET(
     // Fetch test details
     const { data: test, error: testError } = await supabase
       .from('tests')
-      .select('id, name, status, campaign_id, ad_account_id, verdict, lp_url, lp_json, angles, created_at')
+      .select('id, name, idea, status, campaign_id, ad_account_id, verdict, lp_url, lp_json, angles, genome_result, created_at')
       .eq('id', id)
       .single();
 

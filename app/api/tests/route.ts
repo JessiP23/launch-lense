@@ -4,6 +4,50 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
+/** POST /api/tests — create a genome-draft test record (no ad account required) */
+export async function POST(request: NextRequest) {
+  const supabase = createServiceClient();
+  try {
+    const body = await request.json() as { idea?: string; genome?: Record<string, unknown> };
+    const { idea, genome } = body;
+
+    if (!idea || typeof idea !== 'string' || idea.trim().length < 5) {
+      return Response.json({ error: 'idea required' }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from('tests')
+      .insert({
+        name: idea.trim().slice(0, 120),
+        status: 'draft',
+        idea: idea.trim(),
+        // Store genome result in a JSON column if it exists, else ignore
+        ...(genome ? { genome_result: genome } : {}),
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      // If genome_result column doesn't exist, retry without it
+      if (error.message.includes('genome_result')) {
+        const { data: data2, error: error2 } = await supabase
+          .from('tests')
+          .insert({ name: idea.trim().slice(0, 120), status: 'draft', idea: idea.trim() })
+          .select('id')
+          .single();
+        if (error2 || !data2) return Response.json({ error: error2?.message }, { status: 500 });
+        return Response.json({ id: data2.id });
+      }
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+
+    return Response.json({ id: data.id });
+  } catch (err) {
+    console.error('[POST /api/tests]', err);
+    return Response.json({ error: 'Failed to create test' }, { status: 500 });
+  }
+}
+
 export async function GET(request: NextRequest) {
   const supabase = createServiceClient();
 

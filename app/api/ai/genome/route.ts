@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
       const result = await callGroqJSON<Partial<GenomeOutput>>(
         [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        { temperature: 0.3, max_tokens: 512 }
+        { temperature: 0.3, max_tokens: 900 }
       );
 
       const normalized: GenomeOutput = {
@@ -40,6 +40,9 @@ export async function POST(request: NextRequest) {
           ? String(result.pivot_suggestion_15_words).split(' ').slice(0, 15).join(' ')
           : null,
         reasoning_1_sentence: String(result.reasoning_1_sentence ?? 'Insufficient data to score.'),
+        step1_keywords: result.step1_keywords ? String(result.step1_keywords) : undefined,
+        step2_competitors: result.step2_competitors ? String(result.step2_competitors) : undefined,
+        step3_language: result.step3_language ? String(result.step3_language) : undefined,
       };
 
       if (normalized.language_market_fit_0_100 < 40 && normalized.search_volume_monthly < 1000) {

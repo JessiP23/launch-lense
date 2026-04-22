@@ -31,6 +31,10 @@ export interface GenomeOutput {
   verdict: 'GO' | 'NO-GO';
   pivot_suggestion_15_words: string | null;
   reasoning_1_sentence: string;
+  /** Per-agent chain-of-thought returned by the LLM */
+  step1_keywords?: string;    // what keywords & why that volume estimate
+  step2_competitors?: string; // which known players run ads, why that density
+  step3_language?: string;    // how idea wording maps (or doesn't) to buyer search
 }
 
 // ── Phase 1: Gate Output ───────────────────────────────────────────────────
@@ -212,9 +216,32 @@ export function buildAgentPrompt(ctx: AgentContext): string {
 
 /** Phase 0 — idea pre-qualification */
 export function buildGenomePrompt(idea: string): string {
-  return `Evaluate this startup idea for market viability. Return JSON only matching the GENOME phase schema.
+  return `You are a senior market analyst. Evaluate this startup idea using your knowledge of real-world search behavior, ad market dynamics, and buyer language patterns.
 
-Idea: "${idea}"`;
+Idea: "${idea}"
+
+Think step by step:
+
+Step 1 — SEARCH DEMAND: What specific keywords would buyers type into Google to find this? Name the top 2-3 exact-match phrases. Then estimate the combined monthly search volume for the whole category. Be specific (e.g. "dental scheduling software: ~8,000/mo, dental appointment app: ~4,000/mo → combined ~12,000/mo"). Store your reasoning as "step1_keywords".
+
+Step 2 — AD SATURATION: Name the actual companies (SaaS, services, or advertisers) currently running paid ads in this niche on Meta/Google. Be specific (e.g. "Dentrix, Eaglesoft, Weave, and ~12 smaller players"). Rate 0-10 where 0=nobody running ads, 10=completely flooded. Store as "step2_competitors".
+
+Step 3 — LANGUAGE FIT: Does the wording in the idea match how buyers actually search? Compare the idea's language to the keywords from Step 1. Score 0-100. Explain the gap or alignment in 1 sentence. Store as "step3_language".
+
+Step 4 — VERDICT: Based on steps 1-3, should a founder spend $500 testing this NOW? Rule: if language_market_fit < 40 AND search_volume < 1000 → force NO-GO.
+
+Return ONLY this JSON (no prose, no markdown fences):
+{
+  "step1_keywords": "<2-3 exact keywords buyers use + your volume estimate logic>",
+  "search_volume_monthly": <integer — total monthly category searches>,
+  "step2_competitors": "<named companies running ads + why you rated the density that way>",
+  "competitor_ad_density_0_10": <float 0-10>,
+  "step3_language": "<1 sentence on how idea language maps or misses buyer search terms>",
+  "language_market_fit_0_100": <float 0-100>,
+  "verdict": "GO" | "NO-GO",
+  "pivot_suggestion_15_words": <string if NO-GO, null if GO>,
+  "reasoning_1_sentence": <string — one sentence verdict with specific market context>
+}`;
 }
 
 /** Phase 2 — multi-channel asset generation */
