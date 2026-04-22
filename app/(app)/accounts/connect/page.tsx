@@ -32,7 +32,6 @@ function ConnectPageContent() {
       connectPlatform({
         platform: 'meta',
         accountId,
-        accountName: 'Meta Ad Account',
         connectedAt: new Date().toISOString(),
       });
       if (orgId) setOrgId(orgId);

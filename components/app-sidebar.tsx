@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { HealthgateRing } from '@/components/healthgate-ring';
 import { useAppStore } from '@/lib/store';
 
 const navItems = [
@@ -31,26 +30,6 @@ export function AppSidebar() {
           LaunchLense
         </span>
       </div>
-
-      {/* Healthgate summary */}
-      {healthSnapshot && (
-        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-[#E8E4DC]">
-          <HealthgateRing
-            score={healthSnapshot.score}
-            status={healthSnapshot.status}
-            checks={healthSnapshot.checks}
-            size={38}
-          />
-          <div>
-            <div className="text-[0.625rem] uppercase tracking-[0.08em] text-[#8C8880] font-medium">
-              Healthgate™
-            </div>
-            <div className="font-mono font-bold tabular-nums text-[0.8125rem] text-[#111110]">
-              {healthSnapshot.score}/100
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Nav */}
       <nav className="flex-1 py-3 space-y-px px-3">
