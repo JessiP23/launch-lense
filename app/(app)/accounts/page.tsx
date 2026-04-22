@@ -196,7 +196,7 @@ export default function AccountsPage() {
                       <button
                         onClick={() => handleDisconnect(platform.id)}
                         disabled={isDisconnecting}
-                        className="h-7 px-3.5 rounded-full border border-[#E8E4DC] text-[0.75rem] font-medium text-[#8C8880] hover:text-[#111110] hover:border-[#111110]/20 hover:bg-[#F3F0EB] transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                        className="h-7 px-3.5 rounded-full border border-[#DC2626]/30 text-[0.75rem] font-medium text-[#DC2626] bg-[#FEF2F2] hover:bg-[#DC2626] hover:text-white hover:border-[#DC2626] transition-colors disabled:opacity-40 flex items-center gap-1.5"
                       >
                         {isDisconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Disconnect'}
                       </button>

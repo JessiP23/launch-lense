@@ -58,7 +58,7 @@ export function CommandPalette() {
       {cmdkOpen && (
         <>
           <motion.div
-            className="fixed inset-0 z-50 bg-black/60"
+            className="fixed inset-0 z-50 bg-[#111110]/40 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -71,24 +71,27 @@ export function CommandPalette() {
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ duration: 0.15 }}
           >
-            <div className="rounded-lg border border-[#262626] bg-[#171717] shadow-2xl overflow-hidden">
+            <div className="rounded-xl border border-[#E8E4DC] bg-white shadow-xl shadow-[#111110]/8 overflow-hidden">
               {/* Search input */}
-              <div className="flex items-center gap-2 px-4 border-b border-[#262626]">
-                <Search className="w-4 h-4 text-[#A1A1A1]" />
+              <div className="flex items-center gap-2.5 px-4 border-b border-[#E8E4DC]">
+                <Search className="w-4 h-4 text-[#8C8880] shrink-0" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Type a command..."
-                  className="flex-1 h-12 bg-transparent text-sm text-[#FAFAFA] placeholder:text-[#A1A1A1] outline-none"
+                  className="flex-1 h-12 bg-transparent text-[0.9375rem] text-[#111110] placeholder:text-[#8C8880] outline-none"
                   autoFocus
                 />
-                <button onClick={() => setCmdkOpen(false)}>
-                  <X className="w-4 h-4 text-[#A1A1A1]" />
+                <button
+                  onClick={() => setCmdkOpen(false)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md border border-[#E8E4DC] text-[#8C8880] hover:bg-[#F3F0EB] hover:text-[#111110] transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
 
               {/* Results */}
-              <div className="max-h-64 overflow-y-auto p-1">
+              <div className="max-h-64 overflow-y-auto p-1.5">
                 {filtered.map((cmd) => {
                   const disabled = cmd.id === 'new-test' && !canLaunch;
                   return (
@@ -96,12 +99,12 @@ export function CommandPalette() {
                       key={cmd.id}
                       onClick={() => executeCommand(cmd.href, cmd.id)}
                       disabled={disabled}
-                      className="flex items-center gap-3 w-full px-3 py-2.5 text-sm rounded-md text-left transition-colors hover:bg-[#262626] disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-3 w-full px-3 py-2.5 text-[0.875rem] rounded-lg text-left transition-colors hover:bg-[#F3F0EB] disabled:opacity-40 disabled:cursor-not-allowed text-[#111110]"
                     >
-                      <cmd.icon className="w-4 h-4 text-[#A1A1A1]" />
-                      <span>{cmd.label}</span>
+                      <cmd.icon className="w-4 h-4 text-[#8C8880] shrink-0" />
+                      <span className="font-medium">{cmd.label}</span>
                       {disabled && (
-                        <span className="ml-auto text-xs text-[#EF4444]">
+                        <span className="ml-auto text-[0.6875rem] font-medium text-[#DC2626]">
                           Blocked by Healthgate
                         </span>
                       )}
@@ -109,7 +112,7 @@ export function CommandPalette() {
                   );
                 })}
                 {filtered.length === 0 && (
-                  <div className="px-3 py-6 text-center text-sm text-[#A1A1A1]">
+                  <div className="px-3 py-8 text-center text-[0.875rem] text-[#8C8880]">
                     No commands found.
                   </div>
                 )}

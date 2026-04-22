@@ -336,27 +336,39 @@ export default function NewTestPage() {
                     {result.search_volume_monthly >= 10000 ? 'Strong' : result.search_volume_monthly >= 1000 ? 'Moderate' : 'Weak'}
                   </span>
                 </div>
-                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-2 bg-[#FAFAF8]">
+                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
                   {result.source_google && (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                        Raw — Google Search (live)
+                        Google Search — Live Data
                       </p>
-                      <div className="flex gap-4 text-[0.75rem]">
-                        <span className="text-[#8C8880]">Pages: <span className="font-mono text-[#111110]">{result.source_google.organic_result_count.toLocaleString()}</span></span>
-                        <span className="text-[#8C8880]">Google ads: <span className="font-mono text-[#111110]">{result.source_google.google_ads_count}</span></span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2">
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Indexed Pages</p>
+                          <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums mt-0.5">{result.source_google.organic_result_count.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2">
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Active Google Ads</p>
+                          <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums mt-0.5">{result.source_google.google_ads_count}</p>
+                        </div>
                       </div>
                       {result.source_google.related_searches.length > 0 && (
-                        <p className="text-[0.75rem] text-[#8C8880]">
-                          Buyers search: <span className="text-[#111110]">{result.source_google.related_searches.slice(0, 5).join(' · ')}</span>
-                        </p>
+                        <div>
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5">Buyer Search Terms</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {result.source_google.related_searches.slice(0, 6).map((s) => (
+                              <span key={s} className="text-[0.6875rem] px-2 py-0.5 bg-white border border-[#E8E4DC] rounded-full text-[#111110]">{s}</span>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
                   {result.step1_keywords && (
-                    <p className="text-[0.75rem] text-[#8C8880] leading-relaxed border-l-2 border-[#E8E4DC] pl-3">
-                      {result.step1_keywords}
-                    </p>
+                    <div className="border-l-2 border-[#111110]/20 pl-3">
+                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
+                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step1_keywords}</p>
+                    </div>
                   )}
                 </div>
               </div>
@@ -380,36 +392,39 @@ export default function NewTestPage() {
                     </div>
                   </div>
                   <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
-                    {result.competitor_ad_density_0_10 <= 3 ? 'Blue ocean' : result.competitor_ad_density_0_10 <= 6 ? 'Moderate' : 'Saturated'}
+                    {result.competitor_ad_density_0_10 <= 3 ? 'Untapped market' : result.competitor_ad_density_0_10 <= 6 ? 'Moderate competition' : 'Saturated'}
                   </span>
                 </div>
-                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-2 bg-[#FAFAF8]">
+                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
                   {result.source_meta && result.source_meta.active_ads_count !== undefined && (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                        Raw — Meta Ad Library (last 90 days)
+                        Meta Ad Library — Last 90 Days
                       </p>
-                      <p className="text-[0.75rem] text-[#8C8880]">
-                        Active ads: <span className="font-mono text-[#111110]">
+                      <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2 flex items-center justify-between">
+                        <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Active Ads Found</p>
+                        <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums">
                           {result.source_meta.active_ads_count}
-                          {result.source_meta.active_ads_count === 25 ? ' (cap — saturated)' : ''}
-                        </span>
-                      </p>
+                          {result.source_meta.active_ads_count === 25 && <span className="text-[0.75rem] font-normal text-[#D97706] ml-1.5">cap reached</span>}
+                        </p>
+                      </div>
                       {result.source_meta.advertiser_names && result.source_meta.advertiser_names.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {result.source_meta.advertiser_names.slice(0, 8).map((name) => (
-                            <span key={name} className="text-[0.6875rem] px-1.5 py-0.5 bg-[#F3F0EB] border border-[#E8E4DC] rounded text-[#8C8880]">
-                              {name}
-                            </span>
-                          ))}
+                        <div>
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5">Known Advertisers</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {result.source_meta.advertiser_names.slice(0, 8).map((name) => (
+                              <span key={name} className="text-[0.6875rem] px-2 py-0.5 bg-white border border-[#E8E4DC] rounded-full text-[#111110]">{name}</span>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
                   )}
                   {result.step2_competitors && (
-                    <p className="text-[0.75rem] text-[#8C8880] leading-relaxed border-l-2 border-[#E8E4DC] pl-3">
-                      {result.step2_competitors}
-                    </p>
+                    <div className="border-l-2 border-[#111110]/20 pl-3">
+                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
+                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step2_competitors}</p>
+                    </div>
                   )}
                 </div>
               </div>
@@ -437,20 +452,24 @@ export default function NewTestPage() {
                   </span>
                 </div>
                 {result.step3_language && (
-                  <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-2 bg-[#FAFAF8]">
+                  <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
                     {result.source_google?.top_titles && result.source_google.top_titles.length > 0 && (
-                      <div className="space-y-0.5">
+                      <div className="space-y-1.5">
                         <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                          Top Google results:
+                          Top Ranking Results
                         </p>
-                        {result.source_google.top_titles.slice(0, 3).map((t) => (
-                          <p key={t} className="text-[0.75rem] text-[#8C8880] truncate">— {t}</p>
+                        {result.source_google.top_titles.slice(0, 3).map((t, i) => (
+                          <div key={t} className="flex items-start gap-2.5 bg-white border border-[#E8E4DC] rounded-lg px-3 py-2">
+                            <span className="text-[0.625rem] font-mono text-[#8C8880] mt-0.5 shrink-0">#{i + 1}</span>
+                            <p className="text-[0.75rem] text-[#111110] leading-snug">{t}</p>
+                          </div>
                         ))}
                       </div>
                     )}
-                    <p className="text-[0.75rem] text-[#8C8880] leading-relaxed border-l-2 border-[#E8E4DC] pl-3">
-                      {result.step3_language}
-                    </p>
+                    <div className="border-l-2 border-[#111110]/20 pl-3">
+                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
+                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step3_language}</p>
+                    </div>
                   </div>
                 )}
               </div>

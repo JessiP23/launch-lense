@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { StatusDot } from '@/components/status-dot';
 import { useAppStore } from '@/lib/store';
 
 interface TestRow {
@@ -35,13 +34,19 @@ function VerdictPill({ verdict }: { verdict?: string }) {
   );
 }
 
-function StatusPill({ status, verdict }: { status: string; verdict?: string }) {
-  const dotStatus =
-    status === 'active' ? 'green' : verdict === 'NO-GO' ? 'red' : 'yellow';
+function StatusPill({ status }: { status: string }) {
+  const cfg: Record<string, { dot: string; text: string; label: string }> = {
+    active:    { dot: 'bg-[#059669]', text: 'text-[#059669]', label: 'Active' },
+    draft:     { dot: 'bg-[#D97706]', text: 'text-[#D97706]', label: 'Draft' },
+    completed: { dot: 'bg-[#0A66C2]', text: 'text-[#0A66C2]', label: 'Completed' },
+    failed:    { dot: 'bg-[#DC2626]', text: 'text-[#DC2626]', label: 'Failed' },
+    paused:    { dot: 'bg-[#8C8880]', text: 'text-[#8C8880]', label: 'Paused' },
+  };
+  const c = cfg[status] ?? { dot: 'bg-[#8C8880]', text: 'text-[#8C8880]', label: status };
   return (
     <div className="flex items-center gap-1.5">
-      <StatusDot status={dotStatus} pulse={status === 'active'} />
-      <span className="text-[0.8125rem] capitalize text-[#8C8880]">{status}</span>
+      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${c.dot} ${status === 'active' ? 'after:absolute after:inset-0 after:rounded-full after:animate-ping after:opacity-75 after:bg-[#059669]' : ''}`} />
+      <span className={`text-[0.8125rem] font-medium capitalize ${c.text}`}>{c.label}</span>
     </div>
   );
 }
@@ -119,7 +124,7 @@ export default function TestsListPage() {
                 }`}
               >
                 <td className="py-2 px-4">
-                  <StatusPill status={test.status} verdict={test.verdict} />
+                  <StatusPill status={test.status} />
                 </td>
                 <td className="py-2 px-4 font-medium text-[#111110]">{test.name}</td>
                 <td className="py-2 px-4 text-right font-mono text-[0.8125rem] tabular-nums text-[#111110]">
