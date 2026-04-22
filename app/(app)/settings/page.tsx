@@ -1,10 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Key, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle2 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 
 function ByokForm() {
@@ -47,30 +45,30 @@ function ByokForm() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Key className="w-4 h-4" />
-          BYOK — Bring Your Own Key
-        </CardTitle>
-        <CardDescription>
-          Paste your Meta access token and ad account ID directly. The token will be verified against the Meta Graph API before saving.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="bg-white rounded-xl border border-[#E8E4DC] p-5 space-y-4">
+      <div>
+        <p className="font-display font-bold text-[1.0625rem] tracking-[-0.01em] text-[#111110]">
+          Connect Meta Account
+        </p>
+        <p className="text-[0.875rem] text-[#8C8880] mt-0.5">
+          Paste your Meta access token and ad account ID. Verified against the Meta Graph API before saving.
+        </p>
+      </div>
+
+      <div className="space-y-3">
         <div>
-          <label className="text-xs text-[#A1A1A1] uppercase tracking-wider mb-1.5 block">
+          <label className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5 block">
             Ad Account ID
           </label>
           <input
             value={accountId}
             onChange={(e) => setAccountId(e.target.value)}
-            placeholder="act_727146616453623  or  727146616453623"
-            className="w-full bg-[#111] border border-[#262626] rounded-lg px-3 py-2 text-sm text-[#FAFAFA] font-mono focus:outline-none focus:border-[#FAFAFA]/40 transition-colors placeholder:text-[#444]"
+            placeholder="act_727146616453623"
+            className="w-full bg-[#FAFAF8] border border-[#E8E4DC] rounded-lg px-3 py-2 text-[0.875rem] text-[#111110] font-mono focus:outline-none focus:border-[#111110]/30 transition-colors placeholder:text-[#8C8880]/50"
           />
         </div>
         <div>
-          <label className="text-xs text-[#A1A1A1] uppercase tracking-wider mb-1.5 block">
+          <label className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5 block">
             Access Token
           </label>
           <textarea
@@ -78,88 +76,79 @@ function ByokForm() {
             onChange={(e) => setToken(e.target.value)}
             placeholder="EAAxxxxxxxxxxxxxxx..."
             rows={3}
-            className="w-full bg-[#111] border border-[#262626] rounded-lg px-3 py-2 text-sm text-[#FAFAFA] font-mono resize-none focus:outline-none focus:border-[#FAFAFA]/40 transition-colors placeholder:text-[#444]"
+            className="w-full bg-[#FAFAF8] border border-[#E8E4DC] rounded-lg px-3 py-2 text-[0.875rem] text-[#111110] font-mono resize-none focus:outline-none focus:border-[#111110]/30 transition-colors placeholder:text-[#8C8880]/50"
           />
-          <p className="text-xs text-[#555] mt-1.5">
+          <p className="text-[0.75rem] text-[#8C8880] mt-1.5">
             Get from{' '}
             <a
               href="https://developers.facebook.com/tools/explorer/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#A1A1A1] hover:text-[#FAFAFA] underline underline-offset-2"
+              className="text-[#111110] underline underline-offset-2"
             >
               Meta Graph API Explorer
             </a>
-            . Needs <code className="text-[10px] bg-[#1a1a1a] px-1 py-0.5 rounded">ads_management</code> scope.
+            . Needs <code className="text-[0.6875rem] bg-[#F3F0EB] px-1 py-0.5 rounded">ads_management</code> scope.
           </p>
         </div>
+      </div>
 
-        {error && (
-          <div className="flex items-start gap-2 p-3 rounded-md bg-[#EF4444]/10 border border-[#EF4444]/20 text-sm text-[#EF4444]">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            {error}
-          </div>
-        )}
-        {success && (
-          <div className="flex items-start gap-2 p-3 rounded-md bg-[#22C55E]/10 border border-[#22C55E]/20 text-sm text-[#22C55E]">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-            {success}
-          </div>
-        )}
+      {error && (
+        <div className="p-3 rounded-xl border border-[#DC2626]/20 bg-[#FEF2F2] text-[0.875rem] text-[#DC2626]">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-2 p-3 rounded-xl border border-[#059669]/20 bg-[#ECFDF5] text-[0.875rem] text-[#059669]">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {success}
+        </div>
+      )}
 
-        <Button
-          onClick={handleSubmit}
-          disabled={loading || !accountId || !token}
-          className="w-full"
-        >
-          {loading ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <Key className="w-4 h-4 mr-2" />
-          )}
-          {loading ? 'Verifying & Connecting…' : 'Connect Account'}
-        </Button>
-      </CardContent>
-    </Card>
+      <Button
+        onClick={handleSubmit}
+        disabled={loading || !accountId || !token}
+        className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
+      >
+        {loading && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
+        {loading ? 'Verifying…' : 'Connect Account'}
+      </Button>
+    </div>
   );
 }
 
 export default function SettingsPage() {
+  const ENV_KEYS = ['META_APP_ID', 'META_APP_SECRET'];
+
   return (
-    <div className="space-y-6">
+    <div className="max-w-xl space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-[#A1A1A1] mt-1">
-          Platform configuration and environment settings
-        </p>
+        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880]">Settings</p>
+        <h1 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110] mt-0.5">
+          Platform Configuration
+        </h1>
       </div>
 
       <ByokForm />
 
-
-      <Card>
-        <CardHeader>
-          <CardTitle>API Keys</CardTitle>
-          <CardDescription>Status of required environment variables</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <table className="w-full text-sm">
-            <tbody>
-              {[
-                'META_APP_ID',
-                'META_APP_SECRET',
-              ].map((key) => (
-                <tr key={key} className="border-b border-[#262626]/50 h-10">
-                  <td className="py-2 text-[#A1A1A1] font-mono text-xs w-64">{key}</td>
-                  <td className="py-2">
-                    <Badge variant="outline">Not configured</Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+      {/* API Keys status */}
+      <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-[#E8E4DC]">
+          <p className="font-display font-bold text-[0.9375rem] tracking-[-0.01em] text-[#111110]">Environment Keys</p>
+          <p className="text-[0.8125rem] text-[#8C8880] mt-0.5">Required server-side variables</p>
+        </div>
+        <div className="divide-y divide-[#E8E4DC]">
+          {ENV_KEYS.map((key) => (
+            <div key={key} className="flex items-center justify-between px-5 py-3">
+              <span className="font-mono text-[0.8125rem] text-[#111110]">{key}</span>
+              <span className="text-[0.75rem] text-[#8C8880] font-medium px-2.5 py-0.5 bg-[#F3F0EB] border border-[#E8E4DC] rounded-full">
+                Not configured
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

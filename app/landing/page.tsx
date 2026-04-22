@@ -1,225 +1,241 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Shield, Zap, ArrowRight, CheckCircle2, XCircle, TrendingDown } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { HealthgateRing } from '@/components/healthgate-ring';
-import { calculateHealthChecks } from '@/lib/healthgate';
+
+function FadeUp({ delay = 0, children }: { delay?: number; children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: 'easeOut', delay }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 export default function LandingPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [showPreview, setShowPreview] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-
-  // Example: show a RED healthgate for marketing illustration
-  const exampleAccountData = {
-    account_status: 2,
-    balance: 0,
-    spend_cap: 500,
-    disapproved_90d: 7,
-    page_quality: 0.2,
-    pixel_active: false,
-    funding_source: false,
-    two_factor_enabled: false,
-    domain_verified: false,
-    has_advertiser_access: true,
-    spend_30d: 0,
-    policy_issues: 3,
-  };
-  const redHealth = calculateHealthChecks(exampleAccountData);
-
-  const handleEmailSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitted(true);
-  };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#FAFAFA]">
-      {/* Nav */}
-      <nav className="flex items-center justify-between max-w-[1280px] mx-auto px-6 h-16">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-[#FAFAFA] flex items-center justify-center">
-            <span className="text-[#0A0A0A] text-xs font-bold">LL</span>
+    <div className="min-h-screen bg-[#FAFAF8] text-[#111110]">
+
+      {/* ── Nav ─────────────────────────────────────────────────────── */}
+      <nav className="border-b border-[#E8E4DC] bg-[#FAFAF8]">
+        <div className="max-w-[1120px] mx-auto px-6 h-14 flex items-center justify-between">
+          <span className="font-display text-[1.0625rem] font-bold tracking-tight text-[#111110]">
+            LaunchLense
+          </span>
+          <div className="flex items-center gap-7">
+            <a href="#how" className="text-[0.875rem] text-[#8C8880] hover:text-[#111110] transition-colors">
+              How it works
+            </a>
+            <a href="#pricing" className="text-[0.875rem] text-[#8C8880] hover:text-[#111110] transition-colors">
+              Pricing
+            </a>
+            <button
+              onClick={() => router.push('/accounts/connect')}
+              className="h-9 px-[22px] rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 transition-colors"
+            >
+              Get Started
+            </button>
           </div>
-          <span className="font-semibold">LaunchLense</span>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push('/accounts/connect')}
-        >
-          Get Started
-          <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-        </Button>
       </nav>
 
-      {/* Hero */}
-      <section className="max-w-[1280px] mx-auto px-6 py-24 text-center">
+      {/* ── Hero ────────────────────────────────────────────────────── */}
+      <section className="pt-[120px] pb-20 text-center">
+        <div className="max-w-[680px] mx-auto px-6 space-y-6">
+          <FadeUp delay={0}>
+            <p className="text-[0.8125rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
+              Startup Validation · Powered by Real Ad Data
+            </p>
+          </FadeUp>
+
+          <FadeUp delay={0.08}>
+            <h1 className="font-display text-[3rem] font-extrabold leading-[1.1] tracking-[-0.04em]">
+              <span className="text-[#111110]">Kill bad startup ideas</span>
+              <br />
+              <span className="text-[#8C8880]">before they kill your time.</span>
+            </h1>
+          </FadeUp>
+
+          <FadeUp delay={0.16}>
+            <p className="text-[1.0625rem] text-[#8C8880] leading-relaxed max-w-[480px] mx-auto">
+              Run a real $500 Meta ad test. Get a GO / NO-GO verdict in 48 hours.
+              No surveys. No assumptions. Just data.
+            </p>
+          </FadeUp>
+
+          <FadeUp delay={0.24}>
+            <div className="flex items-center justify-center gap-4 pt-4">
+              <button
+                onClick={() => router.push('/accounts/connect')}
+                className="h-11 px-8 rounded-full bg-[#111110] text-white text-[0.9375rem] font-medium hover:bg-[#111110]/90 transition-colors"
+              >
+                Start Validating
+              </button>
+              <button
+                onClick={() => router.push('/share/demo')}
+                className="text-[0.9375rem] text-[#8C8880] hover:text-[#111110] underline underline-offset-4 transition-colors"
+              >
+                See Sample Report →
+              </button>
+            </div>
+          </FadeUp>
+        </div>
+      </section>
+
+      {/* ── Social Proof Bar ─────────────────────────────────────────── */}
+      <section className="max-w-[860px] mx-auto px-6 mt-20">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ delay: 0.4, duration: 0.5 }}
+          className="bg-[#FFFFFF] border border-[#E8E4DC] rounded-[12px] grid grid-cols-3 divide-x divide-[#E8E4DC]"
         >
-          <Badge variant="outline" className="mb-4">
-            Ad Account Insurance for Venture Studios
-          </Badge>
-          <h1 className="text-4xl md:text-6xl font-bold tracking-tight max-w-3xl mx-auto leading-tight">
-            Kill Bad Startup Ideas
-            <br />
-            <span className="text-[#EF4444]">in 48 Hours</span>
-          </h1>
-          <p className="text-lg text-[#A1A1A1] max-w-xl mx-auto mt-6">
-            We compress 8-week ad validation to 48 hours. Real Meta traffic. Real data.
-            Lawsuit-proof Go/No-Go verdict. All for under $500.
-          </p>
-          <div className="flex items-center justify-center gap-4 mt-8">
-            <Button
-              size="lg"
-              onClick={() => router.push('/accounts/connect')}
-            >
-              <Zap className="w-4 h-4 mr-2" />
-              Get Started
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => setShowPreview(!showPreview)}
-            >
-              See it work
-            </Button>
-          </div>
+          {[
+            { num: '2,500+', label: 'Ideas Validated' },
+            { num: '$1.2M',  label: 'Ad Spend Managed' },
+            { num: '48h',    label: 'Average Turnaround' },
+          ].map(({ num, label }) => (
+            <div key={label} className="py-10 text-center">
+              <div className="font-display text-[2.25rem] font-extrabold text-[#111110] leading-none">
+                {num}
+              </div>
+              <div className="text-[0.875rem] text-[#8C8880] mt-2">{label}</div>
+            </div>
+          ))}
         </motion.div>
       </section>
 
-      {/* Interactive preview */}
-      {showPreview && (
-        <motion.section
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-[1280px] mx-auto px-6 pb-20"
-        >
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card>
-              <CardContent className="pt-6 text-center space-y-4">
-                <div className="text-xs text-[#A1A1A1] uppercase tracking-wider">Step 1: Healthgate™ blocks bad accounts</div>
-                <HealthgateRing
-                  score={redHealth.score}
-                  status={redHealth.status}
-                  checks={redHealth.checks}
-                  size={96}
-                />
-                <div className="text-2xl font-mono font-bold tabular-nums text-[#EF4444]">
-                  {redHealth.score}/100
-                </div>
-                <Badge variant="danger">Launch Blocked</Badge>
-                <p className="text-sm text-[#A1A1A1]">
-                  Score below 60 = no money wasted. Fix issues first.
-                </p>
-              </CardContent>
-            </Card>
+      {/* ── How It Works ─────────────────────────────────────────────── */}
+      <section id="how" className="max-w-[1120px] mx-auto px-6 mt-32">
+        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880]">
+          Process
+        </p>
+        <h2 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110] mt-3">
+          Four steps. Forty-eight hours.
+        </h2>
 
-            <Card>
-              <CardContent className="pt-6 text-center space-y-4">
-                <div className="text-xs text-[#A1A1A1] uppercase tracking-wider">Step 2: Data-driven verdict</div>
-                <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center text-xl font-bold" style={{ border: '3px solid #EF4444', color: '#EF4444' }}>
-                  NO-GO
-                </div>
-                <div className="text-sm text-[#A1A1A1] space-y-1.5">
-                  <div className="flex items-center justify-center gap-2">
-                    <XCircle className="w-3.5 h-3.5 text-[#EF4444]" />
-                    CPA $243 vs benchmark $45
-                  </div>
-                  <div className="flex items-center justify-center gap-2">
-                    <XCircle className="w-3.5 h-3.5 text-[#EF4444]" />
-                    CVR 1.59% vs required 2%
-                  </div>
-                  <div className="flex items-center justify-center gap-2">
-                    <XCircle className="w-3.5 h-3.5 text-[#EF4444]" />
-                    Only 2 leads (need 5+)
-                  </div>
-                </div>
-                <div className="text-lg font-mono font-bold tabular-nums">
-                  $487 spent to avoid{' '}
-                  <span className="text-[#22C55E]">$35k</span> build
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </motion.section>
-      )}
-
-      {/* Value props */}
-      <section className="border-t border-[#262626] py-20">
-        <div className="max-w-[1280px] mx-auto px-6 grid md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-10">
           {[
-            {
-              icon: Shield,
-              title: 'Healthgate™ Circuit Breaker',
-              desc: 'We say NO before $1 is spent. 12-point ad account inspection blocks bad tests.',
-            },
-            {
-              icon: Zap,
-              title: '48h Validation',
-              desc: 'Real Meta traffic to a generated LP. Not surveys. Not focus groups. Real market signal.',
-            },
-            {
-              icon: TrendingDown,
-              title: 'Go/No-Go Verdict',
-              desc: 'Data-driven decision at $500 spend. Compare to $35k MVP builds that fail.',
-            },
-          ].map((item) => (
-            <div key={item.title} className="space-y-3">
-              <item.icon className="w-8 h-8 text-[#FAFAFA]" />
-              <h3 className="text-lg font-semibold">{item.title}</h3>
-              <p className="text-sm text-[#A1A1A1] leading-relaxed">{item.desc}</p>
+            { n: '01', title: 'Connect your Meta ad account', desc: 'Link your account in 60 seconds. We run a Healthgate™ score before touching a dollar.' },
+            { n: '02', title: 'Describe your startup idea',   desc: 'One paragraph is enough. Our AI decomposes it into buyer intent, keywords, and angles.' },
+            { n: '03', title: 'We build and launch a real ad', desc: 'Copy, creative, targeting, landing page — assembled and live on Meta within minutes.' },
+            { n: '04', title: 'Get your GO / NO-GO verdict',  desc: 'After 48 hours of real traffic, you get a data-backed verdict and a full PDF report.' },
+          ].map(({ n, title, desc }) => (
+            <div key={n} className="bg-[#FFFFFF] border border-[#E8E4DC] rounded-[16px] p-8">
+              <div className="font-display text-[2.5rem] font-extrabold text-[#F3F0EB] leading-none select-none">
+                {n}
+              </div>
+              <div className="font-display text-[1rem] font-bold text-[#111110] mt-4 leading-snug">
+                {title}
+              </div>
+              <div className="text-[0.875rem] text-[#8C8880] mt-2 leading-[1.7]">
+                {desc}
+              </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Email gate */}
-      <section className="border-t border-[#262626] py-20">
-        <div className="max-w-md mx-auto px-6 text-center">
-          <h2 className="text-2xl font-semibold mb-3">Get Early Access</h2>
-          <p className="text-sm text-[#A1A1A1] mb-6">
-            Join the waitlist for launch. Venture studios only.
-          </p>
-          {!submitted ? (
-            <form onSubmit={handleEmailSubmit} className="flex gap-2">
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@venturestudio.com"
-                required
-                className="flex-1"
-              />
-              <Button type="submit">Join</Button>
-            </form>
-          ) : (
-            <div className="flex items-center justify-center gap-2 text-[#22C55E]">
-              <CheckCircle2 className="w-5 h-5" />
-              <span>You&apos;re on the list!</span>
+      {/* ── Healthgate™ Callout ───────────────────────────────────────── */}
+      <section className="max-w-[1120px] mx-auto px-6 mt-32">
+        <div className="bg-[#111110] rounded-[20px] p-16 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          <div>
+            <h2 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-white leading-snug">
+              Healthgate™ — Your Ad Account, Scored.
+            </h2>
+            <p className="text-[0.9375rem] text-[#8C8880] mt-4 leading-relaxed">
+              Before every test, we score your Meta account 0–100.
+              Bad account? We block the launch and protect your $500.
+            </p>
+          </div>
+          <div className="flex flex-col items-center justify-center">
+            {/* Mock score ring */}
+            <div className="relative w-32 h-32">
+              <svg width="128" height="128" viewBox="0 0 128 128" className="-rotate-90">
+                <circle cx="64" cy="64" r="54" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="8" />
+                <circle
+                  cx="64" cy="64" r="54"
+                  fill="none"
+                  stroke="#059669"
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 54}`}
+                  strokeDashoffset={`${2 * Math.PI * 54 * (1 - 0.87)}`}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-display text-[2.75rem] font-extrabold text-white leading-none">87</span>
+              </div>
             </div>
-          )}
+            <span className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#059669] mt-3">
+              Healthy
+            </span>
+          </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-[#262626] py-8">
-        <div className="max-w-[1280px] mx-auto px-6 flex items-center justify-between">
-          <div className="text-xs text-[#A1A1A1]">
-            © {new Date().getFullYear()} LaunchLense. Ad account insurance.
+      {/* ── Verdict Engine ───────────────────────────────────────────── */}
+      <section className="max-w-[1120px] mx-auto px-6 mt-32">
+        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880]">
+          Verdict Engine
+        </p>
+        <h2 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110] mt-3">
+          One of three outcomes. Always clear.
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10">
+          <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-[16px] p-6">
+            <div className="font-display text-[1.5rem] font-extrabold text-[#059669]">GO</div>
+            <p className="text-[0.875rem] text-[#8C8880] mt-2 leading-[1.7]">
+              Strong search intent, manageable competition, validated language–market fit. Build it.
+            </p>
           </div>
-          <div className="text-xs text-[#A1A1A1]">v0.1</div>
+          <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-[16px] p-6">
+            <div className="font-display text-[1.5rem] font-extrabold text-[#D97706]">ITERATE</div>
+            <p className="text-[0.875rem] text-[#8C8880] mt-2 leading-[1.7]">
+              Mixed signals. A pivot in positioning or audience could unlock the market.
+            </p>
+          </div>
+          <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-[16px] p-6">
+            <div className="font-display text-[1.5rem] font-extrabold text-[#DC2626]">NO-GO</div>
+            <p className="text-[0.875rem] text-[#8C8880] mt-2 leading-[1.7]">
+              Low demand, oversaturated, or poor language fit. You saved $35k on a bad MVP.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── CTA ──────────────────────────────────────────────────────── */}
+      <section id="pricing" className="mt-32">
+        <div className="bg-[#F3F0EB] py-20 text-center px-6">
+          <h2 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110]">
+            Ready to validate in 48 hours?
+          </h2>
+          <p className="text-[0.9375rem] text-[#8C8880] mt-3 max-w-[400px] mx-auto leading-relaxed">
+            One test. One verdict. Under $500.
+          </p>
+          <button
+            onClick={() => router.push('/accounts/connect')}
+            className="mt-8 h-11 px-8 rounded-full bg-[#111110] text-white text-[0.9375rem] font-medium hover:bg-[#111110]/90 transition-colors"
+          >
+            Start Validating
+          </button>
+        </div>
+      </section>
+
+      {/* ── Footer ───────────────────────────────────────────────────── */}
+      <footer className="border-t border-[#E8E4DC] py-8">
+        <div className="max-w-[1120px] mx-auto px-6 flex items-center justify-between">
+          <span className="font-display text-[0.875rem] font-bold text-[#111110]">LaunchLense</span>
+          <span className="text-[0.8125rem] text-[#8C8880]">© 2026 LaunchLense</span>
         </div>
       </footer>
+
     </div>
   );
 }

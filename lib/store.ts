@@ -8,7 +8,6 @@ export type PlatformId = 'meta' | 'google' | 'tiktok' | 'linkedin';
 export interface ConnectedPlatform {
   platform: PlatformId;
   accountId: string;       // internal DB id or platform-native id
-  accountName: string;     // display name e.g. "My Business Account"
   connectedAt: string;     // ISO timestamp
 }
 

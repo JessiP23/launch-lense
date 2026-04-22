@@ -2,10 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Zap, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { StatusDot } from '@/components/status-dot';
 import { useAppStore } from '@/lib/store';
 
@@ -18,6 +15,35 @@ interface TestRow {
   ctr?: number;
   verdict?: string;
   created_at: string;
+}
+
+function VerdictPill({ verdict }: { verdict?: string }) {
+  if (!verdict) return null;
+  const cfg =
+    verdict === 'GO'
+      ? { bg: '#ECFDF5', color: '#059669' }
+      : verdict === 'NO-GO'
+      ? { bg: '#FEF2F2', color: '#DC2626' }
+      : { bg: '#FFFBEB', color: '#D97706' };
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[0.6875rem] font-medium"
+      style={{ background: cfg.bg, color: cfg.color }}
+    >
+      {verdict}
+    </span>
+  );
+}
+
+function StatusPill({ status, verdict }: { status: string; verdict?: string }) {
+  const dotStatus =
+    status === 'active' ? 'green' : verdict === 'NO-GO' ? 'red' : 'yellow';
+  return (
+    <div className="flex items-center gap-1.5">
+      <StatusDot status={dotStatus} pulse={status === 'active'} />
+      <span className="text-[0.8125rem] capitalize text-[#8C8880]">{status}</span>
+    </div>
+  );
 }
 
 export default function TestsListPage() {
@@ -44,101 +70,97 @@ export default function TestsListPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      {/* Page header */}
+      <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Validation Tests</h1>
-          <p className="text-sm text-[#A1A1A1] mt-1">
-            48-hour ad validation campaigns
+          <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880] mb-1">
+            Tests
           </p>
+          <h1 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110]">
+            Validation Tests
+          </h1>
         </div>
         <Button
           onClick={() => router.push('/tests/new')}
           disabled={!canLaunch}
+          className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
         >
-          <Plus className="w-4 h-4 mr-2" />
-          {canLaunch ? 'New Test' : 'Blocked by Healthgate'}
+          {canLaunch ? '+ New Test' : 'Blocked by Healthgate'}
         </Button>
       </div>
 
-      {/* Tests table */}
-      <Card>
-        <CardContent className="pt-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#262626]">
-                <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Status</th>
-                <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Name</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Spend</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Leads</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">CTR</th>
-                <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Verdict</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Created</th>
+      {/* Table card */}
+      <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+        <table className="w-full text-[0.875rem]">
+          <thead>
+            <tr className="border-b border-[#E8E4DC]">
+              {['Status', 'Name', 'Spend', 'Leads', 'CTR', 'Verdict', 'Created'].map(
+                (h, i) => (
+                  <th
+                    key={h}
+                    className={`py-3 px-4 text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] ${
+                      i >= 2 ? 'text-right' : 'text-left'
+                    }`}
+                  >
+                    {h}
+                  </th>
+                )
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {tests.map((test, idx) => (
+              <tr
+                key={test.id}
+                onClick={() => router.push(`/tests/${test.id}`)}
+                className={`h-12 cursor-pointer transition-colors hover:bg-[#F3F0EB] ${
+                  idx < tests.length - 1 ? 'border-b border-[#E8E4DC]' : ''
+                }`}
+              >
+                <td className="py-2 px-4">
+                  <StatusPill status={test.status} verdict={test.verdict} />
+                </td>
+                <td className="py-2 px-4 font-medium text-[#111110]">{test.name}</td>
+                <td className="py-2 px-4 text-right font-mono text-[0.8125rem] tabular-nums text-[#111110]">
+                  ${((test.spend_cents || 0) / 100).toFixed(0)}
+                </td>
+                <td className="py-2 px-4 text-right font-mono text-[0.8125rem] tabular-nums text-[#111110]">
+                  {test.leads || 0}
+                </td>
+                <td className="py-2 px-4 text-right font-mono text-[0.8125rem] tabular-nums text-[#111110]">
+                  {((test.ctr || 0) * 100).toFixed(2)}%
+                </td>
+                <td className="py-2 px-4 text-right">
+                  <VerdictPill verdict={test.verdict} />
+                </td>
+                <td className="py-2 px-4 text-right text-[0.8125rem] text-[#8C8880]">
+                  {new Date(test.created_at).toLocaleDateString()}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {tests.map((test) => (
-                <tr
-                  key={test.id}
-                  className="border-b border-[#262626]/50 h-10 hover:bg-[#111111] cursor-pointer transition-colors"
-                  onClick={() => router.push(`/tests/${test.id}`)}
-                >
-                  <td className="py-2 px-3">
-                    <div className="flex items-center gap-2">
-                      <StatusDot
-                        status={
-                          test.status === 'active'
-                            ? 'green'
-                            : test.verdict === 'NO-GO'
-                            ? 'red'
-                            : 'yellow'
-                        }
-                        pulse={test.status === 'active'}
-                      />
-                      <span className="text-xs capitalize">{test.status}</span>
-                    </div>
-                  </td>
-                  <td className="py-2 px-3 font-medium">{test.name}</td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums">
-                    ${((test.spend_cents || 0) / 100).toFixed(0)}
-                  </td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums">
-                    {test.leads || 0}
-                  </td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums">
-                    {((test.ctr || 0) * 100).toFixed(2)}%
-                  </td>
-                  <td className="py-2 px-3">
-                    {test.verdict && (
-                      <Badge variant={test.verdict === 'GO' ? 'success' : 'danger'}>
-                        {test.verdict}
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="py-2 px-3 text-right text-[#A1A1A1] text-xs">
-                    {new Date(test.created_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-              {!loading && tests.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#A1A1A1]">
-                    <Zap className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                    <p>No tests yet. Create your first validation test.</p>
-                  </td>
-                </tr>
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#A1A1A1]">
-                    Loading tests...
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+            ))}
+
+            {!loading && tests.length === 0 && (
+              <tr>
+                <td colSpan={7} className="py-16 text-center">
+                  <p className="text-[#8C8880] text-[0.9375rem]">No tests yet.</p>
+                  <p className="text-[0.8125rem] text-[#8C8880]/60 mt-1">
+                    Create your first validation test to get started.
+                  </p>
+                </td>
+              </tr>
+            )}
+            {loading && (
+              <tr>
+                <td colSpan={7} className="py-16 text-center text-[#8C8880] text-[0.875rem]">
+                  Loading…
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+

@@ -1,17 +1,12 @@
 'use client';
 
-import { useState, use, useEffect, useRef } from 'react';
+import { useState, use, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Zap, ArrowRight, ArrowLeft, Loader2, CheckCircle2, FlaskConical,
-  Users, Target, Sparkles, RefreshCw, Shield, AlertTriangle,
-  ExternalLink, BarChart2, Brain, Wand2, ChevronDown, ChevronUp,
-} from 'lucide-react';
+import { Loader2, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
 import { createTest, createDemoTest } from '../../new/actions';
@@ -51,8 +46,8 @@ function EditField({ label, hint, warn, value, multiline, onChange, onImprove, i
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] text-[#555]">{label}</span>
-        {hint && <span className={`text-[9px] ${warn ? 'text-[#888]' : 'text-[#333]'}`}>{hint}</span>}
+        <span className="text-[0.75rem] text-[#8C8880] font-medium">{label}</span>
+        {hint && <span className={`text-[0.6875rem] ${warn ? 'text-[#D97706]' : 'text-[#8C8880]'}`}>{hint}</span>}
       </div>
       <div className="flex items-start gap-1.5">
         {multiline ? (
@@ -60,13 +55,13 @@ function EditField({ label, hint, warn, value, multiline, onChange, onImprove, i
             value={value}
             rows={3}
             onChange={(e) => onChange(e.target.value)}
-            className={`text-xs flex-1 ${warn ? 'border-[#555]' : ''}`}
+            className={`text-[0.8125rem] flex-1 border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] placeholder:text-[#8C8880]/60 focus:ring-[#111110]/10 resize-none ${warn ? 'border-[#D97706]' : ''}`}
           />
         ) : (
           <Input
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className={`text-xs h-8 flex-1 ${warn ? 'border-[#555]' : ''}`}
+            className={`text-[0.8125rem] h-8 flex-1 border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] placeholder:text-[#8C8880]/60 focus:ring-[#111110]/10 ${warn ? 'border-[#D97706]' : ''}`}
           />
         )}
         <ImproveBtn onClick={onImprove} loading={improving} />
@@ -81,9 +76,9 @@ function ImproveBtn({ onClick, loading }: { onClick: () => void; loading: boolea
       onClick={onClick}
       disabled={loading}
       title="AI Improve"
-      className="shrink-0 w-7 h-7 mt-0.5 flex items-center justify-center rounded border border-[#1E1E1E] hover:border-[#2A2A2A] bg-[#0D0D0D] hover:bg-[#141414] transition-all disabled:opacity-50"
+      className="shrink-0 w-7 h-7 mt-0.5 flex items-center justify-center rounded border border-[#E8E4DC] hover:bg-[#F3F0EB] bg-white transition-all disabled:opacity-50 text-[0.625rem] text-[#8C8880]"
     >
-      {loading ? <Loader2 className="w-3 h-3 animate-spin text-[#555]" /> : <Wand2 className="w-3 h-3 text-[#555]" />}
+      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : '✨'}
     </button>
   );
 }
@@ -350,45 +345,47 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
   if (loadingTest) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 animate-spin text-[#A1A1A1]" />
+        <Loader2 className="w-6 h-6 animate-spin text-[#8C8880]" />
       </div>
     );
   }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-20">
-      {/* Header with genome context */}
+      {/* Header */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm text-[#4A4A4A]">
-          <button onClick={() => router.push('/tests/new')} className="hover:text-[#A1A1A1] transition-colors flex items-center gap-1">
-            <ArrowLeft className="w-3.5 h-3.5" /> New Test
+        <div className="flex items-center gap-2 text-[0.8125rem] text-[#8C8880]">
+          <button
+            onClick={() => router.push('/tests/new')}
+            className="hover:text-[#111110] transition-colors"
+          >
+            ← New Test
           </button>
           <span>/</span>
-          <span className="text-[#A1A1A1] font-mono text-xs truncate max-w-[200px]">{id}</span>
+          <span className="font-mono text-[0.75rem] truncate max-w-[200px]">{id}</span>
         </div>
 
-        {/* Genome context banner */}
+        {/* Genome context */}
         {genome && (
-          <div className={`flex items-start gap-3 p-3 rounded-lg border text-sm ${
-            genome.verdict === 'GO' ? 'border-[#2A2A2A] bg-[#141414]' : 'border-[#2A2A2A] bg-[#141414]'
+          <div className={`flex items-start gap-3 p-3 rounded-xl border text-[0.875rem] ${
+            genome.verdict === 'GO' ? 'border-[#059669]/20 bg-[#ECFDF5]' : 'border-[#E8E4DC] bg-[#F3F0EB]'
           }`}>
-            <FlaskConical className={`w-4 h-4 mt-0.5 shrink-0 ${genome.verdict === 'GO' ? 'text-[#FAFAFA]' : 'text-[#888]'}`} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`font-semibold ${genome.verdict === 'GO' ? 'text-[#FAFAFA]' : 'text-[#888]'}`}>
+                <span className={`font-semibold ${genome.verdict === 'GO' ? 'text-[#059669]' : 'text-[#8C8880]'}`}>
                   Genome: {genome.verdict}
                 </span>
-                <span className="text-[11px] text-[#4A4A4A]">{genome.reasoning_1_sentence}</span>
+                <span className="text-[0.75rem] text-[#8C8880]">{genome.reasoning_1_sentence}</span>
               </div>
-              <div className="flex items-center gap-4 mt-1.5">
-                <span className="text-[10px] text-[#4A4A4A]">
-                  Search: <strong className="text-[#666]">{genome.search_volume_monthly >= 1000 ? `${(genome.search_volume_monthly / 1000).toFixed(1)}K` : genome.search_volume_monthly}/mo</strong>
+              <div className="flex items-center gap-4 mt-1">
+                <span className="text-[0.6875rem] text-[#8C8880]">
+                  Search: <strong className="text-[#111110]">{genome.search_volume_monthly >= 1000 ? `${(genome.search_volume_monthly / 1000).toFixed(1)}K` : genome.search_volume_monthly}/mo</strong>
                 </span>
-                <span className="text-[10px] text-[#4A4A4A]">
-                  Ad density: <strong className="text-[#666]">{genome.competitor_ad_density_0_10.toFixed(1)}/10</strong>
+                <span className="text-[0.6875rem] text-[#8C8880]">
+                  Ad density: <strong className="text-[#111110]">{genome.competitor_ad_density_0_10.toFixed(1)}/10</strong>
                 </span>
-                <span className="text-[10px] text-[#4A4A4A]">
-                  Language fit: <strong className="text-[#666]">{Math.round(genome.language_market_fit_0_100)}/100</strong>
+                <span className="text-[0.6875rem] text-[#8C8880]">
+                  Language fit: <strong className="text-[#111110]">{Math.round(genome.language_market_fit_0_100)}/100</strong>
                 </span>
               </div>
             </div>
@@ -399,16 +396,16 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
         <div className="flex items-center gap-2">
           {STEPS.map((label, i) => (
             <div key={i} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-all ${
-                i === step ? 'border-[#FAFAFA] text-[#FAFAFA] bg-[#FAFAFA]/5' :
-                i < step ? 'border-[#2A2A2A] text-[#FAFAFA]' :
-                'border-[#262626] text-[#4A4A4A]'
+              <div className={`flex items-center gap-1.5 text-[0.75rem] px-2.5 py-1 rounded-full border transition-all ${
+                i === step ? 'border-[#111110] text-[#111110] bg-[#111110]/5' :
+                i < step   ? 'border-[#E8E4DC] text-[#059669]' :
+                             'border-[#E8E4DC] text-[#8C8880]'
               }`}>
                 {i < step && <CheckCircle2 className="w-3 h-3" />}
-                {i === step && <span className="w-1.5 h-1.5 rounded-full bg-[#FAFAFA] inline-block" />}
+                {i === step && <span className="w-1.5 h-1.5 rounded-full bg-[#111110] inline-block" />}
                 {label}
               </div>
-              {i < STEPS.length - 1 && <div className="w-4 h-px bg-[#262626]" />}
+              {i < STEPS.length - 1 && <div className="w-4 h-px bg-[#E8E4DC]" />}
             </div>
           ))}
         </div>
@@ -418,79 +415,87 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
       <AnimatePresence mode="wait">
         {step === 0 && (
           <motion.div key="describe" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Brain className="w-4 h-4" />
+            <div className="bg-white rounded-xl border border-[#E8E4DC] p-5 space-y-4">
+              <div>
+                <p className="font-display text-[1.0625rem] font-bold tracking-[-0.01em] text-[#111110]">
                   Describe your campaign
-                </CardTitle>
-                <CardDescription>
+                </p>
+                <p className="text-[0.8125rem] text-[#8C8880] mt-0.5">
                   Fill in audience and offer — the AI will write production-ready copy for your selected channels.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">Idea</label>
-                  <div className="px-3 py-2 rounded-md border border-[#262626] bg-[#0D0D0D] text-sm text-[#666]">
-                    {ideaFromRecord || 'Loading…'}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">Target Audience</label>
-                  <Input
-                    value={audience}
-                    onChange={(e) => setAudience(e.target.value)}
-                    placeholder="e.g., Dental office managers aged 30-50"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">Offer / Hook</label>
-                  <Textarea
-                    value={offer}
-                    onChange={(e) => setOffer(e.target.value)}
-                    placeholder="e.g., 14-day free trial, no credit card required"
-                    rows={2}
-                  />
-                </div>
+                </p>
+              </div>
 
-                {/* Channel selector */}
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-2 block">Channels</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {CHANNEL_OPTIONS.map((ch) => {
-                      const conn = connectedPlatforms.find((c) => c.platform === ch.id);
-                      const selected = channels.includes(ch.id);
-                      return (
-                        <button
-                          key={ch.id}
-                          onClick={() => toggleChannel(ch.id)}
-                          className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all ${
-                            selected ? 'border-[#FAFAFA]/20 bg-[#FAFAFA]/5' : 'border-[#1E1E1E] hover:border-[#262626]'
-                          }`}
-                        >
-                          <span className="text-lg">{ch.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium">{ch.label}</div>
-                            {conn ? (
-                              <div className="text-[10px] text-[#FAFAFA] flex items-center gap-1"><CheckCircle2 className="w-2.5 h-2.5" />Connected</div>
-                            ) : (
-                              <div className="text-[10px] text-[#4A4A4A]">Demo mode</div>
-                            )}
-                          </div>
-                          {selected && <CheckCircle2 className="w-3.5 h-3.5 text-[#FAFAFA] shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
+              <div>
+                <label className="text-[0.8125rem] text-[#8C8880] mb-1.5 block font-medium">Idea</label>
+                <div className="px-3 py-2 rounded-lg border border-[#E8E4DC] bg-[#F3F0EB] text-[0.8125rem] text-[#111110]">
+                  {ideaFromRecord || 'Loading…'}
                 </div>
+              </div>
+              <div>
+                <label className="text-[0.8125rem] text-[#8C8880] mb-1.5 block font-medium">Target Audience</label>
+                <Input
+                  value={audience}
+                  onChange={(e) => setAudience(e.target.value)}
+                  placeholder="e.g., Dental office managers aged 30–50"
+                  className="border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] placeholder:text-[#8C8880]/60 focus:ring-[#111110]/10"
+                />
+              </div>
+              <div>
+                <label className="text-[0.8125rem] text-[#8C8880] mb-1.5 block font-medium">Offer / Hook</label>
+                <Textarea
+                  value={offer}
+                  onChange={(e) => setOffer(e.target.value)}
+                  placeholder="e.g., 14-day free trial, no credit card required"
+                  rows={2}
+                  className="border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] placeholder:text-[#8C8880]/60 focus:ring-[#111110]/10 resize-none"
+                />
+              </div>
 
-                <div className="flex justify-end pt-2">
-                  <Button onClick={handleGenerate} disabled={channels.length === 0 || generating}>
-                    {generating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating copy…</> : <><Sparkles className="w-4 h-4 mr-2" />Generate Ad Copy</>}
-                  </Button>
+              {/* Channel selector */}
+              <div>
+                <label className="text-[0.8125rem] text-[#8C8880] mb-2 block font-medium">Channels</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {CHANNEL_OPTIONS.map((ch) => {
+                    const conn = connectedPlatforms.find((c) => c.platform === ch.id);
+                    const selected = channels.includes(ch.id);
+                    return (
+                      <button
+                        key={ch.id}
+                        onClick={() => toggleChannel(ch.id)}
+                        className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
+                          selected
+                            ? 'border-[#111110] bg-[#F3F0EB]'
+                            : 'border-[#E8E4DC] bg-white hover:bg-[#FAFAF8]'
+                        }`}
+                      >
+                        <span className="text-lg">{ch.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[0.8125rem] font-medium text-[#111110]">{ch.label}</p>
+                          <p className="text-[0.6875rem] text-[#8C8880]">
+                            {conn ? '● Connected' : 'Demo mode'}
+                          </p>
+                        </div>
+                        {selected && <CheckCircle2 className="w-3.5 h-3.5 text-[#111110] shrink-0" />}
+                      </button>
+                    );
+                  })}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleGenerate}
+                  disabled={channels.length === 0 || generating}
+                  className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
+                >
+                  {generating ? (
+                    <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Generating copy…</>
+                  ) : (
+                    'Generate Ad Copy'
+                  )}
+                </Button>
+              </div>
+            </div>
           </motion.div>
         )}
 
@@ -506,10 +511,10 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                   <button
                     key={ch}
                     onClick={() => setActiveChannel(ch)}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all border ${
+                    className={`px-3 py-1.5 rounded-full text-[0.8125rem] font-medium transition-all border ${
                       activeChannel === ch
-                        ? 'bg-[#FAFAFA]/8 border-[#FAFAFA]/20 text-[#FAFAFA]'
-                        : 'border-transparent text-[#4A4A4A] hover:text-[#A1A1A1]'
+                        ? 'bg-[#111110] border-[#111110] text-white'
+                        : 'border-[#E8E4DC] text-[#8C8880] hover:bg-[#F3F0EB]'
                     }`}
                   >
                     {opt?.icon} {opt?.label}
@@ -522,9 +527,8 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
             {activeChannel === 'meta' && editedMeta && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-                  {/* Preview */}
                   <div>
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Live Preview</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">Live Preview</p>
                     <MetaAdPreview
                       headline={editedMeta.headline}
                       primary_text={editedMeta.primary_text}
@@ -534,9 +538,8 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                       onImageUpload={(url) => setAdImages((p) => ({ ...p, meta: url }))}
                     />
                   </div>
-                  {/* Edit fields */}
                   <div className="space-y-3">
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Copy</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">Edit Copy</p>
 
                     <EditField
                       label="Headline"
@@ -558,14 +561,16 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                       improving={improving === 'meta:primary_text'}
                     />
                     <div>
-                      <div className="text-[10px] text-[#555] mb-1.5">CTA Button</div>
+                      <p className="text-[0.75rem] text-[#8C8880] font-medium mb-1.5">CTA Button</p>
                       <div className="flex flex-wrap gap-1.5">
                         {(['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'GET_QUOTE', 'BOOK_NOW'] as const).map((c) => (
                           <button
                             key={c}
                             onClick={() => setEditedMeta((p) => p ? { ...p, cta: c } : null)}
-                            className={`px-2.5 py-1 rounded text-[10px] font-medium border transition-all ${
-                              editedMeta.cta === c ? 'border-[#FAFAFA]/30 bg-[#FAFAFA]/8 text-[#FAFAFA]' : 'border-[#1E1E1E] text-[#555] hover:border-[#2A2A2A]'
+                            className={`px-2.5 py-1 rounded-full text-[0.6875rem] font-medium border transition-all ${
+                              editedMeta.cta === c
+                                ? 'border-[#111110] bg-[#111110] text-white'
+                                : 'border-[#E8E4DC] text-[#8C8880] hover:bg-[#F3F0EB]'
                             }`}
                           >
                             {c.replace(/_/g, ' ')}
@@ -583,7 +588,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
               <div className="space-y-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
                   <div>
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">SERP Preview</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">SERP Preview</p>
                     <GoogleAdPreview
                       headlines={editedGoogle.headlines}
                       descriptions={editedGoogle.descriptions}
@@ -593,18 +598,18 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                     />
                   </div>
                   <div className="space-y-3">
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Copy</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">Edit Copy</p>
                     <div>
-                      <div className="text-[10px] text-[#555] mb-1.5">Headlines <span className="text-[#333]">(max 30 chars each)</span></div>
+                      <p className="text-[0.75rem] text-[#8C8880] font-medium mb-1.5">Headlines <span className="text-[#8C8880]/60">(max 30 chars each)</span></p>
                       <div className="space-y-1.5">
                         {editedGoogle.headlines.map((h, i) => (
                           <div key={i} className="flex items-center gap-1.5">
                             <Input
                               value={h}
                               onChange={(e) => setEditedGoogle((p) => p ? { ...p, headlines: p.headlines.map((x, j) => j === i ? e.target.value : x) } : null)}
-                              className={`text-xs h-8 ${h.length > 30 ? 'border-[#555]' : ''}`}
+                              className={`text-[0.8125rem] h-8 border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] focus:ring-[#111110]/10 ${h.length > 30 ? 'border-[#D97706]' : ''}`}
                             />
-                            <span className={`text-[9px] w-6 text-right shrink-0 ${h.length > 30 ? 'text-[#888]' : 'text-[#333]'}`}>{h.length}</span>
+                            <span className={`text-[0.6875rem] w-6 text-right shrink-0 ${h.length > 30 ? 'text-[#D97706]' : 'text-[#8C8880]'}`}>{h.length}</span>
                             {i === 0 && (
                               <ImproveBtn
                                 onClick={() => handleImprove('google', 'google_headline', h)}
@@ -616,7 +621,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-[#555] mb-1.5">Descriptions <span className="text-[#333]">(max 90 chars each)</span></div>
+                      <p className="text-[0.75rem] text-[#8C8880] font-medium mb-1.5">Descriptions <span className="text-[#8C8880]/60">(max 90 chars each)</span></p>
                       <div className="space-y-1.5">
                         {editedGoogle.descriptions.map((d, i) => (
                           <div key={i} className="flex items-start gap-1.5">
@@ -624,10 +629,10 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                               value={d}
                               rows={2}
                               onChange={(e) => setEditedGoogle((p) => p ? { ...p, descriptions: p.descriptions.map((x, j) => j === i ? e.target.value : x) } : null)}
-                              className={`text-xs ${d.length > 90 ? 'border-[#555]' : ''}`}
+                              className={`text-[0.8125rem] border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] focus:ring-[#111110]/10 resize-none ${d.length > 90 ? 'border-[#D97706]' : ''}`}
                             />
                             <div className="flex flex-col gap-1">
-                              <span className={`text-[9px] w-6 text-right shrink-0 ${d.length > 90 ? 'text-[#888]' : 'text-[#333]'}`}>{d.length}</span>
+                              <span className={`text-[0.6875rem] w-6 text-right shrink-0 ${d.length > 90 ? 'text-[#D97706]' : 'text-[#8C8880]'}`}>{d.length}</span>
                               {i === 0 && (
                                 <ImproveBtn
                                   onClick={() => handleImprove('google', 'google_description', d)}
@@ -641,10 +646,10 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                     </div>
                     {editedGoogle.keywords && editedGoogle.keywords.length > 0 && (
                       <div>
-                        <div className="text-[10px] text-[#555] mb-1.5">Keywords</div>
+                        <p className="text-[0.75rem] text-[#8C8880] font-medium mb-1.5">Keywords</p>
                         <div className="flex flex-wrap gap-1">
                           {editedGoogle.keywords.map((k) => (
-                            <span key={k} className="text-[10px] px-1.5 py-0.5 bg-[#1A1A1A] border border-[#262626] rounded text-[#666]">{k}</span>
+                            <span key={k} className="text-[0.6875rem] px-2 py-0.5 bg-[#F3F0EB] border border-[#E8E4DC] rounded-full text-[#8C8880]">{k}</span>
                           ))}
                         </div>
                       </div>
@@ -659,7 +664,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
               <div className="space-y-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
                   <div>
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">In-Feed Preview</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">In-Feed Preview</p>
                     <TikTokAdPreview
                       hook={editedTikTok.hook}
                       script={editedTikTok.script}
@@ -670,7 +675,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                     />
                   </div>
                   <div className="space-y-3">
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Script</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">Edit Script</p>
                     <EditField
                       label="Hook (first 3 seconds)"
                       hint="Bold claim or question — max 15 words"
@@ -680,16 +685,16 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                       improving={improving === 'tiktok:hook'}
                     />
                     <div>
-                      <div className="text-[10px] text-[#555] mb-1.5">Script Beats</div>
+                      <p className="text-[0.75rem] text-[#8C8880] font-medium mb-1.5">Script Beats</p>
                       <div className="space-y-1.5">
                         {editedTikTok.script.map((beat, i) => (
                           <div key={i} className="flex items-start gap-1.5">
-                            <span className="text-[10px] text-[#333] mt-2 w-4 shrink-0">{i + 1}.</span>
+                            <span className="text-[0.75rem] text-[#8C8880] mt-2 w-4 shrink-0">{i + 1}.</span>
                             <Textarea
                               value={beat}
                               rows={2}
                               onChange={(e) => setEditedTikTok((p) => p ? { ...p, script: p.script.map((x, j) => j === i ? e.target.value : x) } : null)}
-                              className="text-xs flex-1"
+                              className="text-[0.8125rem] flex-1 border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] focus:ring-[#111110]/10 resize-none"
                             />
                             <ImproveBtn
                               onClick={() => handleImprove('tiktok', 'script_beat', beat)}
@@ -717,7 +722,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
               <div className="space-y-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
                   <div>
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Sponsored Preview</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">Sponsored Preview</p>
                     <LinkedInAdPreview
                       headline={editedLinkedIn.headline}
                       intro_text={editedLinkedIn.intro_text}
@@ -728,7 +733,7 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                     />
                   </div>
                   <div className="space-y-3">
-                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Copy</div>
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2">Edit Copy</p>
                     <EditField
                       label="Headline"
                       hint={`${editedLinkedIn.headline.length}/70 chars`}
@@ -749,14 +754,16 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                       improving={improving === 'linkedin:linkedin_intro'}
                     />
                     <div>
-                      <div className="text-[10px] text-[#555] mb-1.5">CTA Button</div>
+                      <p className="text-[0.75rem] text-[#8C8880] font-medium mb-1.5">CTA Button</p>
                       <div className="flex flex-wrap gap-1.5">
                         {(['LEARN_MORE', 'SIGN_UP', 'GET_QUOTE', 'CONTACT_US', 'DOWNLOAD'] as const).map((c) => (
                           <button
                             key={c}
                             onClick={() => setEditedLinkedIn((p) => p ? { ...p, cta: c } : null)}
-                            className={`px-2.5 py-1 rounded text-[10px] font-medium border transition-all ${
-                              editedLinkedIn.cta === c ? 'border-[#FAFAFA]/30 bg-[#FAFAFA]/8 text-[#FAFAFA]' : 'border-[#1E1E1E] text-[#555] hover:border-[#2A2A2A]'
+                            className={`px-2.5 py-1 rounded-full text-[0.6875rem] font-medium border transition-all ${
+                              editedLinkedIn.cta === c
+                                ? 'border-[#111110] bg-[#111110] text-white'
+                                : 'border-[#E8E4DC] text-[#8C8880] hover:bg-[#F3F0EB]'
                             }`}
                           >
                             {c.replace(/_/g, ' ')}
@@ -772,26 +779,51 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
             {/* Legacy meta-only angles */}
             {legacyResult && !goResult && (
               <div className="space-y-3">
-                <div className="text-xs text-[#4A4A4A] px-1">ICP: {legacyResult.icp} · Value prop: {legacyResult.value_prop}</div>
+                <p className="text-[0.75rem] text-[#8C8880] px-1">ICP: {legacyResult.icp} · Value prop: {legacyResult.value_prop}</p>
                 {editedAngles.map((angle, i) => (
-                  <Card key={i} className={`cursor-pointer transition-all ${selectedIdx === i ? 'border-[#FAFAFA]/30' : 'border-[#1E1E1E]'}`} onClick={() => { setSelectedIdx(i); setEditedMeta({ headline: angle.headline, primary_text: angle.primary_text, cta: angle.cta }); }}>
-                    <CardContent className="pt-4 space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <Badge variant="outline">Angle {i + 1}</Badge>
-                        {selectedIdx === i && <CheckCircle2 className="w-4 h-4 text-[#FAFAFA]" />}
-                      </div>
-                      <Input value={angle.headline} onChange={(e) => setEditedAngles((prev) => prev.map((a, j) => j === i ? { ...a, headline: e.target.value } : a))} className="font-medium" />
-                      <Textarea value={angle.primary_text} rows={2} onChange={(e) => setEditedAngles((prev) => prev.map((a, j) => j === i ? { ...a, primary_text: e.target.value } : a))} />
-                      <Badge variant="outline">{angle.cta}</Badge>
-                    </CardContent>
-                  </Card>
+                  <div
+                    key={i}
+                    className={`cursor-pointer bg-white rounded-xl border p-4 space-y-2 transition-all ${
+                      selectedIdx === i ? 'border-[#111110]' : 'border-[#E8E4DC] hover:border-[#8C8880]'
+                    }`}
+                    onClick={() => { setSelectedIdx(i); setEditedMeta({ headline: angle.headline, primary_text: angle.primary_text, cta: angle.cta }); }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="text-[0.6875rem] border-[#E8E4DC]">Angle {i + 1}</Badge>
+                      {selectedIdx === i && <CheckCircle2 className="w-4 h-4 text-[#111110]" />}
+                    </div>
+                    <Input
+                      value={angle.headline}
+                      onChange={(e) => setEditedAngles((prev) => prev.map((a, j) => j === i ? { ...a, headline: e.target.value } : a))}
+                      className="font-medium border-[#E8E4DC] bg-[#FAFAF8] text-[#111110]"
+                    />
+                    <Textarea
+                      value={angle.primary_text}
+                      rows={2}
+                      onChange={(e) => setEditedAngles((prev) => prev.map((a, j) => j === i ? { ...a, primary_text: e.target.value } : a))}
+                      className="border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] resize-none"
+                    />
+                    <Badge variant="outline" className="text-[0.6875rem] border-[#E8E4DC]">{angle.cta}</Badge>
+                  </div>
                 ))}
               </div>
             )}
 
             <div className="flex items-center justify-between pt-2">
-              <Button variant="outline" size="sm" onClick={() => setStep(0)}><ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back</Button>
-              <Button onClick={() => setStep(2)}>Continue to Deploy <ArrowRight className="w-4 h-4 ml-2" /></Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep(0)}
+                className="border-[#E8E4DC] text-[#111110] hover:bg-[#F3F0EB]"
+              >
+                ← Back
+              </Button>
+              <Button
+                onClick={() => setStep(2)}
+                className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0"
+              >
+                Continue to Deploy →
+              </Button>
             </div>
           </motion.div>
         )}
@@ -799,85 +831,114 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
         {/* ── STEP 2: Deploy ── */}
         {step === 2 && (
           <motion.div key="deploy" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2"><Zap className="w-4 h-4" />Launch Campaign</CardTitle>
-                <CardDescription>
+            <div className="bg-white rounded-xl border border-[#E8E4DC] p-5 space-y-4">
+              <div>
+                <p className="font-display text-[1.0625rem] font-bold tracking-[-0.01em] text-[#111110]">
+                  Launch Campaign
+                </p>
+                <p className="text-[0.8125rem] text-[#8C8880] mt-0.5">
                   {channels.length > 1
                     ? `Deploying to ${channels.length} channels in parallel. Meta is live — other channels are simulated (Phase 2–4).`
                     : 'Demo mode works without a connected ad account.'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">Brand Name (optional)</label>
-                  <Input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="e.g., Dentflow" />
-                </div>
+                </p>
+              </div>
 
-                {/* Per-channel deploy status rows */}
-                <div className="rounded-lg border border-[#1E1E1E] divide-y divide-[#141414] overflow-hidden">
-                  {channels.map((ch) => {
-                    const opt = CHANNEL_OPTIONS.find((o) => o.id === ch)!;
-                    const conn = connectedPlatforms.find((c) => c.platform === ch);
-                    const status = channelStatuses[ch];
-                    const err = channelErrors[ch];
-                    return (
-                      <div key={ch} className="flex items-center gap-3 px-4 py-3 text-sm">
-                        <span className="text-base w-5">{opt.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13px] font-medium">{opt.label}</div>
-                          <div className="text-[10px] text-[#444]">
-                            {ch === 'meta'
-                              ? conn ? 'Live deploy via Meta Marketing API' : 'Demo mode — no account connected'
-                              : 'Simulated deploy (API integration in Phase 2–4)'}
-                          </div>
-                          {err && <div className="text-[10px] text-[#888] mt-0.5">{err}</div>}
-                        </div>
-                        <div className="shrink-0">
-                          {!status && <span className="text-[10px] text-[#333] font-mono">READY</span>}
-                          {status === 'running' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#555]" />}
-                          {(status === 'done' || status === 'demo') && <CheckCircle2 className="w-3.5 h-3.5 text-[#FAFAFA]" />}
-                          {status === 'error' && <AlertTriangle className="w-3.5 h-3.5 text-[#666]" />}
-                        </div>
+              <div>
+                <label className="text-[0.8125rem] text-[#8C8880] mb-1.5 block font-medium">Brand Name (optional)</label>
+                <Input
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="e.g., Dentflow"
+                  className="border-[#E8E4DC] bg-[#FAFAF8] text-[#111110] placeholder:text-[#8C8880]/60 focus:ring-[#111110]/10"
+                />
+              </div>
+
+              {/* Per-channel deploy status rows */}
+              <div className="rounded-xl border border-[#E8E4DC] divide-y divide-[#E8E4DC] overflow-hidden">
+                {channels.map((ch) => {
+                  const opt = CHANNEL_OPTIONS.find((o) => o.id === ch)!;
+                  const conn = connectedPlatforms.find((c) => c.platform === ch);
+                  const status = channelStatuses[ch];
+                  const err = channelErrors[ch];
+                  return (
+                    <div key={ch} className="flex items-center gap-3 px-4 py-3">
+                      <span className="text-base w-5">{opt.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[0.875rem] font-medium text-[#111110]">{opt.label}</p>
+                        <p className="text-[0.6875rem] text-[#8C8880]">
+                          {ch === 'meta'
+                            ? conn ? 'Live deploy via Meta Marketing API' : 'Demo mode — no account connected'
+                            : 'Simulated deploy (API integration in Phase 2–4)'}
+                        </p>
+                        {err && <p className="text-[0.6875rem] text-[#DC2626] mt-0.5">{err}</p>}
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="shrink-0">
+                        {!status && <span className="text-[0.6875rem] text-[#8C8880] font-mono">READY</span>}
+                        {status === 'running' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#8C8880]" />}
+                        {(status === 'done' || status === 'demo') && <CheckCircle2 className="w-3.5 h-3.5 text-[#059669]" />}
+                        {status === 'error' && <span className="text-[0.6875rem] text-[#DC2626]">✗</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-                {/* Summary row */}
-                <div className="rounded-lg border border-[#262626] divide-y divide-[#1E1E1E] text-sm">
-                  <div className="flex justify-between px-4 py-2.5"><span className="text-[#4A4A4A]">Idea</span><span className="text-right max-w-[60%] truncate">{ideaFromRecord}</span></div>
-                  <div className="flex justify-between px-4 py-2.5"><span className="text-[#4A4A4A]">Audience</span><span className="text-right max-w-[60%] truncate">{audience || '—'}</span></div>
-                  <div className="flex justify-between px-4 py-2.5">
-                    <span className="text-[#4A4A4A]">Meta account</span>
-                    <span className={activeAccountId ? 'text-[#FAFAFA]' : 'text-[#4A4A4A]'}>{activeAccountId ? 'Connected' : 'Not connected'}</span>
-                  </div>
+              {/* Summary */}
+              <div className="rounded-xl border border-[#E8E4DC] divide-y divide-[#E8E4DC] text-[0.875rem]">
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[#8C8880]">Idea</span>
+                  <span className="text-right max-w-[60%] truncate text-[#111110]">{ideaFromRecord}</span>
                 </div>
-
-                {deployError && (
-                  <div className="flex items-start gap-2 p-3 rounded-md border border-[#2A2A2A] bg-[#141414] text-sm text-[#777]">
-                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{deployError}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 pt-1">
-                  <Button variant="outline" size="sm" onClick={() => setStep(1)} disabled={deploying || demoDeploying}>
-                    <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back
-                  </Button>
-                  <div className="flex-1" />
-                  <Button variant="outline" onClick={() => handleDeploy(true)} disabled={demoDeploying || deploying}>
-                    {demoDeploying
-                      ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Simulating {channels.length} channel{channels.length > 1 ? 's' : ''}…</>
-                      : <><Zap className="w-4 h-4 mr-2" />Demo Deploy</>}
-                  </Button>
-                  <Button onClick={() => handleDeploy(false)} disabled={!activeAccountId || deploying || demoDeploying}>
-                    {deploying
-                      ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Launching {channels.length} channel{channels.length > 1 ? 's' : ''}…</>
-                      : <><ExternalLink className="w-4 h-4 mr-2" />Live Deploy</>}
-                  </Button>
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[#8C8880]">Audience</span>
+                  <span className="text-right max-w-[60%] truncate text-[#111110]">{audience || '—'}</span>
                 </div>
-              </CardContent>
-            </Card>
+                <div className="flex justify-between px-4 py-2.5">
+                  <span className="text-[#8C8880]">Meta account</span>
+                  <span className={activeAccountId ? 'text-[#059669]' : 'text-[#8C8880]'}>
+                    {activeAccountId ? 'Connected' : 'Not connected'}
+                  </span>
+                </div>
+              </div>
+
+              {deployError && (
+                <div className="p-3 rounded-xl border border-[#DC2626]/20 bg-[#FEF2F2] text-[0.875rem] text-[#DC2626]">
+                  {deployError}
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep(1)}
+                  disabled={deploying || demoDeploying}
+                  className="border-[#E8E4DC] text-[#111110] hover:bg-[#F3F0EB]"
+                >
+                  ← Back
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  onClick={() => handleDeploy(true)}
+                  disabled={demoDeploying || deploying}
+                  className="border-[#E8E4DC] text-[#111110] hover:bg-[#F3F0EB]"
+                >
+                  {demoDeploying
+                    ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Simulating…</>
+                    : 'Demo Deploy'}
+                </Button>
+                <Button
+                  onClick={() => handleDeploy(false)}
+                  disabled={!activeAccountId || deploying || demoDeploying}
+                  className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
+                >
+                  {deploying
+                    ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Launching…</>
+                    : 'Live Deploy'}
+                </Button>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

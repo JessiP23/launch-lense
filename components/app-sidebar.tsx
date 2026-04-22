@@ -2,24 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  Shield,
-  Zap,
-  BarChart3,
-  FileText,
-  Settings,
-  ChevronRight,
-} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { HealthgateRing } from '@/components/healthgate-ring';
 import { useAppStore } from '@/lib/store';
 
 const navItems = [
-  { href: '/accounts', label: 'Accounts', icon: Shield },
-  { href: '/tests', label: 'Tests', icon: Zap },
-  { href: '/reports', label: 'Reports', icon: BarChart3 },
-  { href: '/benchmarks', label: 'Benchmarks', icon: FileText },
-  { href: '/settings', label: 'Settings', icon: Settings },
+  { href: '/accounts',   label: 'Accounts' },
+  { href: '/tests',      label: 'Tests' },
+  { href: '/reports',    label: 'Reports' },
+  { href: '/benchmarks', label: 'Benchmarks' },
+  { href: '/settings',   label: 'Settings' },
 ];
 
 export function AppSidebar() {
@@ -27,31 +19,33 @@ export function AppSidebar() {
   const healthSnapshot = useAppStore((s) => s.healthSnapshot);
 
   return (
-    <aside className="flex flex-col w-56 border-r border-[#262626] bg-[#0A0A0A] h-full">
+    <aside className="flex flex-col w-56 border-r border-[#E8E4DC] bg-[#FAFAF8] h-full">
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 h-14 border-b border-[#262626]">
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          {/* Lens aperture mark */}
-          <circle cx="11" cy="11" r="10" stroke="#FAFAFA" strokeWidth="1.5" />
-          <circle cx="11" cy="11" r="5.5" fill="#FAFAFA" />
-          {/* Launch arrow */}
-          <path d="M9 13L13 9M13 9H10M13 9V12" stroke="#0A0A0A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <div className="flex items-center gap-2.5 px-5 h-14 border-b border-[#E8E4DC]">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="10" cy="10" r="9" stroke="#111110" strokeWidth="1.5" />
+          <circle cx="10" cy="10" r="5" fill="#111110" />
+          <path d="M8.5 11.5L11.5 8.5M11.5 8.5H9.5M11.5 8.5V10.5" stroke="#FAFAF8" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span className="font-semibold text-sm tracking-tight">LaunchLense</span>
+        <span className="font-display text-[0.9375rem] font-bold tracking-tight text-[#111110]">
+          LaunchLense
+        </span>
       </div>
 
       {/* Healthgate summary */}
       {healthSnapshot && (
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[#262626]">
+        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-[#E8E4DC]">
           <HealthgateRing
             score={healthSnapshot.score}
             status={healthSnapshot.status}
             checks={healthSnapshot.checks}
-            size={40}
+            size={38}
           />
-          <div className="text-xs">
-            <div className="text-[#A1A1A1]">Healthgate™</div>
-            <div className="font-mono font-bold tabular-nums">
+          <div>
+            <div className="text-[0.625rem] uppercase tracking-[0.08em] text-[#8C8880] font-medium">
+              Healthgate™
+            </div>
+            <div className="font-mono font-bold tabular-nums text-[0.8125rem] text-[#111110]">
               {healthSnapshot.score}/100
             </div>
           </div>
@@ -59,7 +53,7 @@ export function AppSidebar() {
       )}
 
       {/* Nav */}
-      <nav className="flex-1 py-2 space-y-0.5">
+      <nav className="flex-1 py-3 space-y-px px-3">
         {navItems.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
@@ -67,25 +61,21 @@ export function AppSidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                'flex items-center gap-2.5 px-4 py-2 text-sm transition-colors',
+                'flex items-center px-3 py-[7px] text-[0.875rem] transition-colors rounded-lg',
                 isActive
-                  ? 'text-[#FAFAFA] bg-[#171717]'
-                  : 'text-[#A1A1A1] hover:text-[#FAFAFA] hover:bg-[#111111]'
+                  ? 'bg-[#F3F0EB] text-[#111110] font-medium border-l-2 border-[#111110] rounded-l-none pl-[10px]'
+                  : 'text-[#8C8880] hover:text-[#111110] hover:bg-[#F3F0EB] font-normal'
               )}
             >
-              <item.icon className="w-4 h-4" />
-              <span>{item.label}</span>
-              {isActive && <ChevronRight className="w-3 h-3 ml-auto" />}
+              {item.label}
             </Link>
           );
         })}
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-[#262626]">
-        <div className="text-[10px] text-[#A1A1A1]">
-          LaunchLense v0.1
-        </div>
+      <div className="px-5 py-4 border-t border-[#E8E4DC]">
+        <div className="text-[0.6875rem] text-[#8C8880]">LaunchLense v0.1</div>
       </div>
     </aside>
   );
