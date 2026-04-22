@@ -29,11 +29,15 @@ export function AppSidebar() {
   return (
     <aside className="flex flex-col w-56 border-r border-[#262626] bg-[#0A0A0A] h-full">
       {/* Logo */}
-      <div className="flex items-center gap-2 px-4 h-14 border-b border-[#262626]">
-        <div className="w-6 h-6 rounded bg-[#FAFAFA] flex items-center justify-center">
-          <span className="text-[#0A0A0A] text-xs font-bold">LL</span>
-        </div>
-        <span className="font-semibold text-sm">LaunchLense</span>
+      <div className="flex items-center gap-2.5 px-4 h-14 border-b border-[#262626]">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          {/* Lens aperture mark */}
+          <circle cx="11" cy="11" r="10" stroke="#FAFAFA" strokeWidth="1.5" />
+          <circle cx="11" cy="11" r="5.5" fill="#FAFAFA" />
+          {/* Launch arrow */}
+          <path d="M9 13L13 9M13 9H10M13 9V12" stroke="#0A0A0A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="font-semibold text-sm tracking-tight">LaunchLense</span>
       </div>
 
       {/* Healthgate summary */}

@@ -38,12 +38,13 @@ export async function POST(request: NextRequest) {
     );
 
     // Normalize — ensure requested channels have values, non-requested are null
+    // Note: GoOutput uses 'twitter' field to carry TikTok script data (same structure)
     const output: GoOutput = {
       meta: channels.includes('meta') ? (result.meta ?? null) : null,
       google: channels.includes('google') ? (result.google ?? null) : null,
-      reddit: channels.includes('reddit' as Platform) ? (result.reddit ?? null) : null,
-      twitter: channels.includes('twitter' as Platform) ? (result.twitter ?? null) : null,
-      typeform: channels.includes('typeform' as Platform) ? (result.typeform ?? null) : null,
+      reddit: null,
+      twitter: channels.includes('tiktok') ? (result.twitter ?? null) : null,
+      typeform: null,
     };
 
     // Clamp Meta fields if present

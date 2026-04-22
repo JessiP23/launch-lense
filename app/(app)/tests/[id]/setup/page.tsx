@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, use, useEffect } from 'react';
+import { useState, use, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Zap, ArrowRight, ArrowLeft, Loader2, CheckCircle2, FlaskConical,
   Users, Target, Sparkles, RefreshCw, Shield, AlertTriangle,
-  ExternalLink, BarChart2, Brain,
+  ExternalLink, BarChart2, Brain, Wand2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,9 @@ import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/lib/store';
 import { createTest, createDemoTest } from '../../new/actions';
 import type { GoOutput, Platform, GenomeOutput } from '@/lib/prompts';
+import {
+  MetaAdPreview, GoogleAdPreview, TikTokAdPreview, LinkedInAdPreview,
+} from '@/components/ad-preview';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +33,60 @@ const CHANNEL_OPTIONS: { id: Platform; label: string; color: string; icon: strin
 ];
 
 const STEPS = ['Describe', 'Generate Copy', 'Preview & Deploy'];
+
+// ── Shared sub-components ──────────────────────────────────────────────────
+
+interface EditFieldProps {
+  label: string;
+  hint?: string;
+  warn?: boolean;
+  value: string;
+  multiline?: boolean;
+  onChange: (v: string) => void;
+  onImprove: () => void;
+  improving: boolean;
+}
+
+function EditField({ label, hint, warn, value, multiline, onChange, onImprove, improving }: EditFieldProps) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] text-[#555]">{label}</span>
+        {hint && <span className={`text-[9px] ${warn ? 'text-[#888]' : 'text-[#333]'}`}>{hint}</span>}
+      </div>
+      <div className="flex items-start gap-1.5">
+        {multiline ? (
+          <Textarea
+            value={value}
+            rows={3}
+            onChange={(e) => onChange(e.target.value)}
+            className={`text-xs flex-1 ${warn ? 'border-[#555]' : ''}`}
+          />
+        ) : (
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className={`text-xs h-8 flex-1 ${warn ? 'border-[#555]' : ''}`}
+          />
+        )}
+        <ImproveBtn onClick={onImprove} loading={improving} />
+      </div>
+    </div>
+  );
+}
+
+function ImproveBtn({ onClick, loading }: { onClick: () => void; loading: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      title="AI Improve"
+      className="shrink-0 w-7 h-7 mt-0.5 flex items-center justify-center rounded border border-[#1E1E1E] hover:border-[#2A2A2A] bg-[#0D0D0D] hover:bg-[#141414] transition-all disabled:opacity-50"
+    >
+      {loading ? <Loader2 className="w-3 h-3 animate-spin text-[#555]" /> : <Wand2 className="w-3 h-3 text-[#555]" />}
+    </button>
+  );
+}
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -63,6 +120,73 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
   const [deploying, setDeploying] = useState(false);
   const [demoDeploying, setDemoDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+
+  // ── Editable copy state per platform ──────────────────────────────────
+  const [editedMeta, setEditedMeta] = useState<{ headline: string; primary_text: string; cta: string } | null>(null);
+  const [editedGoogle, setEditedGoogle] = useState<{ headlines: string[]; descriptions: string[]; path1: string; path2: string; keywords?: string[] } | null>(null);
+  const [editedTikTok, setEditedTikTok] = useState<{ hook: string; script: string[]; cta: string } | null>(null);
+  const [editedLinkedIn, setEditedLinkedIn] = useState<{ headline: string; intro_text: string; cta: string } | null>(null);
+
+  // Ad images per platform
+  const [adImages, setAdImages] = useState<Partial<Record<Platform, string>>>({});
+
+  // AI improve state — tracks which field is being improved
+  const [improving, setImproving] = useState<string | null>(null);
+
+  // Initialize editable states when AI result arrives
+  useEffect(() => {
+    if (goResult) {
+      if (goResult.meta) setEditedMeta({ headline: goResult.meta.headline, primary_text: goResult.meta.primary_text, cta: goResult.meta.cta });
+      if (goResult.google) setEditedGoogle({ headlines: [...goResult.google.headlines], descriptions: [...goResult.google.descriptions], path1: goResult.google.path1 ?? 'app', path2: goResult.google.path2 ?? 'trial', keywords: goResult.google.keywords });
+      if (goResult.twitter) {
+        setEditedTikTok({ hook: goResult.twitter.tweet_1_hook, script: [...(goResult.twitter.thread_body ?? [])], cta: goResult.twitter.cta_link_text ?? 'Learn More' });
+      } else if (channels.includes('tiktok')) {
+        // Fallback if LLM didn't return tiktok data
+        setEditedTikTok({ hook: `Stop scrolling — ${ideaFromRecord.slice(0, 40)}`, script: ['Here\'s the problem...', 'We built a solution.', 'Try it free today.'], cta: 'Learn More' });
+      }
+      // LinkedIn: synthesize from meta if no dedicated linkedin field
+      if (goResult.meta) setEditedLinkedIn({ headline: goResult.meta.headline, intro_text: goResult.meta.primary_text, cta: goResult.meta.cta });
+    }
+    if (legacyResult?.angles?.[0]) {
+      const a = legacyResult.angles[selectedIdx] ?? legacyResult.angles[0];
+      setEditedMeta({ headline: a.headline, primary_text: a.primary_text, cta: a.cta });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goResult, legacyResult]);
+
+  // AI improve helper
+  const handleImprove = async (platform: Platform, field: string, currentValue: string) => {
+    const key = `${platform}:${field}`;
+    setImproving(key);
+    try {
+      const res = await fetch('/api/angle/improve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, field, value: currentValue, idea: ideaFromRecord, audience, offer }),
+      });
+      const data = await res.json() as { improved?: string };
+      if (!data.improved) return;
+      const v = data.improved;
+      if (platform === 'meta') {
+        setEditedMeta((prev) => prev ? { ...prev, [field]: v } : null);
+        if (legacyResult) setEditedAngles((prev) => prev.map((a, i) => i === selectedIdx ? { ...a, [field]: v } : a));
+      } else if (platform === 'google') {
+        if (field === 'google_headline') {
+          setEditedGoogle((prev) => prev ? { ...prev, headlines: prev.headlines.map((h, i) => i === 0 ? v : h) } : null);
+        } else if (field === 'google_description') {
+          setEditedGoogle((prev) => prev ? { ...prev, descriptions: prev.descriptions.map((d, i) => i === 0 ? v : d) } : null);
+        }
+      } else if (platform === 'tiktok') {
+        setEditedTikTok((prev) => prev ? { ...prev, [field]: v } : null);
+      } else if (platform === 'linkedin') {
+        setEditedLinkedIn((prev) => prev ? { ...prev, [field]: v } : null);
+      }
+    } catch (err) {
+      console.error('[improve]', err);
+    } finally {
+      setImproving(null);
+    }
+  };
 
   // Load test record to get genome + idea
   useEffect(() => {
@@ -142,44 +266,71 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
     return null;
   };
 
-  const handleDemoDeploy = async () => {
-    setDemoDeploying(true);
-    await new Promise((r) => setTimeout(r, 1400));
-    const angle = getSelectedAngle();
+  // ── Step 2: Multi-channel deploy ─────────────────────────────────────
+
+  type DeployStatus = 'pending' | 'running' | 'done' | 'error' | 'demo';
+  const [channelStatuses, setChannelStatuses] = useState<Partial<Record<Platform, DeployStatus>>>({});
+  const [channelErrors, setChannelErrors] = useState<Partial<Record<Platform, string>>>({});
+
+  const setChannelStatus = (ch: Platform, s: DeployStatus) =>
+    setChannelStatuses((p) => ({ ...p, [ch]: s }));
+  const setChannelError = (ch: Platform, msg: string) =>
+    setChannelErrors((p) => ({ ...p, [ch]: msg }));
+
+  const getMetaAngle = () => {
+    if (editedMeta) return editedMeta;
+    if (legacyResult) return editedAngles[selectedIdx] || legacyResult.angles[0];
+    return null;
+  };
+
+  /** Deploy a single channel. Returns true on success. */
+  const deployChannel = async (ch: Platform, isDemo: boolean): Promise<boolean> => {
+    setChannelStatus(ch, 'running');
     try {
-      await createDemoTest({ idea: ideaFromRecord, audience, offer, angle: angle || { headline: 'Demo', primary_text: 'Demo', cta: 'LEARN_MORE' }, brandName });
-      router.push('/tests');
+      if (ch === 'meta') {
+        const angle = getMetaAngle();
+        if (!angle) { setChannelStatus(ch, 'error'); setChannelError(ch, 'No Meta copy generated'); return false; }
+        if (isDemo) {
+          await new Promise((r) => setTimeout(r, 900 + Math.random() * 400));
+          await createDemoTest({ idea: ideaFromRecord, audience, offer, angle, brandName });
+        } else {
+          if (!activeAccountId || !orgId) { setChannelStatus(ch, 'error'); setChannelError(ch, 'No Meta account connected'); return false; }
+          const result = await createTest({ idea: ideaFromRecord, audience, offer, angle, orgId, adAccountId: activeAccountId, brandName });
+          if (!result.success) { setChannelStatus(ch, 'error'); setChannelError(ch, result.error || 'Meta deploy failed'); return false; }
+        }
+      } else {
+        // Google / TikTok / LinkedIn — simulated (API integrations in Phase 2–4)
+        await new Promise((r) => setTimeout(r, 600 + Math.random() * 800));
+        const copy = ch === 'google' ? editedGoogle : ch === 'tiktok' ? editedTikTok : editedLinkedIn;
+        if (!copy) { setChannelStatus(ch, 'error'); setChannelError(ch, `No ${ch} copy generated`); return false; }
+      }
+      setChannelStatus(ch, isDemo ? 'demo' : 'done');
+      return true;
     } catch (err) {
-      console.error(err);
-    } finally {
-      setDemoDeploying(false);
+      setChannelStatus(ch, 'error');
+      setChannelError(ch, err instanceof Error ? err.message : 'Unexpected error');
+      return false;
     }
   };
 
-  const handleLiveDeploy = async () => {
-    const angle = getSelectedAngle();
-    if (!angle || !activeAccountId || !orgId) return;
-    setDeploying(true);
+  const handleDeploy = async (isDemo: boolean) => {
+    if (isDemo) setDemoDeploying(true); else setDeploying(true);
     setDeployError(null);
-    try {
-      const result = await createTest({
-        idea: ideaFromRecord,
-        audience,
-        offer,
-        angle,
-        orgId,
-        adAccountId: activeAccountId,
-        brandName,
-      });
-      if (result.success && result.testId) {
-        router.push(`/tests/${result.testId}`);
-      } else {
-        setDeployError(result.error || 'Deploy failed');
-        setDeploying(false);
-      }
-    } catch (err) {
-      setDeployError('Unexpected error');
-      setDeploying(false);
+    // Reset statuses
+    setChannelStatuses({});
+    setChannelErrors({});
+
+    // Deploy all selected channels in parallel
+    const results = await Promise.allSettled(channels.map((ch) => deployChannel(ch, isDemo)));
+    const allOk = results.every((r) => r.status === 'fulfilled' && r.value === true);
+
+    if (isDemo) setDemoDeploying(false); else setDeploying(false);
+
+    if (allOk) {
+      await new Promise((r) => setTimeout(r, 600)); // brief pause to show success state
+      router.push('/tests');
+    } else {
+      setDeployError('One or more channels failed — see details below.');
     }
   };
 
@@ -330,99 +481,287 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
           </motion.div>
         )}
 
-        {/* ── STEP 1: Review copy ── */}
+        {/* ── STEP 1: Review & Edit copy ── */}
         {step === 1 && (
           <motion.div key="review" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
-            {/* Channel tabs (multi-channel) */}
-            {goResult && (
-              <div className="flex gap-1">
-                {channels.map((ch) => {
-                  const opt = CHANNEL_OPTIONS.find((o) => o.id === ch)!;
-                  return (
-                    <button
-                      key={ch}
-                      onClick={() => setActiveChannel(ch)}
-                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all border ${
-                        activeChannel === ch ? 'bg-[#FAFAFA]/8 border-[#FAFAFA]/20 text-[#FAFAFA]' : 'border-transparent text-[#4A4A4A] hover:text-[#A1A1A1]'
-                      }`}
-                    >
-                      {opt?.icon} {opt?.label}
-                    </button>
-                  );
-                })}
+
+            {/* Channel tabs */}
+            <div className="flex gap-1 flex-wrap">
+              {channels.map((ch) => {
+                const opt = CHANNEL_OPTIONS.find((o) => o.id === ch)!;
+                return (
+                  <button
+                    key={ch}
+                    onClick={() => setActiveChannel(ch)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all border ${
+                      activeChannel === ch
+                        ? 'bg-[#FAFAFA]/8 border-[#FAFAFA]/20 text-[#FAFAFA]'
+                        : 'border-transparent text-[#4A4A4A] hover:text-[#A1A1A1]'
+                    }`}
+                  >
+                    {opt?.icon} {opt?.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* ── META ── */}
+            {activeChannel === 'meta' && editedMeta && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                  {/* Preview */}
+                  <div>
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Live Preview</div>
+                    <MetaAdPreview
+                      headline={editedMeta.headline}
+                      primary_text={editedMeta.primary_text}
+                      cta={editedMeta.cta}
+                      brandName={brandName || 'Your Brand'}
+                      image={adImages.meta}
+                      onImageUpload={(url) => setAdImages((p) => ({ ...p, meta: url }))}
+                    />
+                  </div>
+                  {/* Edit fields */}
+                  <div className="space-y-3">
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Copy</div>
+
+                    <EditField
+                      label="Headline"
+                      hint={`${editedMeta.headline.length}/40 chars`}
+                      warn={editedMeta.headline.length > 40}
+                      value={editedMeta.headline}
+                      onChange={(v) => setEditedMeta((p) => p ? { ...p, headline: v } : null)}
+                      onImprove={() => handleImprove('meta', 'headline', editedMeta.headline)}
+                      improving={improving === 'meta:headline'}
+                    />
+                    <EditField
+                      label="Primary Text"
+                      hint={`${editedMeta.primary_text.length}/125 chars`}
+                      warn={editedMeta.primary_text.length > 125}
+                      value={editedMeta.primary_text}
+                      multiline
+                      onChange={(v) => setEditedMeta((p) => p ? { ...p, primary_text: v } : null)}
+                      onImprove={() => handleImprove('meta', 'primary_text', editedMeta.primary_text)}
+                      improving={improving === 'meta:primary_text'}
+                    />
+                    <div>
+                      <div className="text-[10px] text-[#555] mb-1.5">CTA Button</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'GET_QUOTE', 'BOOK_NOW'] as const).map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => setEditedMeta((p) => p ? { ...p, cta: c } : null)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-medium border transition-all ${
+                              editedMeta.cta === c ? 'border-[#FAFAFA]/30 bg-[#FAFAFA]/8 text-[#FAFAFA]' : 'border-[#1E1E1E] text-[#555] hover:border-[#2A2A2A]'
+                            }`}
+                          >
+                            {c.replace(/_/g, ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Meta copy */}
-            {goResult && activeChannel === 'meta' && goResult.meta && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">📘 Meta Ad Copy</CardTitle></CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div><div className="text-[10px] text-[#4A4A4A] mb-1">HEADLINE</div><div className="font-semibold">{goResult.meta.headline}</div></div>
-                  <div><div className="text-[10px] text-[#4A4A4A] mb-1">PRIMARY TEXT</div><div className="text-[#A1A1A1]">{goResult.meta.primary_text}</div></div>
-                  <Badge variant="outline">{goResult.meta.cta}</Badge>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Google copy */}
-            {goResult && activeChannel === 'google' && goResult.google && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">🔍 Google Responsive Search Ad</CardTitle></CardHeader>
-                <CardContent className="space-y-3 text-sm">
+            {/* ── GOOGLE ── */}
+            {activeChannel === 'google' && editedGoogle && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
                   <div>
-                    <div className="text-[10px] text-[#4A4A4A] mb-1">HEADLINES</div>
-                    <div className="space-y-1">{goResult.google.headlines.map((h, i) => <div key={i} className="font-medium">{h}</div>)}</div>
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">SERP Preview</div>
+                    <GoogleAdPreview
+                      headlines={editedGoogle.headlines}
+                      descriptions={editedGoogle.descriptions}
+                      path1={editedGoogle.path1}
+                      path2={editedGoogle.path2}
+                      brandName={brandName}
+                    />
                   </div>
-                  <div>
-                    <div className="text-[10px] text-[#4A4A4A] mb-1">DESCRIPTIONS</div>
-                    {goResult.google.descriptions.map((d, i) => <div key={i} className="text-[#A1A1A1]">{d}</div>)}
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-[#4A4A4A] mb-1">KEYWORDS</div>
-                    <div className="flex flex-wrap gap-1">{goResult.google.keywords?.map((k) => <span key={k} className="text-[10px] px-1.5 py-0.5 bg-[#1A1A1A] border border-[#262626] rounded text-[#A1A1A1]">{k}</span>)}</div>
-                  </div>
-                  <div className="text-[10px] text-[#4A4A4A]">Display path: {goResult.google.path1}/{goResult.google.path2}</div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* TikTok copy */}
-            {goResult && activeChannel === 'tiktok' && goResult.twitter && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">🎵 TikTok Ad Script</CardTitle></CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div><div className="text-[10px] text-[#4A4A4A] mb-1">HOOK (first 3s)</div><div className="font-semibold">{goResult.twitter.tweet_1_hook}</div></div>
-                  <div>
-                    <div className="text-[10px] text-[#4A4A4A] mb-1">SCRIPT BEATS</div>
-                    <div className="space-y-2">{goResult.twitter.thread_body?.map((t, i) => <div key={i} className="text-[#A1A1A1] border-l-2 border-[#262626] pl-2">{t}</div>)}</div>
-                  </div>
-                  <div><div className="text-[10px] text-[#4A4A4A] mb-1">CTA</div><div className="text-[#A1A1A1]">{goResult.twitter.cta_link_text}</div></div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* LinkedIn copy */}
-            {goResult && activeChannel === 'linkedin' && (
-              <Card>
-                <CardHeader><CardTitle className="text-sm">💼 LinkedIn Sponsored Content</CardTitle></CardHeader>
-                <CardContent className="text-sm text-[#A1A1A1]">
-                  {goResult.meta ? (
-                    <div className="space-y-2">
-                      <div><span className="text-[10px] text-[#4A4A4A]">HEADLINE</span><div className="font-medium text-[#FAFAFA]">{goResult.meta.headline}</div></div>
-                      <div><span className="text-[10px] text-[#4A4A4A]">COPY</span><div>{goResult.meta.primary_text}</div></div>
+                  <div className="space-y-3">
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Copy</div>
+                    <div>
+                      <div className="text-[10px] text-[#555] mb-1.5">Headlines <span className="text-[#333]">(max 30 chars each)</span></div>
+                      <div className="space-y-1.5">
+                        {editedGoogle.headlines.map((h, i) => (
+                          <div key={i} className="flex items-center gap-1.5">
+                            <Input
+                              value={h}
+                              onChange={(e) => setEditedGoogle((p) => p ? { ...p, headlines: p.headlines.map((x, j) => j === i ? e.target.value : x) } : null)}
+                              className={`text-xs h-8 ${h.length > 30 ? 'border-[#555]' : ''}`}
+                            />
+                            <span className={`text-[9px] w-6 text-right shrink-0 ${h.length > 30 ? 'text-[#888]' : 'text-[#333]'}`}>{h.length}</span>
+                            {i === 0 && (
+                              <ImproveBtn
+                                onClick={() => handleImprove('google', 'google_headline', h)}
+                                loading={improving === 'google:google_headline'}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ) : 'No LinkedIn copy generated.'}
-                </CardContent>
-              </Card>
+                    <div>
+                      <div className="text-[10px] text-[#555] mb-1.5">Descriptions <span className="text-[#333]">(max 90 chars each)</span></div>
+                      <div className="space-y-1.5">
+                        {editedGoogle.descriptions.map((d, i) => (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <Textarea
+                              value={d}
+                              rows={2}
+                              onChange={(e) => setEditedGoogle((p) => p ? { ...p, descriptions: p.descriptions.map((x, j) => j === i ? e.target.value : x) } : null)}
+                              className={`text-xs ${d.length > 90 ? 'border-[#555]' : ''}`}
+                            />
+                            <div className="flex flex-col gap-1">
+                              <span className={`text-[9px] w-6 text-right shrink-0 ${d.length > 90 ? 'text-[#888]' : 'text-[#333]'}`}>{d.length}</span>
+                              {i === 0 && (
+                                <ImproveBtn
+                                  onClick={() => handleImprove('google', 'google_description', d)}
+                                  loading={improving === 'google:google_description'}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {editedGoogle.keywords && editedGoogle.keywords.length > 0 && (
+                      <div>
+                        <div className="text-[10px] text-[#555] mb-1.5">Keywords</div>
+                        <div className="flex flex-wrap gap-1">
+                          {editedGoogle.keywords.map((k) => (
+                            <span key={k} className="text-[10px] px-1.5 py-0.5 bg-[#1A1A1A] border border-[#262626] rounded text-[#666]">{k}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── TIKTOK ── */}
+            {activeChannel === 'tiktok' && editedTikTok && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">In-Feed Preview</div>
+                    <TikTokAdPreview
+                      hook={editedTikTok.hook}
+                      script={editedTikTok.script}
+                      ctaText={editedTikTok.cta}
+                      brandName={brandName || 'Your Brand'}
+                      image={adImages.tiktok}
+                      onImageUpload={(url) => setAdImages((p) => ({ ...p, tiktok: url }))}
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Script</div>
+                    <EditField
+                      label="Hook (first 3 seconds)"
+                      hint="Bold claim or question — max 15 words"
+                      value={editedTikTok.hook}
+                      onChange={(v) => setEditedTikTok((p) => p ? { ...p, hook: v } : null)}
+                      onImprove={() => handleImprove('tiktok', 'hook', editedTikTok.hook)}
+                      improving={improving === 'tiktok:hook'}
+                    />
+                    <div>
+                      <div className="text-[10px] text-[#555] mb-1.5">Script Beats</div>
+                      <div className="space-y-1.5">
+                        {editedTikTok.script.map((beat, i) => (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <span className="text-[10px] text-[#333] mt-2 w-4 shrink-0">{i + 1}.</span>
+                            <Textarea
+                              value={beat}
+                              rows={2}
+                              onChange={(e) => setEditedTikTok((p) => p ? { ...p, script: p.script.map((x, j) => j === i ? e.target.value : x) } : null)}
+                              className="text-xs flex-1"
+                            />
+                            <ImproveBtn
+                              onClick={() => handleImprove('tiktok', 'script_beat', beat)}
+                              loading={improving === 'tiktok:script_beat'}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <EditField
+                      label="CTA Overlay"
+                      hint="Action verb first — max 8 words"
+                      value={editedTikTok.cta}
+                      onChange={(v) => setEditedTikTok((p) => p ? { ...p, cta: v } : null)}
+                      onImprove={() => handleImprove('tiktok', 'tiktok_cta', editedTikTok.cta)}
+                      improving={improving === 'tiktok:tiktok_cta'}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── LINKEDIN ── */}
+            {activeChannel === 'linkedin' && editedLinkedIn && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Sponsored Preview</div>
+                    <LinkedInAdPreview
+                      headline={editedLinkedIn.headline}
+                      intro_text={editedLinkedIn.intro_text}
+                      cta={editedLinkedIn.cta}
+                      brandName={brandName || 'Your Brand'}
+                      image={adImages.linkedin}
+                      onImageUpload={(url) => setAdImages((p) => ({ ...p, linkedin: url }))}
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="text-[10px] text-[#3A3A3A] uppercase tracking-wider mb-2 px-1">Edit Copy</div>
+                    <EditField
+                      label="Headline"
+                      hint={`${editedLinkedIn.headline.length}/70 chars`}
+                      warn={editedLinkedIn.headline.length > 70}
+                      value={editedLinkedIn.headline}
+                      onChange={(v) => setEditedLinkedIn((p) => p ? { ...p, headline: v } : null)}
+                      onImprove={() => handleImprove('linkedin', 'linkedin_headline', editedLinkedIn.headline)}
+                      improving={improving === 'linkedin:linkedin_headline'}
+                    />
+                    <EditField
+                      label="Intro Text"
+                      hint={`${editedLinkedIn.intro_text.length}/150 chars`}
+                      warn={editedLinkedIn.intro_text.length > 150}
+                      value={editedLinkedIn.intro_text}
+                      multiline
+                      onChange={(v) => setEditedLinkedIn((p) => p ? { ...p, intro_text: v } : null)}
+                      onImprove={() => handleImprove('linkedin', 'linkedin_intro', editedLinkedIn.intro_text)}
+                      improving={improving === 'linkedin:linkedin_intro'}
+                    />
+                    <div>
+                      <div className="text-[10px] text-[#555] mb-1.5">CTA Button</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(['LEARN_MORE', 'SIGN_UP', 'GET_QUOTE', 'CONTACT_US', 'DOWNLOAD'] as const).map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => setEditedLinkedIn((p) => p ? { ...p, cta: c } : null)}
+                            className={`px-2.5 py-1 rounded text-[10px] font-medium border transition-all ${
+                              editedLinkedIn.cta === c ? 'border-[#FAFAFA]/30 bg-[#FAFAFA]/8 text-[#FAFAFA]' : 'border-[#1E1E1E] text-[#555] hover:border-[#2A2A2A]'
+                            }`}
+                          >
+                            {c.replace(/_/g, ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Legacy meta-only angles */}
-            {legacyResult && (
+            {legacyResult && !goResult && (
               <div className="space-y-3">
                 <div className="text-xs text-[#4A4A4A] px-1">ICP: {legacyResult.icp} · Value prop: {legacyResult.value_prop}</div>
                 {editedAngles.map((angle, i) => (
-                  <Card key={i} className={`cursor-pointer transition-all ${selectedIdx === i ? 'border-[#FAFAFA]/30' : 'border-[#1E1E1E]'}`} onClick={() => setSelectedIdx(i)}>
+                  <Card key={i} className={`cursor-pointer transition-all ${selectedIdx === i ? 'border-[#FAFAFA]/30' : 'border-[#1E1E1E]'}`} onClick={() => { setSelectedIdx(i); setEditedMeta({ headline: angle.headline, primary_text: angle.primary_text, cta: angle.cta }); }}>
                     <CardContent className="pt-4 space-y-2 text-sm">
                       <div className="flex items-center justify-between">
                         <Badge variant="outline">Angle {i + 1}</Badge>
@@ -450,7 +789,11 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2"><Zap className="w-4 h-4" />Launch Campaign</CardTitle>
-                <CardDescription>Review your setup and deploy. Demo mode works without a connected ad account.</CardDescription>
+                <CardDescription>
+                  {channels.length > 1
+                    ? `Deploying to ${channels.length} channels in parallel. Meta is live — other channels are simulated (Phase 2–4).`
+                    : 'Demo mode works without a connected ad account.'}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -458,12 +801,44 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                   <Input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="e.g., Dentflow" />
                 </div>
 
-                {/* Summary */}
+                {/* Per-channel deploy status rows */}
+                <div className="rounded-lg border border-[#1E1E1E] divide-y divide-[#141414] overflow-hidden">
+                  {channels.map((ch) => {
+                    const opt = CHANNEL_OPTIONS.find((o) => o.id === ch)!;
+                    const conn = connectedPlatforms.find((c) => c.platform === ch);
+                    const status = channelStatuses[ch];
+                    const err = channelErrors[ch];
+                    return (
+                      <div key={ch} className="flex items-center gap-3 px-4 py-3 text-sm">
+                        <span className="text-base w-5">{opt.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-medium">{opt.label}</div>
+                          <div className="text-[10px] text-[#444]">
+                            {ch === 'meta'
+                              ? conn ? 'Live deploy via Meta Marketing API' : 'Demo mode — no account connected'
+                              : 'Simulated deploy (API integration in Phase 2–4)'}
+                          </div>
+                          {err && <div className="text-[10px] text-[#888] mt-0.5">{err}</div>}
+                        </div>
+                        <div className="shrink-0">
+                          {!status && <span className="text-[10px] text-[#333] font-mono">READY</span>}
+                          {status === 'running' && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#555]" />}
+                          {(status === 'done' || status === 'demo') && <CheckCircle2 className="w-3.5 h-3.5 text-[#FAFAFA]" />}
+                          {status === 'error' && <AlertTriangle className="w-3.5 h-3.5 text-[#666]" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Summary row */}
                 <div className="rounded-lg border border-[#262626] divide-y divide-[#1E1E1E] text-sm">
                   <div className="flex justify-between px-4 py-2.5"><span className="text-[#4A4A4A]">Idea</span><span className="text-right max-w-[60%] truncate">{ideaFromRecord}</span></div>
                   <div className="flex justify-between px-4 py-2.5"><span className="text-[#4A4A4A]">Audience</span><span className="text-right max-w-[60%] truncate">{audience || '—'}</span></div>
-                  <div className="flex justify-between px-4 py-2.5"><span className="text-[#4A4A4A]">Channels</span><span>{channels.map((c) => CHANNEL_OPTIONS.find((o) => o.id === c)?.icon).join(' ')}</span></div>
-                  <div className="flex justify-between px-4 py-2.5"><span className="text-[#4A4A4A]">Meta account</span><span className={activeAccountId ? 'text-[#FAFAFA]' : 'text-[#4A4A4A]'}>{activeAccountId ? 'Connected' : 'Not connected'}</span></div>
+                  <div className="flex justify-between px-4 py-2.5">
+                    <span className="text-[#4A4A4A]">Meta account</span>
+                    <span className={activeAccountId ? 'text-[#FAFAFA]' : 'text-[#4A4A4A]'}>{activeAccountId ? 'Connected' : 'Not connected'}</span>
+                  </div>
                 </div>
 
                 {deployError && (
@@ -473,13 +848,19 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
                 )}
 
                 <div className="flex items-center gap-3 pt-1">
-                  <Button variant="outline" size="sm" onClick={() => setStep(1)}><ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back</Button>
-                  <div className="flex-1" />
-                  <Button variant="outline" onClick={handleDemoDeploy} disabled={demoDeploying}>
-                    {demoDeploying ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Simulating…</> : <><Zap className="w-4 h-4 mr-2" />Demo Deploy</>}
+                  <Button variant="outline" size="sm" onClick={() => setStep(1)} disabled={deploying || demoDeploying}>
+                    <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />Back
                   </Button>
-                  <Button onClick={handleLiveDeploy} disabled={!activeAccountId || deploying}>
-                    {deploying ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Launching…</> : <><ExternalLink className="w-4 h-4 mr-2" />Live Deploy</>}
+                  <div className="flex-1" />
+                  <Button variant="outline" onClick={() => handleDeploy(true)} disabled={demoDeploying || deploying}>
+                    {demoDeploying
+                      ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Simulating {channels.length} channel{channels.length > 1 ? 's' : ''}…</>
+                      : <><Zap className="w-4 h-4 mr-2" />Demo Deploy</>}
+                  </Button>
+                  <Button onClick={() => handleDeploy(false)} disabled={!activeAccountId || deploying || demoDeploying}>
+                    {deploying
+                      ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Launching {channels.length} channel{channels.length > 1 ? 's' : ''}…</>
+                      : <><ExternalLink className="w-4 h-4 mr-2" />Live Deploy</>}
                   </Button>
                 </div>
               </CardContent>

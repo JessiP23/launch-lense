@@ -319,12 +319,23 @@ export function buildGoPrompt(params: {
   offer: string;
   channels: Platform[];
 }): string {
+  // Map 'tiktok' channel to the 'twitter' JSON output key (same short-form video script structure)
+  const channelInstructions = params.channels.map((ch) => {
+    if (ch === 'tiktok') return 'tiktok → output as "twitter" key: { tweet_1_hook (hook, ≤15 words, bold claim or question), thread_body (3 script beats, each ≤20 words, conversational), cta_link_text (CTA overlay, ≤8 words, action verb first) }';
+    if (ch === 'meta') return 'meta → { headline (≤40 chars), primary_text (≤125 chars), cta: LEARN_MORE|SHOP_NOW|SIGN_UP }';
+    if (ch === 'google') return 'google → { headlines: [3 strings ≤30 chars], descriptions: [2 strings ≤90 chars], keywords: string[], negative_keywords: string[], path1 (≤15), path2 (≤15) }';
+    if (ch === 'linkedin') return 'linkedin → output as part of "meta" key with professional B2B tone (same schema)';
+    return ch;
+  }).join('\n');
+
   return `Generate production-ready ad assets for the following sprint.
 
 Idea: "${params.idea}"
 Audience: "${params.audience || 'Not specified'}"
 Offer: "${params.offer || 'Not specified'}"
-Channels requested: ${params.channels.join(', ')}
+
+Channels to generate (follow schema exactly):
+${channelInstructions}
 
 Return JSON only matching the GO phase schema. Set channels not requested to null.`;
 }
