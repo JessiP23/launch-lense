@@ -10,6 +10,8 @@
  *   PHASE_*                  — typed user-prompt builders per workflow phase
  */
 
+import type { RealMarketData } from './market-research';
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type Platform = 'meta' | 'google' | 'tiktok' | 'linkedin';
@@ -31,10 +33,23 @@ export interface GenomeOutput {
   verdict: 'GO' | 'NO-GO';
   pivot_suggestion_15_words: string | null;
   reasoning_1_sentence: string;
-  /** Per-agent chain-of-thought returned by the LLM */
-  step1_keywords?: string;    // what keywords & why that volume estimate
-  step2_competitors?: string; // which known players run ads, why that density
-  step3_language?: string;    // how idea wording maps (or doesn't) to buyer search
+  /** Real scraped data shown to the user */
+  step1_keywords?: string;       // search demand interpretation
+  step2_competitors?: string;    // competitor ad landscape interpretation
+  step3_language?: string;       // language–market fit interpretation
+  /** Raw source data from real APIs (shown verbatim in UI) */
+  source_google?: {
+    organic_result_count: number;
+    google_ads_count: number;
+    related_searches: string[];
+    top_titles: string[];
+  } | null;
+  source_meta?: {
+    active_ads_count: number;
+    advertiser_names: string[];
+    error?: string;
+  } | null;
+  data_source: 'real' | 'llm_estimate'; // tells the UI whether real APIs fired
 }
 
 // ── Phase 1: Gate Output ───────────────────────────────────────────────────
@@ -214,33 +229,86 @@ export function buildAgentPrompt(ctx: AgentContext): string {
 
 // ── Phase User-Prompt Builders ─────────────────────────────────────────────
 
-/** Phase 0 — idea pre-qualification */
-export function buildGenomePrompt(idea: string): string {
-  return `You are a senior market analyst. Evaluate this startup idea using your knowledge of real-world search behavior, ad market dynamics, and buyer language patterns.
+/** Phase 0 — idea pre-qualification using REAL scraped data */
+export function buildGenomePrompt(idea: string, realData?: RealMarketData): string {
+  const hasRealData = realData && (realData.serper || realData.meta_ads);
 
-Idea: "${idea}"
+  if (hasRealData) {
+    const g = realData.serper;
+    const m = realData.meta_ads;
 
-Think step by step:
+    const googleSection = g ? `
+GOOGLE SEARCH (live data via Serper — scraped right now):
+- Total indexed pages for this query: ${g.organic_result_count.toLocaleString()}
+- Active Google advertisers buying this keyword right now: ${g.google_ads_count}
+- What buyers actually search (Google related searches): ${g.related_searches.slice(0, 6).join(' | ')}
+- Top organic page titles: ${g.top_titles.slice(0, 4).join(' | ')}
+- First result snippet: "${g.top_snippet}"${g.knowledge_graph_title ? `\n- Google Knowledge Graph card exists for: "${g.knowledge_graph_title}" (signals established category)` : ''}
+`.trim() : 'Google data unavailable.';
 
-Step 1 — SEARCH DEMAND: What specific keywords would buyers type into Google to find this? Name the top 2-3 exact-match phrases. Then estimate the combined monthly search volume for the whole category. Be specific (e.g. "dental scheduling software: ~8,000/mo, dental appointment app: ~4,000/mo → combined ~12,000/mo"). Store your reasoning as "step1_keywords".
+    const metaSection = m && !m.error ? `
+META AD LIBRARY (live data — active ads in last 90 days):
+- Active Meta/Instagram ads matching this niche: ${m.active_ads_count}${m.active_ads_count === 25 ? '+ (API cap reached — market is saturated)' : ''}
+- Actual advertisers running these ads: ${m.advertiser_names.length > 0 ? m.advertiser_names.join(', ') : 'No recognizable brands found (blue ocean signal)'}
+`.trim() : m?.error ? `Meta Ad Library: API error — ${m.error}` : 'Meta Ad Library data unavailable.';
 
-Step 2 — AD SATURATION: Name the actual companies (SaaS, services, or advertisers) currently running paid ads in this niche on Meta/Google. Be specific (e.g. "Dentrix, Eaglesoft, Weave, and ~12 smaller players"). Rate 0-10 where 0=nobody running ads, 10=completely flooded. Store as "step2_competitors".
+    return `You are a market analyst. You have been given REAL live data scraped from Google and Meta Ad Library for this startup idea. Your job is to interpret this real data — do NOT invent numbers, use only what is provided.
 
-Step 3 — LANGUAGE FIT: Does the wording in the idea match how buyers actually search? Compare the idea's language to the keywords from Step 1. Score 0-100. Explain the gap or alignment in 1 sentence. Store as "step3_language".
+IDEA: "${idea}"
 
-Step 4 — VERDICT: Based on steps 1-3, should a founder spend $500 testing this NOW? Rule: if language_market_fit < 40 AND search_volume < 1000 → force NO-GO.
+--- REAL SCRAPED DATA ---
+
+${googleSection}
+
+${metaSection}
+
+--- YOUR ANALYSIS TASK ---
+
+Based ONLY on the real data above:
+
+Step 1 — SEARCH DEMAND: Using the Google organic count and related searches provided, estimate monthly search volume for the category. Explain which related searches signal buyer intent vs. informational queries. Store as "step1_keywords".
+
+Step 2 — AD SATURATION: Using the Meta active ad count (${m?.active_ads_count ?? 'unknown'}) and the actual advertiser names provided, explain how competitive this space is. If 25 ads hit the API cap, this is a saturated market. Store as "step2_competitors".
+
+Step 3 — LANGUAGE FIT: Compare the idea's wording to the related searches buyers actually use. Do buyers search for the exact terms in the idea, or different words? Score 0-100. Store as "step3_language".
+
+Step 4 — VERDICT: Should a founder spend $500 testing this NOW? Rule: if language_market_fit < 40 AND estimated search_volume < 1000 → force NO-GO.
 
 Return ONLY this JSON (no prose, no markdown fences):
 {
-  "step1_keywords": "<2-3 exact keywords buyers use + your volume estimate logic>",
-  "search_volume_monthly": <integer — total monthly category searches>,
-  "step2_competitors": "<named companies running ads + why you rated the density that way>",
-  "competitor_ad_density_0_10": <float 0-10>,
-  "step3_language": "<1 sentence on how idea language maps or misses buyer search terms>",
+  "step1_keywords": "<interpretation of the Google data — which related searches show demand, estimated volume>",
+  "search_volume_monthly": <integer derived from Google data>,
+  "step2_competitors": "<interpretation of Meta Ad Library data — named advertisers, what the count means>",
+  "competitor_ad_density_0_10": <float 0-10 based on real ad count: 0-2 ads=1-3, 3-8=4-6, 9-20=7-8, 25+=9-10>,
+  "step3_language": "<how idea wording maps to the actual related searches buyers use>",
   "language_market_fit_0_100": <float 0-100>,
   "verdict": "GO" | "NO-GO",
   "pivot_suggestion_15_words": <string if NO-GO, null if GO>,
-  "reasoning_1_sentence": <string — one sentence verdict with specific market context>
+  "reasoning_1_sentence": <string citing the actual data: e.g. "Google shows 4 active advertisers and 12K related searches, signaling validated demand with manageable competition">
+}`;
+  }
+
+  // Fallback: no real data available (API keys not configured)
+  return `You are a senior market analyst. Evaluate this startup idea. Note: real API data was unavailable so you must estimate from training knowledge — be explicit about this uncertainty.
+
+Idea: "${idea}"
+
+Step 1 — SEARCH DEMAND: Estimate monthly search volume. Name specific keywords. Be explicit this is an estimate. Store as "step1_keywords".
+Step 2 — AD SATURATION: Name known companies in this space. Estimate saturation 0-10. Be explicit this is an estimate. Store as "step2_competitors".
+Step 3 — LANGUAGE FIT: Score language alignment 0-100. Store as "step3_language".
+Step 4 — VERDICT: GO/NO-GO. Rule: language_market_fit < 40 AND search_volume < 1000 → NO-GO.
+
+Return ONLY this JSON (no prose, no markdown fences):
+{
+  "step1_keywords": "<estimated keywords + caveat that this is LLM estimate, not live data>",
+  "search_volume_monthly": <integer>,
+  "step2_competitors": "<estimated competitors + caveat>",
+  "competitor_ad_density_0_10": <float 0-10>,
+  "step3_language": "<language fit analysis>",
+  "language_market_fit_0_100": <float 0-100>,
+  "verdict": "GO" | "NO-GO",
+  "pivot_suggestion_15_words": <string if NO-GO, null if GO>,
+  "reasoning_1_sentence": <string — note this is an LLM estimate, not live data>
 }`;
 }
 

@@ -1,6 +1,11 @@
 /**
  * POST /api/ai/genome
- * Phase 0 — Genome pre-qualification. Results cached in Redis 6h.
+ * Phase 0 — Genome pre-qualification.
+ *
+ * Pipeline:
+ *   1. Fetch real data from Google (Serper) + Meta Ad Library in parallel
+ *   2. Pass real data into Llama 3 prompt — LLM interprets real numbers, does NOT invent them
+ *   3. Cache result 6h (keyed with real-data hash so stale LLM estimates don't serve)
  */
 
 export const runtime = 'nodejs';
@@ -10,6 +15,7 @@ import { NextRequest } from 'next/server';
 import { callGroqJSON } from '@/lib/groq';
 import { buildAgentPrompt, buildGenomePrompt, type GenomeOutput } from '@/lib/prompts';
 import { cachedJSON } from '@/lib/redis';
+import { fetchRealMarketData } from '@/lib/market-research';
 
 export async function POST(request: NextRequest) {
   const body = await request.json() as { idea?: string };
@@ -20,17 +26,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const cacheKey = `genome:${Buffer.from(idea.trim().toLowerCase()).toString('base64').slice(0, 40)}`;
+    // v4: includes real scraped data from Serper + Meta Ad Library
+    const cacheKey = `genome:v4:${Buffer.from(idea.trim().toLowerCase()).toString('base64').slice(0, 40)}`;
 
     const output = await cachedJSON<GenomeOutput>(cacheKey, 60 * 60 * 6, async () => {
+      // ── Step 1: Fetch real market data in parallel ──────────────────────
+      const realData = await fetchRealMarketData(idea.trim());
+      const hasRealData = !!(realData.serper || realData.meta_ads);
+
+      // ── Step 2: LLM interprets real data (not inventing numbers) ────────
       const systemPrompt = buildAgentPrompt({ current_phase: 0, active_platforms: ['meta', 'google', 'tiktok'] });
-      const userPrompt = buildGenomePrompt(idea.trim());
+      const userPrompt = buildGenomePrompt(idea.trim(), realData);
 
       const result = await callGroqJSON<Partial<GenomeOutput>>(
         [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        { temperature: 0.3, max_tokens: 900 }
+        { temperature: 0.2, max_tokens: 1000 }
       );
 
+      // ── Step 3: Normalize + attach raw source data ───────────────────────
       const normalized: GenomeOutput = {
         search_volume_monthly: clampInt(result.search_volume_monthly, 0, 10_000_000),
         competitor_ad_density_0_10: clampFloat(result.competitor_ad_density_0_10, 0, 10),
@@ -43,6 +56,19 @@ export async function POST(request: NextRequest) {
         step1_keywords: result.step1_keywords ? String(result.step1_keywords) : undefined,
         step2_competitors: result.step2_competitors ? String(result.step2_competitors) : undefined,
         step3_language: result.step3_language ? String(result.step3_language) : undefined,
+        // Raw source data — shown verbatim in UI so user can verify
+        source_google: realData.serper ? {
+          organic_result_count: realData.serper.organic_result_count,
+          google_ads_count: realData.serper.google_ads_count,
+          related_searches: realData.serper.related_searches,
+          top_titles: realData.serper.top_titles,
+        } : null,
+        source_meta: realData.meta_ads ? {
+          active_ads_count: realData.meta_ads.active_ads_count,
+          advertiser_names: realData.meta_ads.advertiser_names,
+          error: realData.meta_ads.error,
+        } : null,
+        data_source: hasRealData ? 'real' : 'llm_estimate',
       };
 
       if (normalized.language_market_fit_0_100 < 40 && normalized.search_volume_monthly < 1000) {

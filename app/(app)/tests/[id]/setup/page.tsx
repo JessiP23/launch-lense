@@ -67,13 +67,26 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
   // Load test record to get genome + idea
   useEffect(() => {
     async function load() {
+      // 1. Try sessionStorage first — populated immediately by tests/new page
       try {
-        const res = await fetch(`/api/tests/${id}/metrics`);
+        const cached = sessionStorage.getItem(`test:${id}`);
+        if (cached) {
+          const { idea, genome: g } = JSON.parse(cached) as { idea: string; genome: GenomeOutput };
+          setIdeaFromRecord(idea);
+          if (g) setGenome(g);
+          setLoadingTest(false);
+          return; // no need to hit the API
+        }
+      } catch (_) { /* ignore parse errors */ }
+
+      // 2. Fetch from /api/tests/[id]
+      try {
+        const res = await fetch(`/api/tests/${id}`);
         if (res.ok) {
           const data = await res.json();
           if (data.test) {
             setIdeaFromRecord(data.test.idea || data.test.name || '');
-            if (data.test.genome_result) setGenome(data.test.genome_result);
+            if (data.test.genome_result) setGenome(data.test.genome_result as GenomeOutput);
           }
         }
       } catch (e) {
