@@ -292,7 +292,20 @@ export default function TestSetupPage({ params }: { params: Promise<{ id: string
         if (!angle) { setChannelStatus(ch, 'error'); setChannelError(ch, 'No Meta copy generated'); return false; }
         if (isDemo) {
           await new Promise((r) => setTimeout(r, 900 + Math.random() * 400));
-          await createDemoTest({ idea: ideaFromRecord, audience, offer, angle, brandName });
+          const demoResult = await createDemoTest({
+            idea: ideaFromRecord,
+            audience,
+            offer,
+            angle,
+            brandName,
+            orgId: orgId ?? undefined,
+            adAccountId: activeAccountId ?? undefined,
+          });
+          if (!demoResult.success) {
+            setChannelStatus(ch, 'error');
+            setChannelError(ch, demoResult.error || 'Demo deploy failed');
+            return false;
+          }
         } else {
           if (!activeAccountId || !orgId) { setChannelStatus(ch, 'error'); setChannelError(ch, 'No Meta account connected'); return false; }
           const result = await createTest({ idea: ideaFromRecord, audience, offer, angle, orgId, adAccountId: activeAccountId, brandName });

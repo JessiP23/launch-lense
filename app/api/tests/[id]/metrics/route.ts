@@ -12,14 +12,32 @@ export async function GET(
   const supabase = createServiceClient();
 
   try {
-    // Fetch test details
-    const { data: test, error: testError } = await supabase
+    // Fetch test details — gracefully handle missing optional columns (genome_result, idea)
+    let test: Record<string, unknown> | null = null;
+
+    const { data: fullTest, error: fullError } = await supabase
       .from('tests')
       .select('id, name, idea, status, campaign_id, ad_account_id, verdict, lp_url, lp_json, angles, genome_result, created_at')
       .eq('id', id)
       .single();
 
-    if (testError || !test) {
+    if (!fullError && fullTest) {
+      test = fullTest as Record<string, unknown>;
+    } else {
+      // Retry without columns that may not exist yet
+      const { data: minTest, error: minError } = await supabase
+        .from('tests')
+        .select('id, name, status, campaign_id, ad_account_id, verdict, lp_url, lp_json, angles, created_at')
+        .eq('id', id)
+        .single();
+
+      if (minError || !minTest) {
+        return Response.json({ error: 'Test not found' }, { status: 404 });
+      }
+      test = minTest as Record<string, unknown>;
+    }
+
+    if (!test) {
       return Response.json({ error: 'Test not found' }, { status: 404 });
     }
 

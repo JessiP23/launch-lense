@@ -391,11 +391,23 @@ export async function createDemoTest(input: CreateTestInput): Promise<CreateTest
     vertical = 'saas',
   } = input;
 
-  if (!orgId || !adAccountId) {
-    return { success: false, error: 'Missing required account information. Connect an ad account first.' };
+  if (!orgId) {
+    return { success: false, error: 'Missing org information. Please sign in and try again.' };
+  }
+
+  // Demo deploys accept a placeholder adAccountId (e.g. 'demo-account')
+  const resolvedAdAccountId = adAccountId || orgId;
+
+  // UUID validation — Supabase columns are typed uuid; skip non-UUID placeholders
+  const UUID_RE_TOP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE_TOP.test(orgId)) {
+    return { success: false, error: 'No valid org session found. Please sign in and try the demo again.' };
   }
 
   const supabase = createServiceClient();
+
+  // Only include ad_account_id if it looks like a real UUID (demo fallbacks are not UUIDs)
+  const realAdAccountId = UUID_RE_TOP.test(resolvedAdAccountId ?? '') ? resolvedAdAccountId : null;
 
   try {
     // 1. Insert test row
@@ -406,7 +418,7 @@ export async function createDemoTest(input: CreateTestInput): Promise<CreateTest
       .from('tests')
       .insert({
         org_id: orgId,
-        ad_account_id: adAccountId,
+        ...(realAdAccountId ? { ad_account_id: realAdAccountId } : {}),
         name: idea.slice(0, 120),
         status: 'active',
         budget_cents: budgetCents,
