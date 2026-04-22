@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use, useRef } from 'react';
+import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -14,8 +14,6 @@ import {
   DollarSign,
   Users,
   Target,
-  Upload,
-  ImagePlus,
   Loader2,
   PenLine,
 } from 'lucide-react';
@@ -73,18 +71,10 @@ export default function TestDetailPage({
   });
   const [metricsHistory, setMetricsHistory] = useState<Metrics[]>([]);
   const [annotations, setAnnotations] = useState<{ created_at: string; message: string }[]>([]);
+  const [lpUrl, setLpUrl] = useState<string | null>(null);
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
-
-  // Edit Creative state
-  const [editCreativeOpen, setEditCreativeOpen] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Force GO state
   const [forcingGo, setForcingGo] = useState(false);
 
-  // Fetch test data and metrics from API
   useEffect(() => {
     async function fetchTest() {
       try {
@@ -97,6 +87,7 @@ export default function TestDetailPage({
             setAdAccountId(data.test.ad_account_id || null);
             setStatus(data.test.status || 'active');
             setVerdict(data.test.verdict || null);
+            setLpUrl(data.test.lp_url || null);
           }
           if (data.metrics) {
             setMetrics(data.metrics);
@@ -135,54 +126,6 @@ export default function TestDetailPage({
       console.error('Kill-Switch error:', err);
     } finally {
       setKillSwitchLoading(false);
-    }
-  };
-
-  // Edit Creative: upload image → duplicate ad
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !adAccountId) return;
-
-    // Show preview
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
-
-    setUploadingImage(true);
-    try {
-      // 1. Upload to Meta
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('ad_account_id', adAccountId);
-
-      const uploadRes = await fetch('/api/upload/adimage', {
-        method: 'POST',
-        body: formData,
-      });
-      const uploadData = await uploadRes.json();
-      if (!uploadData.hash) {
-        console.error('Upload failed:', uploadData.error);
-        return;
-      }
-
-      // 2. Duplicate ad with new image
-      const result = await duplicateAd(id, uploadData.hash);
-      if (result.success) {
-        setEditCreativeOpen(false);
-        setImagePreview(null);
-        // Re-fetch to show annotation
-        const res = await fetch(`/api/tests/${id}/metrics`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.annotations) setAnnotations(data.annotations);
-        }
-      } else {
-        console.error('Duplicate ad failed:', result.error);
-      }
-    } catch (err) {
-      console.error('Image upload error:', err);
-    } finally {
-      setUploadingImage(false);
     }
   };
 
@@ -316,44 +259,33 @@ export default function TestDetailPage({
 
         {/* Action buttons — top right */}
         <div className="flex items-center gap-2">
-          {/* Edit Creative */}
-          {status === 'active' && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setEditCreativeOpen(true)}
-              >
-                <ImagePlus className="w-4 h-4 mr-1.5" />
-                Edit Creative
-              </Button>
+         
+          {(status === 'active' || (status === 'completed' && verdict === 'GO')) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/editor/${id}`)}
+            >
+              <PenLine className="w-4 h-4 mr-1.5" />
+              {status === 'completed' ? 'Build Full Landing Page' : 'Edit Landing Page'}
+            </Button>
+          )}
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push(`/editor/${id}`)}
-              >
-                <PenLine className="w-4 h-4 mr-1.5" />
-                Edit Landing Page
-              </Button>
-
-              {/* Force GO — dev only */}
-              {process.env.NODE_ENV === 'development' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleForceGo}
-                  disabled={forcingGo}
-                >
-                  {forcingGo ? (
-                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  ) : (
-                    <Zap className="w-4 h-4 mr-1.5 text-[#22C55E]" />
-                  )}
-                  {forcingGo ? 'Forcing…' : 'Force GO Verdict'}
-                </Button>
+          {/* Force GO — dev only */}
+          {status === 'active' && process.env.NODE_ENV === 'development' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleForceGo}
+              disabled={forcingGo}
+            >
+              {forcingGo ? (
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              ) : (
+                <Zap className="w-4 h-4 mr-1.5 text-[#22C55E]" />
               )}
-            </>
+              {forcingGo ? 'Forcing…' : 'Force GO Verdict'}
+            </Button>
           )}
 
           {/* Kill-Switch */}
@@ -428,6 +360,64 @@ export default function TestDetailPage({
           <p className="text-sm text-[#A1A1A1] mt-1">
             Kill-Switch activated. Campaign is no longer receiving traffic.
           </p>
+        </motion.div>
+      )}
+
+      {/* Verdict banner — shown at top so it's immediately visible */}
+      {verdict && (status === 'completed' || status === 'paused') && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`p-5 rounded-lg border ${
+            verdict === 'GO'
+              ? 'border-[#22C55E]/30 bg-[#22C55E]/5'
+              : verdict === 'NO-GO'
+              ? 'border-[#EF4444]/30 bg-[#EF4444]/5'
+              : 'border-[#EAB308]/30 bg-[#EAB308]/5'
+          }`}
+        >
+          <div className={`flex items-center gap-2 font-bold text-xl ${
+            verdict === 'GO' ? 'text-[#22C55E]' : verdict === 'NO-GO' ? 'text-[#EF4444]' : 'text-[#EAB308]'
+          }`}>
+            <Shield className="w-6 h-6" />
+            Verdict: {verdict}
+          </div>
+          <p className="text-sm text-[#A1A1A1] mt-2">
+            {verdict === 'GO'
+              ? `$${(metrics.spend_cents / 100).toFixed(0)} spent to validate — this idea has demand. Time to build.`
+              : verdict === 'NO-GO'
+              ? `$${(metrics.spend_cents / 100).toFixed(0)} spent to kill the idea early — saved ~$35k on a bad MVP.`
+              : 'Insufficient data for conclusive verdict. Consider extending the test.'}
+          </p>
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            {verdict === 'GO' && (
+              <Button
+                size="sm"
+                className="bg-[#22C55E] text-black hover:bg-[#22C55E]/90 font-semibold"
+                onClick={() => router.push(`/editor/${id}`)}
+              >
+                <Zap className="w-4 h-4 mr-1.5" />
+                Build Full Landing Page
+              </Button>
+            )}
+            {lpUrl && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(lpUrl, '_blank')}
+              >
+                <Eye className="w-4 h-4 mr-1.5" />
+                Preview Current LP
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/api/reports/${id}`, '_blank')}
+            >
+              Download PDF Report
+            </Button>
+          </div>
         </motion.div>
       )}
 
@@ -548,101 +538,6 @@ export default function TestDetailPage({
         </CardContent>
       </Card>
 
-      {/* Verdict banner */}
-      {status === 'completed' && verdict && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`p-5 rounded-lg border ${
-            verdict === 'GO'
-              ? 'border-[#22C55E]/30 bg-[#22C55E]/5'
-              : verdict === 'NO-GO'
-              ? 'border-[#EF4444]/30 bg-[#EF4444]/5'
-              : 'border-[#EAB308]/30 bg-[#EAB308]/5'
-          }`}
-        >
-          <div className={`flex items-center gap-2 font-bold text-xl ${
-            verdict === 'GO' ? 'text-[#22C55E]' : verdict === 'NO-GO' ? 'text-[#EF4444]' : 'text-[#EAB308]'
-          }`}>
-            <Shield className="w-6 h-6" />
-            Verdict: {verdict}
-          </div>
-          <p className="text-sm text-[#A1A1A1] mt-2">
-            {verdict === 'GO'
-              ? `$${(metrics.spend_cents / 100).toFixed(0)} spent to validate — saved ~$35k on a bad MVP build.`
-              : verdict === 'NO-GO'
-              ? `$${(metrics.spend_cents / 100).toFixed(0)} spent to kill the idea early — saved ~$35k.`
-              : 'Insufficient data for conclusive verdict. Consider extending the test.'}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-3"
-            onClick={() => window.open(`/api/reports/${id}`, '_blank')}
-          >
-            Download PDF Report
-          </Button>
-        </motion.div>
-      )}
-
-      {/* Edit Creative Dialog */}
-      {editCreativeOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-[#0A0A0A] border border-[#262626] rounded-lg p-6 w-full max-w-md space-y-4"
-          >
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <ImagePlus className="w-5 h-5" />
-              Edit Creative
-            </h3>
-            <p className="text-sm text-[#A1A1A1]">
-              Upload a new image. The current ad will be paused and a new ad (v2+) will be created with the same copy.
-            </p>
-
-            {imagePreview && (
-              <div className="rounded-md overflow-hidden border border-[#262626]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imagePreview} alt="Preview" className="w-full h-48 object-cover" />
-              </div>
-            )}
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={handleImageUpload}
-            />
-
-            <div className="flex gap-2">
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingImage}
-                className="flex-1"
-              >
-                {uploadingImage ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4 mr-2" />
-                )}
-                {uploadingImage ? 'Uploading & Creating Ad…' : 'Choose Image'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setEditCreativeOpen(false);
-                  setImagePreview(null);
-                }}
-                disabled={uploadingImage}
-              >
-                Cancel
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }
