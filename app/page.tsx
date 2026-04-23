@@ -1,6 +1,12 @@
-import { redirect } from 'next/navigation';
+import type { Metadata } from 'next';
+import { LandingPageView } from '@/components/landing/landing-page-view';
 
-// Root page redirects to account connect
+export const metadata: Metadata = {
+  title: 'LaunchLense — Kill bad startup ideas before they kill your time',
+  description:
+    'Genome: free go/no-go preview. Run $500 tests on Google, Meta, LinkedIn, or TikTok. GO / NO-GO / ITERATE in 48 hours. Healthgate™ protects your budget.',
+};
+
 export default function Home() {
-  redirect('/accounts/connect');
+  return <LandingPageView />;
 }

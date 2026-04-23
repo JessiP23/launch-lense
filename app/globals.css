@@ -1,8 +1,10 @@
+@import url("https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&f[]=satoshi@400,500,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap");
 @import "tailwindcss";
 
 /* ── PROOF Design System — Warm Editorial ─────────────────────────── */
 
-/* Font faces — Cabinet Grotesk (display) + Satoshi (body) */
+/* Font faces — local fallbacks when CDN blocked */
 @font-face {
   font-family: 'Cabinet Grotesk';
   src: local('Cabinet Grotesk'), local('CabinetGrotesk');
@@ -20,17 +22,39 @@
   /* Canvas & surfaces */
   --color-canvas:   #FAFAF8;
   --color-surface:  #FFFFFF;
+  --color-raised:   #F3F0EB;
   --color-faint:    #F3F0EB;
   --color-border:   #E8E4DC;
+  --color-border-2: #C4BFB8;
 
   /* Text */
   --color-ink:      #111110;
   --color-muted:    #8C8880;
+  --color-faint-text: #C4BFB8;
+
+  /* Void / dark surfaces (landing Healthgate block + future dashboards) */
+  --color-void:            #0A0A0A;
+  --color-panel:         #111111;
+  --color-panel-2:       #1A1A1A;
+  --color-dark-border:   #242424;
+  --color-dark-border-2: #2E2E2E;
+  --color-dark-text:     #FAFAFA;
+  --color-dark-muted:    #6B7280;
+  --color-dark-faint:    #374151;
 
   /* Signal — verdict / health only */
-  --color-go:       #059669;
-  --color-warn:     #D97706;
-  --color-stop:     #DC2626;
+  --color-go:         #059669;
+  --color-go-bg:      #F0FDF4;
+  --color-go-border:  #BBF7D0;
+  --color-go-dark:    #22C55E;
+  --color-warn:       #D97706;
+  --color-warn-bg:    #FFFBEB;
+  --color-warn-border:#FDE68A;
+  --color-warn-dark:  #EAB308;
+  --color-stop:       #DC2626;
+  --color-stop-bg:    #FEF2F2;
+  --color-stop-border:#FECACA;
+  --color-stop-dark:  #EF4444;
 
   /* Legacy aliases used by shadcn tokens */
   --background:     var(--color-canvas);
@@ -46,7 +70,7 @@
   /* Fonts */
   --font-display: 'Cabinet Grotesk', system-ui, -apple-system, sans-serif;
   --font-body:    'Satoshi', system-ui, -apple-system, sans-serif;
-  --font-mono:    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @theme inline {

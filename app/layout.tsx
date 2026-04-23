@@ -3,7 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "LaunchLense — Kill Bad Startup Ideas in 48h",
-  description: "Ad account insurance for venture studios. Compress 8-week validation to 48 hours.",
+  description:
+    "Genome: free go/no-go preview. Validate with $500 tests on Google, Meta, LinkedIn, or TikTok. Healthgate™ protects your budget.",
 };
 
 export default function RootLayout({
