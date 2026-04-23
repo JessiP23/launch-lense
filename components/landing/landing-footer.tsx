@@ -1,3 +1,5 @@
+import Image from 'next/image';
+
 const product = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#genome', label: 'Genome' },
@@ -28,8 +30,14 @@ export function LandingFooter() {
         <div className="grid grid-cols-2 gap-10 md:grid-cols-5 md:gap-8">
           <div className="col-span-2">
             <div className="flex items-center gap-2">
-              <span className="flex h-[30px] w-[30px] items-center justify-center rounded-[7px] bg-[var(--color-ink)] font-display text-[11px] font-bold text-white">
-                LL
+              <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-white ring-1 ring-black/10 shadow-sm">
+                <Image
+                  src="/logo.png"
+                  alt="LaunchLense"
+                  width={20}
+                  height={20}
+                  className="h-5 w-5"
+                />
               </span>
               <span className="font-display text-[15px] font-bold tracking-tight">LaunchLense</span>
             </div>

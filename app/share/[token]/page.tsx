@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation';
-import { Shield, DollarSign, Users, Target, TrendingDown, XCircle, CheckCircle2, Download } from 'lucide-react';
+import { DollarSign, Users, Target, TrendingDown, XCircle, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { createServiceClient } from '@/lib/supabase';
+import Image from 'next/image';
 
 // Fetch shared report from Supabase by share_token
 async function getSharedReport(token: string) {
@@ -90,9 +91,15 @@ export default async function SharePage({
       {/* Minimal header */}
       <header className="flex items-center justify-between max-w-3xl mx-auto px-6 h-16 border-b border-[#262626]">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-[#FAFAFA] flex items-center justify-center">
-            <span className="text-[#0A0A0A] text-xs font-bold">LL</span>
-          </div>
+          <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-white ring-1 ring-black/10 shadow-sm">
+            <Image
+              src="/logo.png"
+              alt="LaunchLense"
+              width={20}
+              height={20}
+              className="h-5 w-5"
+            />
+          </span>
           <span className="font-semibold text-sm">LaunchLense Report</span>
         </div>
         <Badge variant="outline" className="text-xs">

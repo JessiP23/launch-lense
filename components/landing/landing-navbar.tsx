@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { LANDING_EASE } from '@/components/landing/motion-variants';
 import { cn } from '@/lib/utils';
+import Image from 'next/image';
 
 const navLinks = [
   { href: '#how-it-works', label: 'How it works' },
@@ -44,8 +45,14 @@ export function LandingNavbar() {
       >
         <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-between gap-6 px-5 sm:px-6">
           <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2.5">
-            <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-[var(--color-ink)] font-display text-[11px] font-bold text-white">
-              LL
+            <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-white ring-1 ring-black/10 shadow-sm">
+              <Image
+                src="/logo.png"
+                alt="LaunchLense"
+                width={20}
+                height={20}
+                className="h-5 w-5"
+              />
             </span>
             <span className="font-display text-[15px] font-bold tracking-tight text-[var(--color-ink)]">
               LaunchLense
