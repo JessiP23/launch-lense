@@ -2,9 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LaunchLense — Kill Bad Startup Ideas in 48h",
+  title: "LaunchLense",
   description:
     "Genome: free go/no-go preview. Validate with $500 tests on Google, Meta, LinkedIn, or TikTok. Healthgate™ protects your budget.",
+  icons: {
+    icon: "/logo.png"
+  }
 };
 
 export default function RootLayout({
