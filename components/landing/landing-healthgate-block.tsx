@@ -93,12 +93,6 @@ export function LandingHealthgateBlock() {
             >
               Check your account
             </Link>
-            <a
-              href="#faq"
-              className="text-[14px] text-[var(--color-dark-muted)] underline-offset-4 transition-opacity hover:opacity-80"
-            >
-              See scoring formula
-            </a>
           </div>
         </ScrollReveal>
 

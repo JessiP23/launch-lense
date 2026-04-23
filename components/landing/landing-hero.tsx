@@ -74,27 +74,10 @@ export function LandingHero() {
             </Link>
           </motion.div>
 
-          <motion.div variants={heroItem} className="mt-8 flex flex-wrap items-center gap-5">
-            <div className="flex items-center">
-              {['#7C6CF9', '#22C55E', '#F59E0B', '#38BDF8'].map((c, i) => (
-                <span
-                  key={c}
-                  className="h-7 w-7 rounded-full border-2 border-[var(--color-surface)]"
-                  style={{ backgroundColor: c, marginLeft: i ? -8 : 0 }}
-                />
-              ))}
-              <span className="ml-3 text-[12px] text-[var(--color-muted)]">2,500+ founders</span>
-            </div>
-            <span className="hidden h-4 w-px bg-[var(--color-border)] sm:block" aria-hidden />
-            <div className="flex items-center gap-2">
-              <span className="font-display text-[14px] font-bold text-[var(--color-ink)]">4.8</span>
-              <div className="flex gap-0.5">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <span key={i} className="h-2.5 w-2.5 rounded-[2px] bg-amber-400" />
-                ))}
-              </div>
-              <span className="text-[12px] text-[var(--color-muted)]">on Product Hunt</span>
-            </div>
+          <motion.div variants={heroItem} className="mt-8">
+            <span className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-[12px] text-[var(--color-muted)]">
+              Upcoming on Product Hunt
+            </span>
           </motion.div>
         </motion.div>
 

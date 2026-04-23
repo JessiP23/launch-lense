@@ -8,41 +8,46 @@ import { LANDING_EASE } from '@/components/landing/motion-variants';
 const plans = [
   {
     name: 'Starter',
-    price: '$49',
-    unit: '/ per test',
-    features: ['Genome (free)', '1 test', '3 angles', 'Healthgate™', '48h verdict', 'PDF report'],
-    cta: 'Run one test',
+    price: '$299',
+    unit: '/mo',
+    features: [
+      '1 Concept - 1 Sprint/mo',
+      '1 concept validation sprint',
+      'Auto landing page + copy',
+      'Go/No-Go report',
+    ],
+    cta: 'Start Starter',
     href: '/accounts/connect',
     highlight: false,
   },
   {
     name: 'Studio',
-    price: '$199',
-    unit: '/ per month',
+    price: '$1,999',
+    unit: '/mo',
     features: [
-      'Genome (free)',
-      'Unlimited tests',
-      'Unlimited angles',
-      'Priority Healthgate sync',
-      'PDF reports + share links',
-      'Team access',
-      'Benchmark comparisons',
+      'Unlimited validation sprints',
+      'Unlimited Concepts → Priority',
+      'Multi-concept kill-rate dashboard',
+      'Comparative scoring across portfolio',
+      'BYOK ad deployment',
     ],
-    cta: 'Start Studio plan',
+    cta: 'Start Studio',
     href: '/accounts/connect',
     highlight: true,
   },
   {
     name: 'Enterprise',
     price: 'Custom',
-    unit: 'pricing',
+    unit: '',
     features: [
-      'Everything in Studio',
-      'Custom verdict logic',
+      'Unlimited · White Label · SOC 2',
+      'Dedicated validation ops',
+      'Custom model fine tuning',
+      'SOC 2 compliance sandbox',
+      'White label reports',
       'API access',
-      'Dedicated support',
       'SLA',
-      'White-label reports',
+      'Account manager',
     ],
     cta: 'Talk to us',
     href: '#final-cta',
@@ -60,7 +65,7 @@ export function LandingPricing() {
             Pay for what you need.
           </h2>
           <p className="mt-4 text-[15px] leading-[1.65] text-[var(--color-muted)]">
-            Ad spend ($500/test) is charged by the network you use (Google, Meta, LinkedIn, or TikTok) to your ad account. Our fee covers the platform. Genome is free.
+            Built for solo founders, venture studios, and portfolio-scale teams.
           </p>
         </div>
 
