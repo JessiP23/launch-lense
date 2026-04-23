@@ -6,6 +6,7 @@ import { useRef } from 'react';
 import { StatusDot } from '@/components/status-dot';
 import { LiveTestMockup } from '@/components/landing/live-test-mockup';
 import { LANDING_EASE, staggerShow } from '@/components/landing/motion-variants';
+import Image from 'next/image';
 
 const heroContainer = staggerShow(0.09);
 
@@ -81,13 +82,18 @@ export function LandingHero() {
           </motion.div>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 28 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: LANDING_EASE, delay: 0.12 }}
-        >
-          <LiveTestMockup />
-        </motion.div>
+       <motion.div
+  className="w-full relative"
+  initial={{ opacity: 0, y: 28 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.6, ease: LANDING_EASE, delay: 0.12 }}
+>
+  <img
+    src="/image.png"
+    alt='Illustration of a software image with no background'
+    className="w-[160%] max-w-none h-auto -translate-y-[8%] lg:w-[220%] lg:-translate-x-[18%] lg:-translate-y-[12%]"
+  />
+</motion.div>
       </div>
     </section>
   );
