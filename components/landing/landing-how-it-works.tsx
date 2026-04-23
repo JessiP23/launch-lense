@@ -1,6 +1,7 @@
 'use client';
 
-import { ScrollReveal } from '@/components/landing/scroll-reveal';
+import { motion, useScroll, useTransform } from 'framer-motion';
+import { useRef } from 'react';
 
 const steps = [
   {
@@ -26,36 +27,78 @@ const steps = [
 ] as const;
 
 export function LandingHowItWorks() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ['start 0.8', 'end 0.2']
+  });
+
+  // Line draws from 0 to 100% as you scroll through the section
+  const lineHeight = useTransform(scrollYProgress, [0, 1], ['0%', '100%']);
+
   return (
     <section id="how-it-works" className="scroll-mt-20 bg-[var(--color-canvas)] py-28">
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Process</p>
+          <p className="text- font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Process</p>
           <h2 className="mt-3 font-display text-[clamp(1.875rem,4vw,2.75rem)] font-bold tracking-[-0.03em] text-[var(--color-ink)]">
             From idea to verdict in 4 steps.
           </h2>
-          <p className="mt-4 text-[15px] leading-[1.65] text-[var(--color-muted)]">
+          <p className="mt-4 text- leading-[1.65] text-[var(--color-muted)]">
             No surveys. No assumptions. Real people, real clicks, real data.
           </p>
         </div>
 
-        <div className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-          {steps.map((s, i) => (
-            <ScrollReveal key={s.n} delay={i * 0.07}>
-              <article className="h-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 transition-colors duration-200 hover:border-[var(--color-border-2)]">
-                <div className="font-display text-[3.5rem] font-extrabold leading-none text-[var(--color-raised)] select-none">
-                  {s.n}
-                </div>
-                <h3 className="mt-5 font-display text-[17px] font-bold tracking-tight text-[var(--color-ink)]">
-                  {s.title}
-                </h3>
-                <p className="mt-2 text-[14px] leading-[1.7] text-[var(--color-muted)]">{s.body}</p>
-              </article>
-            </ScrollReveal>
-          ))}
-        </div>
+        <div ref={containerRef} className="relative mt-16">
+          {/* Static rail */}
+          <div className="absolute left- top-2 hidden h-[calc(100%-16px)] w-px bg-[var(--color-border)] lg:block" aria-hidden />
 
-        <div className="mt-10 hidden border-t border-dashed border-[var(--color-border)] lg:block" aria-hidden />
+          {/* Animated progress rail — draws as you scroll. This is the unique bit */}
+          <motion.div
+            className="absolute left- top-2 hidden w-px origin-top bg-[var(--color-ink)] lg:block"
+            style={{ height: lineHeight }}
+            aria-hidden
+          />
+
+          <div className="grid gap-6">
+            {steps.map((s, i) => (
+              <motion.div
+                key={s.n}
+                initial={{ opacity: 0, x: -12 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true, margin: '-80px' }}
+                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1], delay: i * 0.05 }}
+                className="group relative grid gap-6 will-change-transform lg:grid-cols-[32px_1fr] lg:items-start"
+              >
+                {/* Number node — fills when line passes it */}
+                <motion.div
+                  className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full border bg-[var(--color-canvas)] transition-colors duration-300"
+                  style={{
+                    borderColor: useTransform(
+                      scrollYProgress,
+                      [i * 0.25, (i + 0.5) * 0.25],
+                      ['var(--color-border)', 'var(--color-ink)']
+                    )
+                  }}
+                >
+                  <span className="font-mono text- font-bold text-[var(--color-ink)]">
+                    {s.n}
+                  </span>
+                </motion.div>
+
+                {/* Content — no hover scale, just border color. Smooth. */}
+                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 transition-colors duration-200 lg:-mt-1">
+                  <h3 className="font-display text- font-bold tracking-tight text-[var(--color-ink)]">
+                    {s.title}
+                  </h3>
+                  <p className="mt-3 text- leading-[1.7] text-[var(--color-muted)]">
+                    {s.body}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
