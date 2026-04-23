@@ -62,8 +62,7 @@ export function LandingHero() {
             variants={heroItem}
             className="mt-5 max-w-lg text-[17px] leading-[1.65] text-[var(--color-muted)]"
           >
-            Use Genome for a free preview, then run a real $500 ad test on Google, Meta, LinkedIn, or TikTok and
-            get a GO / NO-GO / ITERATE verdict in 48 hours. Stop building what nobody wants.
+            Start with Genome, a $15 go/no-go check in 60 seconds. Then run a real $500 ad tests on Meta, Google, LinkedIn, or TikTok and get a GO / NO-GO / ITERATE verdict in 48 hours.
           </motion.p>
 
           <motion.div variants={heroItem} className="mt-8 flex flex-wrap gap-3">

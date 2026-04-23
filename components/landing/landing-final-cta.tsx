@@ -34,10 +34,6 @@ export function LandingFinalCta() {
               Talk to us
             </Link>
           </div>
-          <p className="mt-6 text-[12px] text-[var(--color-faint-text)]">
-            No credit card required. Run Genome for free, or connect an ad account when you are ready to launch a
-            test.
-          </p>
         </ScrollReveal>
       </div>
     </section>

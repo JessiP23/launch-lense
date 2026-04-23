@@ -56,7 +56,7 @@ export function LandingVerdictEngine() {
           </h2>
           <p className="mt-5 max-w-md text-[15px] leading-[1.7] text-[var(--color-muted)]">
             Same verdict model whether you test on Google, Meta, LinkedIn, or TikTok. We aggregate CTR, CPC, and
-            spend across every angle against fixed thresholds — plus Genome upstream when you want a no-spend
+            spend across every angle against fixed thresholds — plus Genome upstream when you want a
             read first. You get one verdict, not a wall of charts, and an angle-by-angle PDF.
           </p>
         </ScrollReveal>

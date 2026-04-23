@@ -14,7 +14,7 @@ export function LandingGenome() {
             </p>
             <h2 className="mt-3 font-display text-[clamp(1.75rem,3.5vw,2.25rem)] font-bold leading-tight tracking-[-0.03em] text-[var(--color-ink)]">
               Genome
-              <span className="text-[var(--color-muted)]"> — a free go / no-go on your idea.</span>
+              <span className="text-[var(--color-muted)]"> — a go / no-go on your idea.</span>
             </h2>
             <p className="mt-4 text-[15px] leading-[1.7] text-[var(--color-muted)]">
               Paste your idea and get a fast, research-backed preview: market signals, risks, and a clear signal
@@ -33,7 +33,7 @@ export function LandingGenome() {
                 href="/tests/new"
                 className="inline-flex h-12 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-canvas)] px-7 text-[15px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-border-2)]"
               >
-                Run Genome (free) →
+                Run Genome →
               </Link>
             </div>
           </ScrollReveal>

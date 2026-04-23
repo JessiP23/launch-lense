@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 const items = [
   {
     q: 'What exactly does LaunchLense do?',
-    a: 'Genome gives a free, fast go/no-go style preview on your idea. For live proof, we turn the idea into a real campaign (Google, Meta, LinkedIn, or TikTok), measure response across multiple angles, and return a single verdict with metrics and a shareable PDF.',
+    a: 'Genome gives a fast go/no-go style preview on your idea. For live proof, we turn the idea into a real campaign (Google, Meta, LinkedIn, or TikTok), measure response across multiple angles, and return a single verdict with metrics and a shareable PDF.',
   },
   {
     q: 'Do I need an ad account?',
@@ -29,7 +29,7 @@ const items = [
   },
   {
     q: 'What is Genome?',
-    a: 'Genome is our free, up-front pass on your idea: fast research, structured scoring, and a clear signal to stop, tweak, or commit to a paid test. It does not replace live ads — it tells you if you are ready to fund them.',
+    a: 'Genome is our up-front pass on your idea: fast research, structured scoring, and a clear signal to stop, tweak, or commit to a paid test. It does not replace live ads — it tells you if you are ready to fund them.',
   },
 ] as const;
 

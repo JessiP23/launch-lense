@@ -12,7 +12,7 @@ const steps = [
   {
     n: '02',
     title: 'Describe your startup idea',
-    body: 'Optional: run Genome first for a free, fast preview. Then write your idea in plain English — we generate 3 ad angles (headline, body, CTA) per value prop.',
+    body: 'Optional: run Genome first for a first, fast preview. Then write your idea in plain English — we generate 3 ad angles (headline, body, CTA) per value prop.',
   },
   {
     n: '03',
