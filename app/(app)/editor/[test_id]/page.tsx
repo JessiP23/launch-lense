@@ -2,9 +2,8 @@
 
 import { useState, use, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
+import { Loader2, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 
 // ── Storefront templates ──────────────────────────────────────────────────────
 const TEMPLATES = [
@@ -18,7 +17,6 @@ const TEMPLATES = [
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:#0A0A0A;color:#FAFAFA;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:60px 24px}
@@ -49,7 +47,6 @@ const TEMPLATES = [
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:#080810;color:#FAFAFA;padding:0}
@@ -88,7 +85,6 @@ const TEMPLATES = [
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(h)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:#0A0A0A;color:#FAFAFA;padding:80px 24px;min-height:100vh}
@@ -153,6 +149,11 @@ export default function EditorPage({
         setBody(angle?.primary_text || '');
         setCta(angle?.cta || 'Get Started');
         if (data.test?.lp_url) setLpUrl(data.test.lp_url);
+
+        const adAccountId = data.test?.ad_account_id;
+        if (adAccountId) {
+          void fetch(`/api/health/sync?account_id=${encodeURIComponent(adAccountId)}&mock=pass`).catch(() => {});
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -205,8 +206,8 @@ export default function EditorPage({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#0A0A0A]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#A1A1A1]" />
+      <div className="flex items-center justify-center h-screen bg-[#FAFAF8]">
+        <Loader2 className="w-7 h-7 animate-spin text-[#8C8880]" />
       </div>
     );
   }
@@ -214,15 +215,18 @@ export default function EditorPage({
   // ── Phase 1: Template picker ─────────────────────────────────────────
   if (phase === 'pick') {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] p-8">
+      <div className="min-h-screen bg-[#FAFAF8] p-8">
         <div className="max-w-3xl mx-auto space-y-8">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.push(`/tests/${test_id}`)}>
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
+            <button
+              onClick={() => router.push(`/tests/${test_id}`)}
+              className="text-[0.8125rem] text-[#8C8880] hover:text-[#111110] transition-colors"
+            >
+              ← Back to Test
+            </button>
             <div>
-              <h1 className="text-2xl font-semibold">Choose a Storefront</h1>
-              <p className="text-sm text-[#A1A1A1] mt-0.5">
+              <h1 className="font-display text-[1.5rem] font-bold tracking-[-0.03em] text-[#111110]">Choose a Storefront</h1>
+              <p className="text-[0.875rem] text-[#8C8880] mt-0.5">
                 Pick a landing page template — then customise every word live
               </p>
             </div>
@@ -233,15 +237,15 @@ export default function EditorPage({
               <button
                 key={tpl.id}
                 onClick={() => handlePickTemplate(tpl.id)}
-                className="group text-left rounded-xl border border-[#262626] overflow-hidden hover:border-[#FAFAFA]/40 transition-all focus:outline-none focus:ring-1 focus:ring-[#FAFAFA]/40"
+                className="group text-left rounded-xl border border-[#E8E4DC] overflow-hidden hover:border-[#111110]/30 transition-all focus:outline-none"
               >
                 <div className={`h-32 ${tpl.preview} flex items-center justify-center relative`}>
-                  <span className="text-[#FAFAFA]/20 text-5xl font-bold select-none">Aa</span>
-                  <div className="absolute inset-0 bg-[#FAFAFA]/0 group-hover:bg-[#FAFAFA]/5 transition-colors" />
+                  <span className="text-white/20 text-5xl font-bold select-none">Aa</span>
+                  <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors" />
                 </div>
-                <div className="p-4 bg-[#111111]">
-                  <div className="font-semibold text-sm">{tpl.label}</div>
-                  <div className="text-xs text-[#A1A1A1] mt-0.5">{tpl.description}</div>
+                <div className="p-4 bg-white">
+                  <div className="font-semibold text-[0.875rem] text-[#111110]">{tpl.label}</div>
+                  <div className="text-[0.75rem] text-[#8C8880] mt-0.5">{tpl.description}</div>
                 </div>
               </button>
             ))}
@@ -253,97 +257,102 @@ export default function EditorPage({
 
   // ── Phase 2: Live editor ──────────────────────────────────────────────
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0A0A0A]">
+    <div className="flex h-screen overflow-hidden bg-[#FAFAF8]">
       {/* Left panel */}
-      <div className="w-80 shrink-0 flex flex-col border-r border-[#262626] overflow-y-auto">
-        <div className="flex items-center gap-2 px-4 h-14 border-b border-[#262626] shrink-0">
-          <Button variant="ghost" size="icon" onClick={() => setPhase('pick')}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <span className="font-semibold text-sm flex-1">Edit Content</span>
-          <Badge variant="outline" className="text-[10px] font-mono">
+      <div className="w-80 shrink-0 flex flex-col border-r border-[#E8E4DC] bg-white overflow-y-auto">
+        <div className="flex items-center gap-2 px-4 h-14 border-b border-[#E8E4DC] shrink-0">
+          <button
+            onClick={() => setPhase('pick')}
+            className="text-[0.75rem] text-[#8C8880] hover:text-[#111110] transition-colors"
+          >
+            ←
+          </button>
+          <span className="font-semibold text-[0.875rem] text-[#111110] flex-1">Edit Content</span>
+          <span className="text-[0.6875rem] font-mono text-[#8C8880] px-2 py-0.5 border border-[#E8E4DC] rounded-full">
             {TEMPLATES.find((t) => t.id === selectedTemplate)?.label}
-          </Badge>
+          </span>
         </div>
 
         <div className="p-4 space-y-5 flex-1">
           <div>
-            <label className="text-xs text-[#A1A1A1] uppercase tracking-wider mb-2 block">
+            <label className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2 block">
               Headline
             </label>
             <textarea
               value={headline}
               onChange={(e) => setHeadline(e.target.value)}
               rows={3}
-              className="w-full bg-[#111] border border-[#262626] rounded-lg px-3 py-2 text-sm text-[#FAFAFA] resize-none focus:outline-none focus:border-[#FAFAFA]/40 transition-colors"
+              className="w-full bg-[#FAFAF8] border border-[#E8E4DC] rounded-lg px-3 py-2 text-[0.875rem] text-[#111110] resize-none focus:outline-none focus:border-[#111110]/30 transition-colors placeholder:text-[#8C8880]/50"
               placeholder="Your compelling headline"
             />
           </div>
           <div>
-            <label className="text-xs text-[#A1A1A1] uppercase tracking-wider mb-2 block">
+            <label className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2 block">
               Body Text
             </label>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={5}
-              className="w-full bg-[#111] border border-[#262626] rounded-lg px-3 py-2 text-sm text-[#FAFAFA] resize-none focus:outline-none focus:border-[#FAFAFA]/40 transition-colors"
+              className="w-full bg-[#FAFAF8] border border-[#E8E4DC] rounded-lg px-3 py-2 text-[0.875rem] text-[#111110] resize-none focus:outline-none focus:border-[#111110]/30 transition-colors placeholder:text-[#8C8880]/50"
               placeholder="Describe your value proposition"
             />
           </div>
           <div>
-            <label className="text-xs text-[#A1A1A1] uppercase tracking-wider mb-2 block">
+            <label className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-2 block">
               CTA Button Text
             </label>
             <input
               value={cta}
               onChange={(e) => setCta(e.target.value)}
-              className="w-full bg-[#111] border border-[#262626] rounded-lg px-3 py-2 text-sm text-[#FAFAFA] focus:outline-none focus:border-[#FAFAFA]/40 transition-colors"
+              className="w-full bg-[#FAFAF8] border border-[#E8E4DC] rounded-lg px-3 py-2 text-[0.875rem] text-[#111110] focus:outline-none focus:border-[#111110]/30 transition-colors placeholder:text-[#8C8880]/50"
               placeholder="Get Started"
             />
           </div>
           <div className="pt-2">
             <button
               onClick={() => setPhase('pick')}
-              className="text-xs text-[#A1A1A1] hover:text-[#FAFAFA] underline underline-offset-2 transition-colors"
+              className="text-[0.75rem] text-[#8C8880] hover:text-[#111110] underline underline-offset-2 transition-colors"
             >
               ← Change template
             </button>
           </div>
         </div>
 
-        <div className="p-4 border-t border-[#262626] space-y-2 shrink-0">
+        <div className="p-4 border-t border-[#E8E4DC] space-y-2 shrink-0">
           {saved && lpUrl && (
             <Button
               variant="outline"
               size="sm"
-              className="w-full"
+              className="w-full border-[#E8E4DC] text-[#111110] hover:bg-[#F3F0EB]"
               onClick={() => window.open(lpUrl, '_blank')}
             >
-              <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-              View Live Page
+              View Live Page ↗
             </Button>
           )}
-          <Button onClick={handleSave} disabled={saving} className="w-full">
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full h-9 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
+          >
             {saving ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deploying…</>
             ) : saved ? (
-              <CheckCircle2 className="w-4 h-4 mr-2 text-[#22C55E]" />
+              <><CheckCircle2 className="w-4 h-4 mr-2 text-[#059669]" />Deployed ✓</>
             ) : (
-              <Save className="w-4 h-4 mr-2" />
+              'Save & Deploy'
             )}
-            {saving ? 'Deploying…' : saved ? 'Deployed ✓' : 'Save & Deploy'}
           </Button>
         </div>
       </div>
 
       {/* Right: live iframe preview */}
       <div className="flex-1 flex flex-col">
-        <div className="flex items-center justify-between h-14 px-4 border-b border-[#262626] shrink-0">
-          <span className="text-xs text-[#A1A1A1]">Live Preview</span>
+        <div className="flex items-center justify-between h-14 px-4 border-b border-[#E8E4DC] shrink-0 bg-white">
+          <span className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Live Preview</span>
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-            <span className="text-xs text-[#A1A1A1]">Updates as you type</span>
+            <div className="w-1.5 h-1.5 rounded-full bg-[#059669] animate-pulse" />
+            <span className="text-[0.75rem] text-[#8C8880]">Updates as you type</span>
           </div>
         </div>
         <iframe

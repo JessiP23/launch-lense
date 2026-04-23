@@ -3,6 +3,7 @@
 import { createServiceClient } from '@/lib/supabase';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { updateCampaignStatus } from '@/lib/meta-api';
+import { getToken } from '@/lib/meta';
 
 const META_API = 'https://graph.facebook.com/v20.0';
 
@@ -40,13 +41,13 @@ export async function pauseTest(input: PauseTestInput): Promise<PauseTestResult>
     // 2. Fetch access token
     const { data: account } = await supabase
       .from('ad_accounts')
-      .select('access_token')
+      .select('account_id')
       .eq('id', test.ad_account_id)
       .single();
 
-    let accessToken = account?.access_token;
-    if (!accessToken || !String(accessToken).startsWith('EAA')) {
-      accessToken = process.env.AD_ACCESS_TOKEN;
+    let accessToken = account?.account_id ? await getToken(account.account_id) : null;
+    if (!accessToken) {
+      accessToken = process.env.AD_ACCESS_TOKEN || null;
     }
 
     if (!accessToken) {
@@ -125,13 +126,13 @@ export async function duplicateAd(
     // 2. Resolve token
     const { data: account } = await supabaseAdmin
       .from('ad_accounts')
-      .select('access_token, account_id')
+      .select('account_id')
       .eq('id', test.ad_account_id)
       .single();
 
-    let token = account?.access_token;
-    if (!token || !String(token).startsWith('EAA')) {
-      token = process.env.AD_ACCESS_TOKEN;
+    let token = account?.account_id ? await getToken(account.account_id) : null;
+    if (!token) {
+      token = process.env.AD_ACCESS_TOKEN || null;
     }
     if (!token) {
       return { success: false, error: 'No access token' };

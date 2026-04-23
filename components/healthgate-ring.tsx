@@ -48,7 +48,7 @@ export function HealthgateRing({
                 cy={size / 2}
                 r={radius}
                 fill="none"
-                stroke="#262626"
+                stroke="#E8E4DC"
                 strokeWidth={4}
               />
               {/* Progress ring */}

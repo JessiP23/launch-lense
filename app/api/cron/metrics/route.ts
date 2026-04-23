@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { getCampaignInsights, updateCampaignStatus } from '@/lib/meta-api';
+import { getToken } from '@/lib/meta';
 
 // Cron: Fetch metrics every 5 minutes for active tests
 export async function GET(request: NextRequest) {
@@ -36,11 +37,15 @@ export async function GET(request: NextRequest) {
         // 2. Fetch access token for the ad account
         const { data: account } = await supabase
           .from('ad_accounts')
-          .select('access_token')
+          .select('account_id')
           .eq('id', test.ad_account_id)
           .single();
 
-        if (!account?.access_token) {
+        const accessToken = account?.account_id
+          ? (await getToken(account.account_id)) || process.env.AD_ACCESS_TOKEN || null
+          : null;
+
+        if (!accessToken) {
           results.push({ test_id: test.id, status: 'skipped', error: 'No access token' });
           continue;
         }
@@ -48,7 +53,7 @@ export async function GET(request: NextRequest) {
         // 3. GET /{campaign_id}/insights from Meta
         const insights = await getCampaignInsights(
           test.campaign_id,
-          account.access_token
+          accessToken
         ) as {
           data?: Array<{
             impressions?: string;
@@ -105,7 +110,7 @@ export async function GET(request: NextRequest) {
         if (spendCents >= test.budget_cents) {
           await updateCampaignStatus(
             test.campaign_id,
-            account.access_token,
+            accessToken,
             'PAUSED'
           );
 

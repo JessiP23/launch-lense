@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getToken } from '@/lib/meta';
 
 const META_BASE = 'https://graph.facebook.com/v20.0';
 
@@ -21,13 +22,13 @@ export async function POST(request: Request) {
     // Resolve access token from DB
     const { data: account } = await supabaseAdmin
       .from('ad_accounts')
-      .select('access_token, account_id')
+      .select('account_id')
       .eq('id', adAccountId)
       .single();
 
-    let accessToken = account?.access_token;
-    if (!accessToken || !String(accessToken).startsWith('EAA')) {
-      accessToken = process.env.AD_ACCESS_TOKEN;
+    let accessToken = account?.account_id ? await getToken(account.account_id) : null;
+    if (!accessToken) {
+      accessToken = process.env.AD_ACCESS_TOKEN || null;
     }
     if (!accessToken) {
       return Response.json(

@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { updateCampaignStatus } from '@/lib/meta-api';
+import { getToken } from '@/lib/meta';
 
 interface MetricsPayload {
   spend_cents?: number;
@@ -101,14 +102,18 @@ export async function GET(request: NextRequest) {
           try {
             const { data: account } = await supabase
               .from('ad_accounts')
-              .select('access_token')
+              .select('account_id')
               .eq('id', test.ad_account_id)
               .single();
 
-            if (account?.access_token) {
+            const accessToken = account?.account_id
+              ? (await getToken(account.account_id)) || process.env.AD_ACCESS_TOKEN || null
+              : null;
+
+            if (accessToken) {
               await updateCampaignStatus(
                 test.campaign_id,
-                account.access_token,
+                accessToken,
                 'PAUSED'
               );
             }

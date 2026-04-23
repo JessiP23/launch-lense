@@ -1,679 +1,528 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Zap,
-  ArrowRight,
-  ArrowLeft,
-  Sparkles,
-  AlertTriangle,
-  CheckCircle2,
-  Upload,
-  Loader2,
-  Shield,
-} from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { useAppStore } from '@/lib/store';
-import { createTest, createDemoTest } from './actions';
+import type { GenomeOutput } from '@/lib/prompts';
 
-interface Angle {
-  headline: string;
-  primary_text: string;
-  cta: string;
+// ── Agent pipeline definition ──────────────────────────────────────────────
+
+type AgentStatus = 'waiting' | 'running' | 'done' | 'error';
+interface AgentStep {
+  id: string;
+  icon: React.ReactNode;
+  agent: string;
+  action: string;
+  dataSource: string;      // WHERE the model looks
+  reasoning?: string;      // WHAT it actually found (from LLM response)
+  metric: 'search_volume' | 'competitor_density' | 'language_fit' | 'orchestrator' | 'parser';
+  status: AgentStatus;
+  result?: string;
 }
 
-interface AIResult {
-  icp: string;
-  value_prop: string;
-  angles: Angle[];
-}
+const AGENT_PIPELINE: Omit<AgentStep, 'status' | 'result' | 'reasoning'>[] = [
+  {
+    id: 'parser',
+    icon: null,
+    agent: 'Idea Parser',
+    action: 'Extracting keywords, vertical, and buyer intent',
+    dataSource: 'Llama 3 · semantic decomposition of your input',
+    metric: 'parser',
+  },
+  {
+    id: 'market',
+    icon: null,
+    agent: 'Market Signal Agent',
+    action: 'Identifying buyer search terms + estimating monthly volume',
+    dataSource: 'Llama 3 training data — Google Trends & SemRush category patterns up to early 2024',
+    metric: 'search_volume',
+  },
+  {
+    id: 'competitor',
+    icon: null,
+    agent: 'Competitor Intelligence Agent',
+    action: 'Naming companies running paid ads, rating niche saturation',
+    dataSource: 'Llama 3 training data — Meta Ad Library & Google Ads landscape up to early 2024',
+    metric: 'competitor_density',
+  },
+  {
+    id: 'language',
+    icon: null,
+    agent: 'Language–Market Fit Agent',
+    action: 'Scoring how well your wording matches buyer search behavior',
+    dataSource: 'Llama 3 training data — SERP intent & buyer keyword patterns',
+    metric: 'language_fit',
+  },
+  {
+    id: 'orchestrator',
+    icon: null,
+    agent: 'Verdict Orchestrator',
+    action: 'Synthesizing signals into GO / NO-GO + pivot suggestion',
+    dataSource: 'Weighted scoring model (Llama 3 · Groq)',
+    metric: 'orchestrator',
+  },
+];
 
-const steps = ['Input', 'Review Angles', 'Preview & Deploy'];
+// ── Component ──────────────────────────────────────────────────────────────
 
 export default function NewTestPage() {
   const router = useRouter();
-  const { canLaunch, healthSnapshot } = useAppStore();
-  const [step, setStep] = useState(0);
-  const [loading, setLoading] = useState(false);
-
-  // Step 1 state
   const [idea, setIdea] = useState('');
-  const [audience, setAudience] = useState('');
-  const [offer, setOffer] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<GenomeOutput | null>(null);
+  const [analyzedIdea, setAnalyzedIdea] = useState('');
+  const [agentLog, setAgentLog] = useState<AgentStep[]>([]);
+  const [traceOpen, setTraceOpen] = useState(false); // kept for compat
+  const [override, setOverride] = useState(false);
+  const [continuing, setContinuing] = useState(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Step 2 state
-  const [aiResult, setAiResult] = useState<AIResult | null>(null);
-  const [selectedAngle, setSelectedAngle] = useState(0);
-  const [editedAngles, setEditedAngles] = useState<Angle[]>([]);
-  const [policyResult, setPolicyResult] = useState<{
-    risk_level: string;
-    blocked: boolean;
-    issues: string[];
-  } | null>(null);
-
-  // Step 3 state
-  const [deploying, setDeploying] = useState(false);
-  const [approved, setApproved] = useState(false);
-  const [brandName, setBrandName] = useState('');
-  const [brandImagePreview, setBrandImagePreview] = useState<string | null>(null);
-  const [adImagePreview, setAdImagePreview] = useState<string | null>(null);
-  const [imageHash, setImageHash] = useState<string | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [deployError, setDeployError] = useState<string | null>(null);
-  const [demoDeploying, setDemoDeploying] = useState(false);
-
-  // Block if healthgate is red
-  if (!canLaunch) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <Shield className="w-16 h-16 text-[#EF4444] opacity-50" />
-        <h2 className="text-xl font-semibold text-[#EF4444]">Launch Blocked</h2>
-        <p className="text-[#A1A1A1] text-sm max-w-md text-center">
-          Your Healthgate™ score is {healthSnapshot?.score || 'N/A'}. You need a score of 60+ to create tests.
-          Go to Accounts to fix issues.
-        </p>
-        <Button variant="outline" onClick={() => router.push('/accounts/connect')}>
-          Fix Account Health
-        </Button>
-      </div>
-    );
-  }
-
-  const handleExtract = async () => {
+  const runGenome = async () => {
+    if (!idea.trim()) return;
     setLoading(true);
+    setResult(null);
+    setOverride(false);
+    setTraceOpen(false);
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+
+    const initLog: AgentStep[] = AGENT_PIPELINE.map((s) => ({ ...s, status: 'waiting' }));
+    setAgentLog(initLog);
+
+    const setStep = (idx: number, status: AgentStatus, res?: string) =>
+      setAgentLog((prev) => prev.map((s, i) => i === idx ? { ...s, status, result: res } : s));
+
+    AGENT_PIPELINE.forEach((_, idx) => {
+      if (idx === AGENT_PIPELINE.length - 1) return;
+      const t = setTimeout(() => {
+        setStep(idx, 'running');
+        const done = setTimeout(() => setStep(idx, 'done'), 650);
+        timers.current.push(done);
+      }, idx * 750);
+      timers.current.push(t);
+    });
+
+    const orchT = setTimeout(() => setStep(AGENT_PIPELINE.length - 1, 'running'), (AGENT_PIPELINE.length - 1) * 750);
+    timers.current.push(orchT);
+
     try {
-      const res = await fetch('/api/ai/extract', {
+      const res = await fetch('/api/ai/genome', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ idea, audience, offer }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea: idea.trim() }),
       });
-      const data = await res.json();
-      setAiResult(data);
-      setEditedAngles(data.angles || []);
-      setStep(1);
+      const data: GenomeOutput = await res.json();
+
+      // Wire per-agent reasoning from LLM response into the trace
+      setAgentLog((prev) => prev.map((s) => {
+        const reasoning =
+          s.metric === 'search_volume' ? data.step1_keywords :
+          s.metric === 'competitor_density' ? data.step2_competitors :
+          s.metric === 'language_fit' ? data.step3_language :
+          s.metric === 'orchestrator' ? data.reasoning_1_sentence :
+          undefined;
+
+        const result =
+          s.metric === 'search_volume' ? `${data.search_volume_monthly >= 1000 ? (data.search_volume_monthly / 1000).toFixed(1) + 'K' : data.search_volume_monthly}/mo` :
+          s.metric === 'competitor_density' ? `${data.competitor_ad_density_0_10.toFixed(1)}/10` :
+          s.metric === 'language_fit' ? `${Math.round(data.language_market_fit_0_100)}/100` :
+          s.metric === 'orchestrator' ? data.verdict :
+          undefined;
+
+        return { ...s, status: 'done', result, reasoning };
+      }));
+
+      setResult(data);
+      setAnalyzedIdea(idea.trim());
     } catch (err) {
-      console.error('Extract failed:', err);
+      console.error('[genome]', err);
+      setAgentLog((prev) => prev.map((s) => s.status === 'running' ? { ...s, status: 'error' } : s));
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePolicyScan = async () => {
-    if (!editedAngles[selectedAngle]) return;
-    const angle = editedAngles[selectedAngle];
-    const res = await fetch('/api/policy/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        headline: angle.headline,
-        primary_text: angle.primary_text,
-      }),
-    });
-    const data = await res.json();
-    setPolicyResult(data);
-  };
-
-  const handleDeploy = async () => {
-    setDeploying(true);
-    setDeployError(null);
+  const handleContinue = async () => {
+    if (!result) return;
+    setContinuing(true);
     try {
-      const result = await createTest({
-        idea,
-        audience,
-        offer,
-        angle: editedAngles[selectedAngle],
-        orgId: useAppStore.getState().orgId || undefined,
-        adAccountId: useAppStore.getState().activeAccountId || undefined,
-        budgetCents: 50000,
-        vertical: 'saas',
-        imageHash: imageHash || undefined,
-        brandName: brandName || undefined,
-      });
-
-      if (result.success && result.testId) {
-        router.replace(`/tests/${result.testId}`);
-      } else {
-        console.error('Deploy failed:', result.error);
-      }
-    } catch (err) {
-      setDeployError(err instanceof Error ? err.message : 'Deploy failed');
-      console.error('Deploy failed:', err);
-    } finally {
-      setDeploying(false);
-    }
-  };
-
-  const handleDemoDeploy = async () => {
-    setDemoDeploying(true);
-    setDeployError(null);
-    try {
-      const result = await createDemoTest({
-        idea,
-        audience,
-        offer,
-        angle: editedAngles[selectedAngle],
-        orgId: useAppStore.getState().orgId || undefined,
-        adAccountId: useAppStore.getState().activeAccountId || undefined,
-        budgetCents: 50000,
-        vertical: 'saas',
-      });
-
-      if (result.success && result.testId) {
-        router.replace(`/tests/${result.testId}`);
-      } else {
-        setDeployError(result.error || 'Demo deploy failed');
-      }
-    } catch (err) {
-      setDeployError(err instanceof Error ? err.message : 'Demo deploy failed');
-    } finally {
-      setDemoDeploying(false);
-    }
-  };
-
-  const updateAngle = (index: number, field: keyof Angle, value: string) => {
-    const updated = [...editedAngles];
-    updated[index] = { ...updated[index], [field]: value };
-    setEditedAngles(updated);
-  };
-
-  const handleBrandImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setBrandImagePreview(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handleAdImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Show local preview immediately
-    const reader = new FileReader();
-    reader.onload = () => setAdImagePreview(reader.result as string);
-    reader.readAsDataURL(file);
-
-    // Upload to Meta to get image_hash
-    const adAccountId = useAppStore.getState().activeAccountId;
-    if (!adAccountId) return;
-
-    setUploadingImage(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('ad_account_id', adAccountId);
-
-      const res = await fetch('/api/meta/upload-image', {
+      const res = await fetch('/api/tests', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea: analyzedIdea, genome: result }),
       });
       const data = await res.json();
-      if (data.image_hash) {
-        setImageHash(data.image_hash);
+      if (data.id) {
+        // Cache idea + genome in sessionStorage so the setup page loads instantly
+        sessionStorage.setItem(`test:${data.id}`, JSON.stringify({ idea: analyzedIdea, genome: result }));
+        router.push(`/tests/${data.id}/setup`);
       }
     } catch (err) {
-      console.error('Image upload failed:', err);
-    } finally {
-      setUploadingImage(false);
+      console.error('[create test]', err);
+      setContinuing(false);
     }
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────
+
   return (
-    <div className="space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pb-20">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div>
+        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880] mb-1">
+          Tests
+        </p>
+        <h1 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110]">
+          New Test
+        </h1>
+        <p className="text-[0.875rem] text-[#8C8880] mt-1">
+          Phase 0 — Genome pre-qualification. Kill bad ideas before spending a dollar.
+        </p>
+      </div>
+
+      {/* Idea input */}
+      <div className="bg-white rounded-xl border border-[#E8E4DC] p-5 space-y-4">
         <div>
-          <h1 className="text-2xl font-semibold">Create New Test</h1>
-          <p className="text-sm text-[#A1A1A1] mt-1">
-            Validate your idea in 48 hours with real Meta traffic
+          <p className="font-display text-[1.0625rem] font-bold tracking-[-0.01em] text-[#111110]">
+            Describe your idea
+          </p>
+          <p className="text-[0.8125rem] text-[#8C8880] mt-0.5">
+            A 5-agent pipeline queries Google Search and Meta Ad Library for live signals, then uses Llama 3 (Groq) to score the results.
           </p>
         </div>
-        <Badge variant="success">Healthgate: {healthSnapshot?.score}</Badge>
+        <Textarea
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+          placeholder="e.g., AI-powered scheduling software for dental practices"
+          rows={3}
+          disabled={loading}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runGenome(); }}
+          className="border-[#E8E4DC] bg-[#FAFAF8] focus:ring-[#111110]/10 text-[#111110] placeholder:text-[#8C8880]/60 resize-none"
+        />
+        <div className="flex items-center justify-between">
+          <Button
+            onClick={runGenome}
+            disabled={!idea.trim() || loading}
+            className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
+          >
+            {loading ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Analyzing…</>
+            ) : (
+              'Run'
+            )}
+          </Button>
+        </div>
       </div>
 
-      {/* Stepper */}
-      <div className="flex items-center gap-2">
-        {steps.map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            <div
-              className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${
-                i <= step
-                  ? 'bg-[#FAFAFA] text-[#0A0A0A]'
-                  : 'bg-[#262626] text-[#A1A1A1]'
-              }`}
-            >
-              {i + 1}
-            </div>
-            <span
-              className={`text-sm ${
-                i <= step ? 'text-[#FAFAFA]' : 'text-[#A1A1A1]'
-              }`}
-            >
-              {s}
-            </span>
-            {i < steps.length - 1 && (
-              <div className="w-8 h-px bg-[#262626] mx-1" />
-            )}
-          </div>
-        ))}
-      </div>
-
-      <AnimatePresence mode="wait">
-        {/* STEP 1: Input */}
-        {step === 0 && (
+      {/* Agent pipeline (running state) */}
+      <AnimatePresence>
+        {agentLog.length > 0 && loading && (
           <motion.div
-            key="step1"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="bg-white rounded-xl border border-[#E8E4DC] p-4 space-y-1"
           >
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5" />
-                  Describe Your Test
-                </CardTitle>
-                <CardDescription>
-                  Tell us about your startup idea. Our AI will generate ad angles.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">
-                    Startup Idea *
-                  </label>
-                  <Textarea
-                    value={idea}
-                    onChange={(e) => setIdea(e.target.value)}
-                    placeholder="e.g., AI-powered scheduling for dentists"
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">
-                    Target Audience
-                  </label>
-                  <Input
-                    value={audience}
-                    onChange={(e) => setAudience(e.target.value)}
-                    placeholder="e.g., Dental practice owners, US, 30-55"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-[#A1A1A1] mb-1.5 block">
-                    Offer
-                  </label>
-                  <Input
-                    value={offer}
-                    onChange={(e) => setOffer(e.target.value)}
-                    placeholder="e.g., Free 14-day trial, no credit card"
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    onClick={handleExtract}
-                    disabled={!idea || loading}
-                  >
-                    {loading ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 mr-2" />
-                    )}
-                    {loading ? 'Generating...' : 'Generate Angles'}
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        {/* STEP 2: Review Angles */}
-        {step === 1 && aiResult && (
-          <motion.div
-            key="step2"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-4"
-          >
-            {/* ICP & Value Prop */}
-            <Card>
-              <CardContent className="pt-4 space-y-2">
-                <div className="text-xs text-[#A1A1A1]">Ideal Customer Profile</div>
-                <div className="text-sm">{typeof aiResult.icp === 'string' ? aiResult.icp : JSON.stringify(aiResult.icp, null, 2)}</div>
-                <div className="text-xs text-[#A1A1A1] mt-2">Value Proposition</div>
-                <div className="text-sm">{typeof aiResult.value_prop === 'string' ? aiResult.value_prop : JSON.stringify(aiResult.value_prop, null, 2)}</div>
-              </CardContent>
-            </Card>
-
-            {/* Angles */}
-            <div className="grid gap-4 md:grid-cols-3">
-              {editedAngles.map((angle, i) => (
-                <Card
-                  key={i}
-                  className={`cursor-pointer transition-all ${
-                    selectedAngle === i
-                      ? 'ring-1 ring-[#FAFAFA]'
-                      : 'opacity-60 hover:opacity-80'
-                  }`}
-                  onClick={() => setSelectedAngle(i)}
-                >
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      Angle {i + 1}
-                      {selectedAngle === i && (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E]" />
-                      )}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div>
-                      <label className="text-[10px] text-[#A1A1A1] uppercase tracking-wider">
-                        Headline
-                      </label>
-                      <Input
-                        value={angle.headline}
-                        onChange={(e) =>
-                          updateAngle(i, 'headline', e.target.value)
-                        }
-                        className="mt-1 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-[#A1A1A1] uppercase tracking-wider">
-                        Primary Text
-                      </label>
-                      <Textarea
-                        value={angle.primary_text}
-                        onChange={(e) =>
-                          updateAngle(i, 'primary_text', e.target.value)
-                        }
-                        className="mt-1 text-sm"
-                        rows={3}
-                      />
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      CTA: {angle.cta}
-                    </Badge>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="flex items-center gap-2 mb-3">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#8C8880]" />
+              <span className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
+                Agent Pipeline · Running
+              </span>
             </div>
-
-            {/* Policy Scan */}
-            <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={handlePolicyScan}>
-                <Shield className="w-4 h-4 mr-2" />
-                Run Policy Scan
-              </Button>
-              {policyResult && (
-                <div className="flex items-center gap-2">
-                  {policyResult.blocked ? (
-                    <Badge variant="danger">
-                      <AlertTriangle className="w-3 h-3 mr-1" />
-                      Blocked
-                    </Badge>
-                  ) : policyResult.risk_level === 'medium' ? (
-                    <Badge variant="warning">Review Needed</Badge>
-                  ) : (
-                    <Badge variant="success">
-                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                      Clear
-                    </Badge>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {policyResult?.issues && policyResult.issues.length > 0 && (
-              <Card className="border-[#EAB308]/20">
-                <CardContent className="pt-4">
-                  <ul className="space-y-1">
-                    {policyResult.issues.map((issue, i) => (
-                      <li key={i} className="text-sm text-[#EAB308] flex items-start gap-2">
-                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                        {issue}
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(0)}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-              <Button
-                onClick={() => setStep(2)}
-                disabled={policyResult?.blocked}
+            {agentLog.map((step) => (
+              <motion.div
+                key={step.id}
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                className={`flex items-center gap-3 py-1.5 px-2 rounded-lg transition-colors ${
+                  step.status === 'running' ? 'bg-[#F3F0EB]' : ''
+                }`}
               >
-                Preview & Deploy
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
+                <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                  step.status === 'done'    ? 'border-[#059669] text-[#059669]' :
+                  step.status === 'running' ? 'border-[#111110] text-[#111110]' :
+                  step.status === 'error'   ? 'border-[#DC2626] text-[#DC2626]' :
+                                              'border-[#E8E4DC] text-[#8C8880]'
+                }`}>
+                  {step.status === 'done'    ? <CheckCircle2 className="w-3 h-3" /> :
+                   step.status === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> :
+                   step.status === 'error'   ? <XCircle className="w-3 h-3" /> :
+                   <span className="w-1.5 h-1.5 rounded-full bg-[#E8E4DC] inline-block" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[0.8125rem] font-medium ${
+                      step.status === 'waiting' ? 'text-[#8C8880]' : 'text-[#111110]'
+                    }`}>
+                      {step.agent}
+                    </span>
+                    {step.status === 'running' && (
+                      <span className="text-[0.6875rem] text-[#8C8880] animate-pulse">running…</span>
+                    )}
+                    {step.result && (
+                      <span className="text-[0.6875rem] font-mono text-[#8C8880] ml-auto">{step.result}</span>
+                    )}
+                  </div>
+                  <p className="text-[0.75rem] text-[#8C8880] truncate">{step.action}</p>
+                </div>
+              </motion.div>
+            ))}
           </motion.div>
         )}
+      </AnimatePresence>
 
-        {/* STEP 3: Preview & Deploy */}
-        {step === 2 && (
-          <motion.div
-            key="step3"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-4"
-          >
-            <Card>
-              <CardHeader>
-                <CardTitle>Campaign Preview</CardTitle>
-                <CardDescription>
-                  Review your campaign settings before launching
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <table className="w-full text-sm">
-                  <tbody>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1] w-40">Idea</td>
-                      <td className="py-2">{idea}</td>
-                    </tr>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1]">Audience</td>
-                      <td className="py-2">Broad US 25-65</td>
-                    </tr>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1]">Placements</td>
-                      <td className="py-2">Instagram Feed, Facebook Feed</td>
-                    </tr>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1]">Budget</td>
-                      <td className="py-2 font-mono tabular-nums">$500 (max)</td>
-                    </tr>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1]">Duration</td>
-                      <td className="py-2">48 hours</td>
-                    </tr>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1]">Headline</td>
-                      <td className="py-2 font-medium">{editedAngles[selectedAngle]?.headline}</td>
-                    </tr>
-                    <tr className="border-b border-[#262626]/50 h-10">
-                      <td className="py-2 text-[#A1A1A1]">Primary Text</td>
-                      <td className="py-2">{editedAngles[selectedAngle]?.primary_text}</td>
-                    </tr>
-                    <tr className="h-10">
-                      <td className="py-2 text-[#A1A1A1]">Healthgate™</td>
-                      <td className="py-2">
-                        <Badge variant="success">{healthSnapshot?.score}/100</Badge>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+      {/* Result */}
+      <AnimatePresence>
+        {result && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
 
-            {/* Ad mockup */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Ad Preview</CardTitle>
-                <CardDescription>
-                  Click the brand name, image, or ad creative to customize
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="max-w-sm mx-auto bg-[#111111] rounded-lg overflow-hidden border border-[#262626]">
-                  {/* Brand header — editable */}
-                  <div className="p-3 flex items-center gap-2 border-b border-[#262626]">
-                    <label className="relative cursor-pointer group shrink-0">
-                      {brandImagePreview ? (
-                        <img
-                          src={brandImagePreview}
-                          alt="Brand"
-                          className="w-8 h-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-[#262626] flex items-center justify-center group-hover:bg-[#333]">
-                          <Upload className="w-3.5 h-3.5 text-[#A1A1A1]" />
+            {/* Analyzed idea label */}
+            <p className="text-[0.75rem] text-[#8C8880] px-1">
+              Analyzed: <em className="text-[#111110]">&ldquo;{analyzedIdea}&rdquo;</em>
+            </p>
+
+            {/* Verdict banner */}
+            <div className={`p-5 rounded-xl border ${
+              result.verdict === 'GO' || override
+                ? 'border-[#059669]/20 bg-[#ECFDF5]'
+                : 'border-[#DC2626]/20 bg-[#FEF2F2]'
+            }`}>
+              <p className={`font-display text-[1.375rem] font-bold tracking-[-0.02em] ${
+                result.verdict === 'GO' ? 'text-[#059669]' : override ? 'text-[#D97706]' : 'text-[#DC2626]'
+              }`}>
+                {result.verdict === 'GO' ? '✓ GO — Launch it' : override ? 'Override — proceed with caution' : '✗ NO-GO — Bad signal'}
+              </p>
+              <p className="text-[0.875rem] text-[#8C8880] mt-1.5 max-w-lg">{result.reasoning_1_sentence}</p>
+              <span className="inline-block mt-2 text-[0.6875rem] font-mono text-[#8C8880] border border-[#E8E4DC] bg-white px-2 py-0.5 rounded">
+                Phase 0
+              </span>
+            </div>
+
+            {/* Data source badge */}
+            <p className={`text-[0.75rem] font-mono px-1 ${
+              result.data_source === 'real' ? 'text-[#059669]' : 'text-[#8C8880]'
+            }`}>
+              {result.data_source === 'real'
+                ? '⬤ Live data — Google Search + Meta Ad Library'
+                : '◯ Estimate — add SERPER_API_KEY for live data'}
+            </p>
+
+            {/* 3 metric cards */}
+            <div className="space-y-3">
+
+              {/* Search Volume */}
+              <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+                <div className="flex items-start gap-4 p-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">
+                      Search Volume / mo
+                    </p>
+                    <p className="text-[2rem] font-mono font-bold text-[#111110] tabular-nums">
+                      {result.search_volume_monthly >= 1000
+                        ? `${(result.search_volume_monthly / 1000).toFixed(1)}K`
+                        : result.search_volume_monthly.toLocaleString()}
+                    </p>
+                    <div className="h-1 bg-[#F3F0EB] mt-2 rounded-full">
+                      <div
+                        className="h-full bg-[#111110] rounded-full"
+                        style={{ width: `${Math.min(100, (result.search_volume_monthly / 50000) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
+                    {result.search_volume_monthly >= 10000 ? 'Strong' : result.search_volume_monthly >= 1000 ? 'Moderate' : 'Weak'}
+                  </span>
+                </div>
+                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
+                  {result.source_google && (
+                    <div className="space-y-2">
+                      <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
+                        Google Search — Live Data
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2">
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Indexed Pages</p>
+                          <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums mt-0.5">{result.source_google.organic_result_count.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2">
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Active Google Ads</p>
+                          <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums mt-0.5">{result.source_google.google_ads_count}</p>
+                        </div>
+                      </div>
+                      {result.source_google.related_searches.length > 0 && (
+                        <div>
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5">Buyer Search Terms</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {result.source_google.related_searches.slice(0, 6).map((s) => (
+                              <span key={s} className="text-[0.6875rem] px-2 py-0.5 bg-white border border-[#E8E4DC] rounded-full text-[#111110]">{s}</span>
+                            ))}
+                          </div>
                         </div>
                       )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={handleBrandImageUpload}
-                      />
-                    </label>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={brandName}
-                        onChange={(e) => setBrandName(e.target.value)}
-                        placeholder="Your Brand Name"
-                        className="bg-transparent text-xs font-medium w-full outline-none border-b border-transparent hover:border-[#333] focus:border-[#FAFAFA] transition-colors placeholder:text-[#666]"
-                      />
-                      <div className="text-[10px] text-[#A1A1A1]">Sponsored</div>
                     </div>
-                  </div>
-                  {/* Primary text */}
-                  <div className="p-3 text-sm">
-                    {editedAngles[selectedAngle]?.primary_text}
-                  </div>
-                  {/* Ad image — uploadable */}
-                  <label className="block aspect-square bg-[#262626] cursor-pointer relative group overflow-hidden">
-                    {adImagePreview ? (
-                      <img
-                        src={adImagePreview}
-                        alt="Ad creative"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full gap-2 group-hover:bg-[#333] transition-colors">
-                        <Upload className="w-8 h-8 text-[#A1A1A1]" />
-                        <span className="text-xs text-[#A1A1A1]">Upload ad image</span>
-                      </div>
-                    )}
-                    {uploadingImage && (
-                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                        <Loader2 className="w-6 h-6 animate-spin text-[#FAFAFA]" />
-                      </div>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="sr-only"
-                      onChange={handleAdImageUpload}
-                    />
-                  </label>
-                  {/* Headline + CTA */}
-                  <div className="p-3 border-t border-[#262626]">
-                    <div className="text-xs text-[#A1A1A1]">
-                      {brandName ? brandName.toLowerCase().replace(/\s+/g, '') + '.com' : 'yourbrand.com'}
+                  )}
+                  {result.step1_keywords && (
+                    <div className="border-l-2 border-[#111110]/20 pl-3">
+                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
+                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step1_keywords}</p>
                     </div>
-                    <div className="text-sm font-semibold mt-0.5">
-                      {editedAngles[selectedAngle]?.headline}
-                    </div>
-                  </div>
+                  )}
                 </div>
-                {imageHash && (
-                  <div className="mt-3 flex items-center justify-center gap-2 text-xs text-[#22C55E]">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Image uploaded to Meta
+              </div>
+
+              {/* Competitor Density */}
+              <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+                <div className="flex items-start gap-4 p-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">
+                      Ad Saturation
+                    </p>
+                    <p className="text-[2rem] font-mono font-bold text-[#111110] tabular-nums">
+                      {result.competitor_ad_density_0_10.toFixed(1)}
+                      <span className="text-[1.25rem] font-normal text-[#8C8880]"> /10</span>
+                    </p>
+                    <div className="h-1 bg-[#F3F0EB] mt-2 rounded-full">
+                      <div
+                        className="h-full bg-[#111110] rounded-full"
+                        style={{ width: `${(result.competitor_ad_density_0_10 / 10) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
+                    {result.competitor_ad_density_0_10 <= 3 ? 'Untapped market' : result.competitor_ad_density_0_10 <= 6 ? 'Moderate competition' : 'Saturated'}
+                  </span>
+                </div>
+                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
+                  {result.source_meta && result.source_meta.active_ads_count !== undefined && (
+                    <div className="space-y-2">
+                      <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
+                        Meta Ad Library — Last 90 Days
+                      </p>
+                      <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2 flex items-center justify-between">
+                        <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Active Ads Found</p>
+                        <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums">
+                          {result.source_meta.active_ads_count}
+                          {result.source_meta.active_ads_count === 25 && <span className="text-[0.75rem] font-normal text-[#D97706] ml-1.5">cap reached</span>}
+                        </p>
+                      </div>
+                      {result.source_meta.advertiser_names && result.source_meta.advertiser_names.length > 0 && (
+                        <div>
+                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5">Known Advertisers</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {result.source_meta.advertiser_names.slice(0, 8).map((name) => (
+                              <span key={name} className="text-[0.6875rem] px-2 py-0.5 bg-white border border-[#E8E4DC] rounded-full text-[#111110]">{name}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {result.step2_competitors && (
+                    <div className="border-l-2 border-[#111110]/20 pl-3">
+                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
+                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step2_competitors}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Language-Market Fit */}
+              <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+                <div className="flex items-start gap-4 p-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">
+                      Language–Market Fit
+                    </p>
+                    <p className="text-[2rem] font-mono font-bold text-[#111110] tabular-nums">
+                      {Math.round(result.language_market_fit_0_100)}
+                      <span className="text-[1.25rem] font-normal text-[#8C8880]"> /100</span>
+                    </p>
+                    <div className="h-1 bg-[#F3F0EB] mt-2 rounded-full">
+                      <div
+                        className="h-full bg-[#111110] rounded-full"
+                        style={{ width: `${result.language_market_fit_0_100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
+                    {result.language_market_fit_0_100 >= 60 ? 'Strong fit' : result.language_market_fit_0_100 >= 40 ? 'Weak fit' : 'Poor fit'}
+                  </span>
+                </div>
+                {result.step3_language && (
+                  <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
+                    {result.source_google?.top_titles && result.source_google.top_titles.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
+                          Top Ranking Results
+                        </p>
+                        {result.source_google.top_titles.slice(0, 3).map((t, i) => (
+                          <div key={t} className="flex items-start gap-2.5 bg-white border border-[#E8E4DC] rounded-lg px-3 py-2">
+                            <span className="text-[0.625rem] font-mono text-[#8C8880] mt-0.5 shrink-0">#{i + 1}</span>
+                            <p className="text-[0.75rem] text-[#111110] leading-snug">{t}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="border-l-2 border-[#111110]/20 pl-3">
+                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
+                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step3_language}</p>
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* Approval checkbox */}
-            <div className="flex items-center gap-3 p-4 rounded-lg border border-[#262626] bg-[#111111]">
-              <input
-                type="checkbox"
-                id="approve"
-                checked={approved}
-                onChange={(e) => setApproved(e.target.checked)}
-                className="rounded border-[#262626]"
-              />
-              <label htmlFor="approve" className="text-sm">
-                I approve this campaign configuration. I understand that up to $500 of real ad spend may occur.
-              </label>
+              </div>
             </div>
 
-            {/* Deploy error */}
-            {deployError && (
-              <div className="p-4 rounded-lg border border-[#EF4444]/20 bg-[#EF4444]/5">
-                <div className="flex items-center gap-2 text-sm text-[#EF4444] font-medium mb-1">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  Deploy Failed
-                </div>
-                <p className="text-xs text-[#A1A1A1] font-mono break-all">{deployError}</p>
+            {/* Pivot suggestion */}
+            {result.verdict === 'NO-GO' && result.pivot_suggestion_15_words && (
+              <div className="p-4 rounded-xl border border-[#D97706]/20 bg-[#FFFBEB]">
+                <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#D97706] mb-1.5">
+                  Pivot Suggestion
+                </p>
+                <p className="text-[0.9375rem] font-medium text-[#111110]">
+                  {result.pivot_suggestion_15_words}
+                </p>
+                <p className="text-[0.75rem] text-[#8C8880] mt-1">
+                  Tweak your idea above and re-run Genome.
+                </p>
               </div>
             )}
 
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep(1)}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-              <div className="flex gap-2">
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-3">
                 <Button
-                  onClick={handleDemoDeploy}
-                  disabled={demoDeploying || deploying}
                   variant="outline"
-                  title="Simulates a campaign with fake metrics — no real ad spend"
+                  size="sm"
+                  onClick={() => { setResult(null); setAgentLog([]); setIdea(''); setOverride(false); }}
+                  className="border-[#E8E4DC] text-[#111110] hover:bg-[#F3F0EB]"
                 >
-                  {demoDeploying ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4 mr-2" />
-                  )}
-                  {demoDeploying ? 'Creating Demo...' : 'Demo Deploy'}
+                  Start Over
                 </Button>
-                <Button
-                  onClick={handleDeploy}
-                  disabled={!approved || deploying || demoDeploying}
-                  variant="success"
-                >
-                  {deploying ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Zap className="w-4 h-4 mr-2" />
-                  )}
-                  {deploying ? 'Deploying...' : 'Deploy Live'}
-                </Button>
+                {result.verdict === 'NO-GO' && !override && (
+                  <button
+                    className="text-[0.8125rem] text-[#8C8880] underline underline-offset-2 hover:text-[#111110]"
+                    onClick={() => setOverride(true)}
+                  >
+                    Override — proceed anyway
+                  </button>
+                )}
               </div>
+              {(result.verdict === 'GO' || override) && (
+                <Button
+                  onClick={handleContinue}
+                  disabled={continuing}
+                  className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
+                >
+                  {continuing ? (
+                    <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Creating…</>
+                  ) : (
+                    'Continue to Setup →'
+                  )}
+                </Button>
+              )}
             </div>
           </motion.div>
         )}

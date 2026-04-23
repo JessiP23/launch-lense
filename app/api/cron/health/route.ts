@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { fetchAdAccountHealth } from '@/lib/meta-api';
 import { calculateHealthChecks } from '@/lib/healthgate';
+import { getToken } from '@/lib/meta';
 
 // Cron: Health check every 15 minutes
 // Configured via vercel.json: { "crons": [{ "path": "/api/cron/health", "schedule": "*/15 * * * *" }] }
@@ -12,10 +13,10 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createServiceClient();
 
-    // 1. Fetch all ad accounts with access tokens
+    // 1. Fetch all ad accounts
     const { data: accounts, error: accountsError } = await supabase
       .from('ad_accounts')
-      .select('id, account_id, access_token, org_id, name');
+      .select('id, account_id, org_id, name');
 
     if (accountsError) {
       throw new Error(`Failed to fetch accounts: ${accountsError.message}`);
@@ -32,7 +33,8 @@ export async function GET(request: NextRequest) {
     const results: { account_id: string; score: number; status: string; error?: string }[] = [];
 
     for (const account of accounts) {
-      if (!account.access_token) {
+      const accessToken = (await getToken(account.account_id)) || process.env.AD_ACCESS_TOKEN || null;
+      if (!accessToken) {
         results.push({
           account_id: account.account_id,
           score: 0,
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
         // 2. Fetch health data from Meta
         const rawData = await fetchAdAccountHealth(
           account.account_id,
-          account.access_token
+          accessToken
         );
 
         // 3. Calculate health checks
@@ -83,7 +85,7 @@ export async function GET(request: NextRequest) {
                 try {
                   await updateCampaignStatus(
                     test.campaign_id,
-                    account.access_token,
+                    accessToken,
                     'PAUSED'
                   );
                   await supabase

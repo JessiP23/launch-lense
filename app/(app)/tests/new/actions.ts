@@ -9,6 +9,7 @@ import {
   createAd,
   deleteMetaObject,
 } from '@/lib/meta-api';
+import { getToken } from '@/lib/meta';
 import { calculateHealthChecks } from '@/lib/healthgate';
 
 interface Angle {
@@ -36,6 +37,56 @@ interface CreateTestResult {
   error?: string;
 }
 
+async function fetchAccountWithOptionalPageId(requestedAccountId: string) {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedAccountId);
+  const isMetaId = requestedAccountId.startsWith('act_');
+  const lookupColumn = isUuid ? 'id' : 'account_id';
+
+  // First try with page_id for schemas that include it.
+  const withPage = await supabaseAdmin
+    .from('ad_accounts')
+    .select('id, account_id, page_id')
+    .eq(lookupColumn, requestedAccountId)
+    .maybeSingle();
+
+  if (!withPage.error) {
+    return {
+      account: withPage.data as { id: string; account_id: string; page_id?: string | null } | null,
+      isUuid,
+      isMetaId,
+      accountErrMsg: null,
+    };
+  }
+
+  // If page_id column does not exist, fallback to minimal fields.
+  if (withPage.error.message.includes('column ad_accounts.page_id does not exist')) {
+    const withoutPage = await supabaseAdmin
+      .from('ad_accounts')
+      .select('id, account_id')
+      .eq(lookupColumn, requestedAccountId)
+      .maybeSingle();
+    return {
+      account: withoutPage.data
+        ? ({ ...withoutPage.data, page_id: null } as {
+            id: string;
+            account_id: string;
+            page_id?: string | null;
+          })
+        : null,
+      isUuid,
+      isMetaId,
+      accountErrMsg: withoutPage.error?.message || null,
+    };
+  }
+
+  return {
+    account: null,
+    isUuid,
+    isMetaId,
+    accountErrMsg: withPage.error.message,
+  };
+}
+
 export async function createTest(input: CreateTestInput): Promise<CreateTestResult> {
   const {
     idea,
@@ -54,14 +105,33 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     return { success: false, error: 'Missing required account information. Connect an ad account first.' };
   }
 
+  // ── Resolve ad account row (accept internal UUID or Meta act_ ID) ───
+  const requestedAccountId = adAccountId.trim();
+  const {
+    account,
+    isUuid,
+    isMetaId,
+    accountErrMsg,
+  } = await fetchAccountWithOptionalPageId(requestedAccountId);
+
+  if (!account) {
+    console.error('[createTest] account lookup failed', {
+      requestedAccountId,
+      isUuid,
+      isMetaId,
+      accountErrMsg,
+    });
+    return { success: false, error: 'Ad account not found in database. Reconnect account and try again.' };
+  }
+
   // ── 0. Server-side Healthgate check ──────────────────────────────────
   const { data: latestSnapshot } = await supabaseAdmin
     .from('health_snapshots')
     .select('payload')
-    .eq('ad_account_id', adAccountId)
+    .eq('ad_account_id', account.id)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (latestSnapshot?.payload) {
     const health = calculateHealthChecks(latestSnapshot.payload);
@@ -73,24 +143,13 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     }
   }
 
-  // ── Resolve access token ─────────────────────────────────────────────
-  const { data: account } = await supabaseAdmin
-    .from('ad_accounts')
-    .select('access_token, account_id')
-    .eq('id', adAccountId)
-    .single();
-
-  if (!account) {
-    return { success: false, error: 'Ad account not found in database.' };
-  }
-
   // Meta account ID is the act_xxx string — NOT the internal UUID
   // Strip act_ prefix since meta-api.ts functions add it back
   const metaAccountId = account.account_id.replace(/^act_/, ''); // e.g. "727146616453623"
 
-  let accessToken = account.access_token;
-  if (!accessToken || !String(accessToken).startsWith('EAA')) {
-    accessToken = process.env.AD_ACCESS_TOKEN;
+  let accessToken = await getToken(account.account_id);
+  if (!accessToken) {
+    accessToken = process.env.AD_ACCESS_TOKEN || null;
   }
   if (!accessToken) {
     return { success: false, error: 'No access token available for this ad account.' };
@@ -108,7 +167,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
       .from('tests')
       .insert({
         org_id: orgId,
-        ad_account_id: adAccountId,
+        ad_account_id: account.id,
         name: idea.slice(0, 120),
         status: 'draft',
         budget_cents: budgetCents,
@@ -152,6 +211,32 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
       throw new Error('LP deploy returned no URL');
     }
 
+    const metaAppId = process.env.META_APP_ID;
+    if (!metaAppId) {
+      throw new Error('META_APP_ID is missing');
+    }
+    if (process.env.NODE_ENV === 'development') {
+      const assets = await fetch(
+        `https://graph.facebook.com/v20.0/${metaAppId}/advertisable_applications?access_token=${accessToken}`
+      );
+      const assetsData = await assets.json();
+      console.log('[createTest] APP_ASSETS:', assetsData);
+
+      // Some app types do not expose this edge; skip check instead of false-blocking deploy.
+      if (assetsData?.error?.code === 100) {
+        console.warn('[createTest] APP_ASSETS edge unavailable; skipping dev asset check');
+      } else {
+        const assetList = Array.isArray(assetsData?.data) ? assetsData.data : [];
+        const hasAccountAsset = assetList.some((asset: { id?: string; account_id?: string }) => {
+          const id = asset.id || asset.account_id || '';
+          return id === account.account_id || id === metaAccountId || id === `act_${metaAccountId}`;
+        });
+        if (!hasAccountAsset) {
+          throw new Error('Add ad account to App in Marketing API Settings');
+        }
+      }
+    }
+
     // ── 3. Create campaign ─────────────────────────────────────────────
     const campaignResult = await createCampaign(metaAccountId, accessToken, {
       name: `[LaunchLense] ${idea.slice(0, 60)}`,
@@ -167,8 +252,9 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     const adSetResult = await createAdSet(metaAccountId, accessToken, {
       campaign_id: campaignId,
       name: `${angle.headline.slice(0, 40)} - Broad US`,
-      billing_event: 'LINK_CLICKS',
-      optimization_goal: 'LINK_CLICKS',
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'REACH',
+      bid_amount: 100,
       daily_budget: Math.floor(budgetCents / 2),
       targeting: {
         geo_locations: { countries: ['US'] },
@@ -196,12 +282,29 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
       linkData.image_hash = imageHash;
     }
 
+    const resolvedPageId = account.page_id || process.env.META_PAGE_ID || null;
+    if (!resolvedPageId) {
+      throw new Error('Missing Facebook Page. Set META_PAGE_ID or add page_id on ad_accounts.');
+    }
+
+    let objectStorySpec: Record<string, unknown>;
+    try {
+      const pageRes = await fetch(
+        `https://graph.facebook.com/v20.0/${resolvedPageId}?fields=name&access_token=${accessToken}`
+      );
+      const pageData = await pageRes.json();
+      if (pageData?.error) {
+        throw new Error(pageData.error.message || 'Invalid page_id');
+      }
+      objectStorySpec = { page_id: resolvedPageId, link_data: linkData };
+      console.log('[createTest] USING_PAGE_ID:', resolvedPageId);
+    } catch {
+      throw new Error('Invalid Facebook Page for this token. Check META_PAGE_ID/page permissions.');
+    }
+
     const creativeResult = await createAdCreative(metaAccountId, accessToken, {
       name: `Creative - ${angle.headline.slice(0, 40)}`,
-      object_story_spec: {
-        page_id: process.env.META_PAGE_ID,
-        link_data: linkData,
-      },
+      object_story_spec: objectStorySpec,
     });
     const creativeId = (creativeResult as { id: string }).id;
     createdObjects.push({ type: 'creative', id: creativeId });
@@ -288,11 +391,23 @@ export async function createDemoTest(input: CreateTestInput): Promise<CreateTest
     vertical = 'saas',
   } = input;
 
-  if (!orgId || !adAccountId) {
-    return { success: false, error: 'Missing required account information. Connect an ad account first.' };
+  if (!orgId) {
+    return { success: false, error: 'Missing org information. Please sign in and try again.' };
+  }
+
+  // Demo deploys accept a placeholder adAccountId (e.g. 'demo-account')
+  const resolvedAdAccountId = adAccountId || orgId;
+
+  // UUID validation — Supabase columns are typed uuid; skip non-UUID placeholders
+  const UUID_RE_TOP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE_TOP.test(orgId)) {
+    return { success: false, error: 'No valid org session found. Please sign in and try the demo again.' };
   }
 
   const supabase = createServiceClient();
+
+  // Only include ad_account_id if it looks like a real UUID (demo fallbacks are not UUIDs)
+  const realAdAccountId = UUID_RE_TOP.test(resolvedAdAccountId ?? '') ? resolvedAdAccountId : null;
 
   try {
     // 1. Insert test row
@@ -303,7 +418,7 @@ export async function createDemoTest(input: CreateTestInput): Promise<CreateTest
       .from('tests')
       .insert({
         org_id: orgId,
-        ad_account_id: adAccountId,
+        ...(realAdAccountId ? { ad_account_id: realAdAccountId } : {}),
         name: idea.slice(0, 120),
         status: 'active',
         budget_cents: budgetCents,

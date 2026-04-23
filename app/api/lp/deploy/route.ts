@@ -67,14 +67,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Update test record with LP data
-    await supabase
+    // Try with lp_html first; fall back without it if the column doesn't exist yet
+    const { error: updateError } = await supabase
       .from('tests')
       .update({
         lp_url: lpUrl,
-        lp_json: gjsData || null,
+        lp_json: gjsData || { html: fullHtml },
         lp_html: fullHtml,
       })
       .eq('id', test_id);
+
+    if (updateError) {
+      // lp_html column may not exist — retry without it, store HTML inside lp_json
+      const { error: retryError } = await supabase
+        .from('tests')
+        .update({
+          lp_url: lpUrl,
+          lp_json: gjsData || { html: fullHtml },
+        })
+        .eq('id', test_id);
+
+      if (retryError) {
+        console.error('[lp/deploy] DB update failed:', retryError.message);
+      }
+    }
 
     // Insert annotation
     await supabase.from('annotations').insert({

@@ -2,71 +2,54 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
+import { callGroqJSON } from '@/lib/groq';
+import {
+  buildAgentPrompt,
+  buildMetaAnglePrompt,
+  type AngleExtractOutput,
+  type MetaAngle,
+} from '@/lib/prompts';
+
+const ALLOWED_CTAS = new Set<string>(['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP']);
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { idea, audience, offer } = body;
+  const body = await request.json() as {
+    idea?: string;
+    audience?: string;
+    offer?: string;
+  };
+  const { idea, audience = '', offer = '' } = body;
 
   if (!idea) {
     return Response.json({ error: 'Missing idea field' }, { status: 400 });
   }
 
-  // Call Groq API
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  if (!GROQ_API_KEY) {
-    return Response.json(
-      { error: 'GROQ_API_KEY not configured' },
-      { status: 500 }
-    );
-  }
-
   try {
-    const prompt = `You are an expert direct response ad copywriter. Given a startup idea, audience, and offer, extract the ICP (ideal customer profile), value proposition, and generate exactly 3 ad angles.
+    const systemPrompt = buildAgentPrompt({ current_phase: 2, active_platforms: ['meta'] });
+    const userPrompt = buildMetaAnglePrompt({ idea, audience, offer });
 
-Each angle must have: headline (max 40 chars), primary_text (max 125 chars), cta (one of: LEARN_MORE, SIGN_UP, SHOP_NOW, DOWNLOAD, BOOK_TRAVEL, CONTACT_US).
-
-Idea: ${idea}
-Audience: ${audience || 'Not specified'}
-Offer: ${offer || 'Not specified'}
-
-Respond in JSON only:
-{
-  "icp": "string",
-  "value_prop": "string",
-  "angles": [
-    {"headline": "string", "primary_text": "string", "cta": "string"}
-  ]
-}`;
-
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 1024,
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    const groqData = await groqRes.json();
-    const content = groqData.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error('No response from Groq');
-    }
-
-    const result = JSON.parse(content);
-    return Response.json(result);
-  } catch (err) {
-    console.error('AI extract error:', err);
-    return Response.json(
-      { error: 'AI extraction failed' },
-      { status: 500 }
+    const result = await callGroqJSON<AngleExtractOutput>(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { temperature: 0.7, max_tokens: 1024 }
     );
+
+    // Validate + clamp output — never trust LLM field lengths
+    const angles: MetaAngle[] = (result.angles ?? []).slice(0, 3).map((a) => ({
+      headline: String(a.headline ?? '').slice(0, 40),
+      primary_text: String(a.primary_text ?? '').slice(0, 125),
+      cta: (ALLOWED_CTAS.has(String(a.cta ?? '')) ? a.cta : 'LEARN_MORE') as MetaAngle['cta'],
+    }));
+
+    return Response.json({
+      icp: result.icp ?? '',
+      value_prop: result.value_prop ?? '',
+      angles,
+    });
+  } catch (err) {
+    console.error('[ai/extract] error:', err);
+    return Response.json({ error: 'AI extraction failed' }, { status: 500 });
   }
 }

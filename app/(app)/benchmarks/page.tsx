@@ -1,5 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-
 const benchmarkData = [
   { vertical: 'SaaS', avg_ctr: 1.2, avg_cvr: 2.5, avg_cpa: 45, sample_size: 1200 },
   { vertical: 'E-commerce', avg_ctr: 1.8, avg_cvr: 3.2, avg_cpa: 32, sample_size: 2400 },
@@ -10,58 +8,51 @@ const benchmarkData = [
 ];
 
 export default function BenchmarksPage() {
+  const totalSamples = benchmarkData.reduce((s, b) => s + b.sample_size, 0);
+
   return (
-    <div className="space-y-6">
+    <div className="max-w-2xl space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold">Benchmarks</h1>
-        <p className="text-sm text-[#A1A1A1] mt-1">
-          Industry benchmarks for Meta ad performance across verticals
+        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880]">Benchmarks</p>
+        <h1 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110] mt-0.5">
+          Meta Ads Performance
+        </h1>
+        <p className="text-[0.9375rem] text-[#8C8880] mt-1">
+          Aggregated from {totalSamples.toLocaleString()} campaigns — used in Go / No-Go verdict calculations.
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Meta Ads Performance Benchmarks</CardTitle>
-          <CardDescription>
-            Aggregated from {benchmarkData.reduce((s, b) => s + b.sample_size, 0).toLocaleString()} campaigns. Used in Go/No-Go verdict calculations.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#262626]">
-                <th className="py-2 px-3 text-left text-[#A1A1A1] font-medium">Vertical</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Avg CTR</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Avg CVR</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Avg CPA</th>
-                <th className="py-2 px-3 text-right text-[#A1A1A1] font-medium">Sample Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              {benchmarkData.map((b) => (
-                <tr
-                  key={b.vertical}
-                  className="border-b border-[#262626]/50 h-10 hover:bg-[#111111] transition-colors"
+      <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+        <table className="w-full text-[0.875rem]">
+          <thead>
+            <tr className="border-b border-[#E8E4DC] bg-[#FAFAF8]">
+              {['Vertical', 'Avg CTR', 'Avg CVR', 'Avg CPA', 'Sample'].map((h, i) => (
+                <th
+                  key={h}
+                  className={`py-3 px-5 text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] ${i === 0 ? 'text-left' : 'text-right'}`}
                 >
-                  <td className="py-2 px-3 font-medium">{b.vertical}</td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums">
-                    {b.avg_ctr.toFixed(1)}%
-                  </td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums">
-                    {b.avg_cvr.toFixed(1)}%
-                  </td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums">
-                    ${b.avg_cpa}
-                  </td>
-                  <td className="py-2 px-3 text-right font-mono tabular-nums text-[#A1A1A1]">
-                    {b.sample_size.toLocaleString()}
-                  </td>
-                </tr>
+                  {h}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+            </tr>
+          </thead>
+          <tbody>
+            {benchmarkData.map((b, i) => (
+              <tr
+                key={b.vertical}
+                className={`hover:bg-[#F3F0EB] transition-colors ${i < benchmarkData.length - 1 ? 'border-b border-[#E8E4DC]' : ''}`}
+              >
+                <td className="py-3 px-5 font-medium text-[#111110]">{b.vertical}</td>
+                <td className="py-3 px-5 text-right font-mono tabular-nums text-[#111110]">{b.avg_ctr.toFixed(1)}%</td>
+                <td className="py-3 px-5 text-right font-mono tabular-nums text-[#111110]">{b.avg_cvr.toFixed(1)}%</td>
+                <td className="py-3 px-5 text-right font-mono tabular-nums text-[#111110]">${b.avg_cpa}</td>
+                <td className="py-3 px-5 text-right font-mono tabular-nums text-[#8C8880]">{b.sample_size.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

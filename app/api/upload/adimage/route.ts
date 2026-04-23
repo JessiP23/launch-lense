@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getToken } from '@/lib/meta';
 
 // Upload ad image to Meta via multipart
 // POST /api/upload/adimage { ad_account_id, formData with 'file' }
@@ -24,21 +25,18 @@ export async function POST(request: NextRequest) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adAccountId);
     const query = supabaseAdmin
       .from('ad_accounts')
-      .select('access_token, account_id');
+      .select('account_id');
 
     const { data: account } = await (isUuid
       ? query.eq('id', adAccountId).single()
       : query.eq('account_id', adAccountId).single());
 
-    let accessToken = account?.access_token;
+    let accessToken = account?.account_id ? await getToken(account.account_id) : null;
     if (!accessToken) {
-      accessToken = process.env.AD_ACCESS_TOKEN;
+      accessToken = process.env.AD_ACCESS_TOKEN || null;
     }
     if (!accessToken) {
       return Response.json({ error: 'No access token for this account' }, { status: 400 });
-    }
-    if (!accessToken.startsWith('EAA')) {
-      accessToken = process.env.AD_ACCESS_TOKEN || accessToken;
     }
 
     // Use the real Meta account_id (act_xxx), not the UUID

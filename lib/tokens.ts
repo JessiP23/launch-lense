@@ -1,28 +1,27 @@
-// LaunchLense Design Tokens
-// Bloomberg Terminal for Startup Risk
-
+// LaunchLense Design Tokens — PROOF Warm Editorial
 export const colors = {
-  bg: '#0A0A0A',
-  surface: '#111111',
-  card: '#171717',
-  border: '#262626',
-  text: '#FAFAFA',
-  muted: '#A1A1A1',
-  success: '#22C55E',
-  warn: '#EAB308',
-  danger: '#EF4444',
+  canvas:   '#FAFAF8',
+  surface:  '#FFFFFF',
+  faint:    '#F3F0EB',
+  border:   '#E8E4DC',
+  ink:      '#111110',
+  muted:    '#8C8880',
+  go:       '#059669',
+  warn:     '#D97706',
+  stop:     '#DC2626',
+  // legacy aliases
+  bg:       '#FAFAF8',
+  text:     '#111110',
+  success:  '#059669',
+  danger:   '#DC2626',
 } as const;
 
 export function statusColor(status: 'red' | 'yellow' | 'green' | string): string {
   switch (status) {
-    case 'green':
-      return colors.success;
-    case 'yellow':
-      return colors.warn;
-    case 'red':
-      return colors.danger;
-    default:
-      return colors.muted;
+    case 'green': return colors.go;
+    case 'yellow': return colors.warn;
+    case 'red': return colors.stop;
+    default: return colors.muted;
   }
 }
 

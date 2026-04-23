@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { updateCampaignStatus } from '@/lib/meta-api';
+import { getToken } from '@/lib/meta';
 
 // Meta webhook verification (GET)
 export async function GET(req: NextRequest) {
@@ -30,14 +31,14 @@ export async function POST(req: NextRequest) {
           // Find the ad account and its token
           const { data: account } = await supabaseAdmin
             .from('ad_accounts')
-            .select('id, access_token')
+            .select('id, account_id')
             .eq('account_id', accountId)
             .single();
 
           if (!account) continue;
 
           // Get the real token from Vault if it's a vault reference
-          const accessToken = await resolveToken(account.access_token);
+          const accessToken = await getToken(account.account_id);
 
           // Find all active tests for this account
           const { data: tests } = await supabaseAdmin
@@ -77,19 +78,5 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Webhook error:', error);
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
-  }
-}
-
-// Resolve access token — if stored as vault reference, fetch from Vault
-async function resolveToken(tokenOrRef: string | null): Promise<string | null> {
-  if (!tokenOrRef) return null;
-  // If it's already a raw token (starts with EAA), return as-is
-  if (tokenOrRef.startsWith('EAA')) return tokenOrRef;
-  // Otherwise try Vault lookup
-  try {
-    const { data } = await supabaseAdmin.rpc('vault.decrypted_secrets', {}).select('decrypted_secret').eq('name', tokenOrRef).single();
-    return data?.decrypted_secret || tokenOrRef;
-  } catch {
-    return tokenOrRef;
   }
 }

@@ -1,69 +1,123 @@
+@import url("https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&f[]=satoshi@400,500,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap");
 @import "tailwindcss";
 
+/* ── PROOF Design System — Warm Editorial ─────────────────────────── */
+
+/* Font faces — local fallbacks when CDN blocked */
+@font-face {
+  font-family: 'Cabinet Grotesk';
+  src: local('Cabinet Grotesk'), local('CabinetGrotesk');
+  font-weight: 500 800;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: local('Satoshi');
+  font-weight: 400 500;
+  font-style: normal;
+}
+
 :root {
-  --background: #0A0A0A;
-  --foreground: #FAFAFA;
-  --surface: #111111;
-  --card: #171717;
-  --border: #262626;
-  --text: #FAFAFA;
-  --muted: #A1A1A1;
-  --success: #22C55E;
-  --warn: #EAB308;
-  --danger: #EF4444;
+  /* Canvas & surfaces */
+  --color-canvas:   #FAFAF8;
+  --color-surface:  #FFFFFF;
+  --color-raised:   #F3F0EB;
+  --color-faint:    #F3F0EB;
+  --color-border:   #E8E4DC;
+  --color-border-2: #C4BFB8;
+
+  /* Text */
+  --color-ink:      #111110;
+  --color-muted:    #8C8880;
+  --color-faint-text: #C4BFB8;
+
+  /* Void / dark surfaces (landing Healthgate block + future dashboards) */
+  --color-void:            #0A0A0A;
+  --color-panel:         #111111;
+  --color-panel-2:       #1A1A1A;
+  --color-dark-border:   #242424;
+  --color-dark-border-2: #2E2E2E;
+  --color-dark-text:     #FAFAFA;
+  --color-dark-muted:    #6B7280;
+  --color-dark-faint:    #374151;
+
+  /* Signal — verdict / health only */
+  --color-go:         #059669;
+  --color-go-bg:      #F0FDF4;
+  --color-go-border:  #BBF7D0;
+  --color-go-dark:    #22C55E;
+  --color-warn:       #D97706;
+  --color-warn-bg:    #FFFBEB;
+  --color-warn-border:#FDE68A;
+  --color-warn-dark:  #EAB308;
+  --color-stop:       #DC2626;
+  --color-stop-bg:    #FEF2F2;
+  --color-stop-border:#FECACA;
+  --color-stop-dark:  #EF4444;
+
+  /* Legacy aliases used by shadcn tokens */
+  --background:     var(--color-canvas);
+  --foreground:     var(--color-ink);
+  --surface:        var(--color-surface);
+  --card:           var(--color-surface);
+  --border:         var(--color-border);
+  --muted:          var(--color-muted);
+  --success:        var(--color-go);
+  --warn-color:     var(--color-warn);
+  --danger:         var(--color-stop);
+
+  /* Fonts */
+  --font-display: 'Cabinet Grotesk', system-ui, -apple-system, sans-serif;
+  --font-body:    'Satoshi', system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-card: var(--card);
-  --color-border: var(--border);
-  --color-muted: var(--muted);
-  --color-success: var(--success);
-  --color-warn: var(--warn);
-  --color-danger: var(--danger);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--color-canvas);
+  --color-foreground: var(--color-ink);
+  --color-surface:    var(--color-surface);
+  --color-card:       var(--color-surface);
+  --color-border:     var(--color-border);
+  --color-muted:      var(--color-muted);
+  --color-success:    var(--color-go);
+  --color-warn:       var(--color-warn);
+  --color-danger:     var(--color-stop);
+  --font-sans:        var(--font-body);
+  --font-display:     var(--font-display);
+  --font-mono:        var(--font-mono);
 }
 
 * {
-  border-color: var(--border);
+  border-color: var(--color-border);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--background);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
+/* Display headings use Cabinet Grotesk */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
 }
 
-/* Tabular nums for all metrics */
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
-}
+/* ── Scrollbar ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--color-faint); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
 
-/* Animations */
+/* ── Utilities ────────────────────────────────────────────────────── */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+.font-display { font-family: var(--font-display); }
+
+/* ── Animations ───────────────────────────────────────────────────── */
 @keyframes pulse-live {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }
-
-.animate-pulse-live {
-  animation: pulse-live 2s ease-in-out infinite;
-}
+.animate-pulse-live { animation: pulse-live 2s ease-in-out infinite; }

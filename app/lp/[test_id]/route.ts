@@ -11,7 +11,7 @@ export async function GET(
 
   const { data: test } = await supabaseAdmin
     .from('tests')
-    .select('lp_html, name, idea, angles')
+    .select('lp_html, lp_json, name, idea, angles')
     .eq('id', test_id)
     .single();
 
@@ -19,14 +19,22 @@ export async function GET(
     return new Response('Not found', { status: 404 });
   }
 
-  // If we have saved HTML, serve it
+  // 1. Prefer explicitly stored HTML
   if (test.lp_html) {
     return new Response(test.lp_html as string, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
   }
 
-  // Fallback: generate from first angle
+  // 2. HTML stored inside lp_json (fallback when lp_html column missing)
+  const lpJson = test.lp_json as Record<string, unknown> | null;
+  if (lpJson?.html && typeof lpJson.html === 'string') {
+    return new Response(lpJson.html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  }
+
+  // 3. Auto-generate from angle data
   const angle = Array.isArray(test.angles) ? test.angles[0] : null;
   const html = generateFallback(test.name as string, test.idea as string, angle);
   return new Response(html, {
