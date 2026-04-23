@@ -34,6 +34,10 @@ interface AppState {
   // Command palette (transient — not persisted)
   cmdkOpen: boolean;
   setCmdkOpen: (v: boolean) => void;
+
+  // Sidebar layout (persisted)
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -70,6 +74,9 @@ export const useAppStore = create<AppState>()(
 
       cmdkOpen: false,
       setCmdkOpen: (v) => set({ cmdkOpen: v }),
+
+      sidebarCollapsed: false,
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
     }),
     {
       name: 'launchlense-store',
@@ -88,6 +95,7 @@ export const useAppStore = create<AppState>()(
         connectedPlatforms: state.connectedPlatforms,
         healthSnapshot: state.healthSnapshot,
         canLaunch: state.canLaunch,
+        sidebarCollapsed: state.sidebarCollapsed,
       }),
     }
   )

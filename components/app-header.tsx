@@ -6,7 +6,7 @@ export function AppHeader() {
   const { setCmdkOpen } = useAppStore();
 
   return (
-    <header className="flex items-center justify-between h-14 px-6 border-b border-[#E8E4DC] bg-[#FFFFFF]">
+    <header className="flex items-center justify-end h-14 px-6 border-b border-[#E8E4DC] bg-[#FFFFFF]">
       <button
         onClick={() => setCmdkOpen(true)}
         className="flex items-center gap-2 h-8 px-3 rounded-lg border border-[#E8E4DC] bg-[#F3F0EB] text-[0.8125rem] text-[#8C8880] hover:border-[#111110]/20 hover:text-[#111110] transition-colors"
