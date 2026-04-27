@@ -1,18 +1,4 @@
-/**
- * lib/prompts.ts
- *
- * LaunchLense Master Agent prompt system.
- * All LLM calls flow through this module. Never hard-code system prompts in route files.
- *
- * Architecture:
- *   LAUNCHLENSE_MASTER_AGENT — raw template with {{variable}} tokens
- *   buildAgentPrompt()       — injects runtime values, returns final system string
- *   PHASE_*                  — typed user-prompt builders per workflow phase
- */
-
 import type { RealMarketData } from './market-research';
-
-// ── Types ──────────────────────────────────────────────────────────────────
 
 export type Platform = 'meta' | 'google' | 'tiktok' | 'linkedin';
 export type Phase = 0 | 1 | 2 | 3;
@@ -50,14 +36,6 @@ export interface GenomeOutput {
     error?: string;
   } | null;
   data_source: 'real' | 'llm_estimate'; // tells the UI whether real APIs fired
-}
-
-// ── Phase 1: Gate Output ───────────────────────────────────────────────────
-
-export interface GateOutput {
-  score_0_100: number;
-  status: 'GREEN' | 'YELLOW' | 'RED';
-  blocking_issues: string[];
 }
 
 // ── Phase 2: Go Output ────────────────────────────────────────────────────
@@ -103,22 +81,6 @@ export interface GoOutput {
   reddit: RedditAngle | null;
   twitter: TwitterAngle | null;
   typeform: TypeformAngle | null;
-}
-
-// ── Phase 3: Verdict Output ────────────────────────────────────────────────
-
-export interface ChannelBreakdown {
-  channel: string;
-  score_0_100: number;
-  key_metric: string;
-}
-
-export interface VerdictOutput {
-  verdict: Verdict;
-  composite_score_0_100: number;
-  channel_breakdown: ChannelBreakdown[];
-  reason_1_sentence: string;
-  next_step: string;
 }
 
 // ── Phase 2: Angle-extract (backward-compat) ──────────────────────────────
@@ -362,21 +324,4 @@ Return JSON only:
     { "headline": "string (max 40 chars)", "primary_text": "string (max 125 chars)", "cta": "LEARN_MORE|SHOP_NOW|SIGN_UP" }
   ]
 }`;
-}
-
-/** Phase 3 — unified verdict computation */
-export function buildVerdictPrompt(metrics: {
-  meta?: { ctr: number; cvr: number; spend_cents: number } | null;
-  google?: { ctr: number; cvr: number; spend_cents: number } | null;
-  reddit?: { upvote_rate: number; comment_count: number } | null;
-  twitter?: { click_rate: number; impression_count: number } | null;
-  typeform?: { email_rate: number; submission_count: number } | null;
-}): string {
-  return `Compute the sprint verdict from the following channel metrics.
-
-Metrics: ${JSON.stringify(metrics, null, 2)}
-
-Apply scoring weights: Meta_CVR*0.4 + Google_CVR*0.3 + Typeform_EmailRate*0.2 + Reddit_UpvoteRate*0.05 + Twitter_ClickRate*0.05
-
-Return JSON only matching the VERDICT phase schema.`;
 }

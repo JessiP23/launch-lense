@@ -1,6 +1,3 @@
-// Meta Marketing API wrapper
-// Respects ADS_API_MODE=sandbox|production
-
 const META_API_VERSION = 'v20.0';
 const META_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
@@ -137,18 +134,6 @@ export async function createAdSet(
   return metaFetch(`/act_${accountId}/adsets`, accessToken, {
     method: 'POST',
     body: JSON.stringify(params),
-  });
-}
-
-// Upload ad image
-export async function uploadAdImage(
-  accountId: string,
-  accessToken: string,
-  imageUrl: string
-) {
-  return metaFetch(`/act_${accountId}/adimages`, accessToken, {
-    method: 'POST',
-    body: JSON.stringify({ url: imageUrl }),
   });
 }
 

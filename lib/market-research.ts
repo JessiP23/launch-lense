@@ -1,16 +1,3 @@
-/**
- * lib/market-research.ts
- *
- * Real market data fetchers. Called by /api/ai/genome before the LLM runs.
- * The LLM receives REAL scraped data and interprets it — it does NOT invent numbers.
- *
- * Data sources:
- *   1. SerpAPI (serpapi.com) — live Google search results (organic count, ads, related searches)
- *      Env: SERPER_API_KEY (GET https://serpapi.com/search?engine=google&q=...&api_key=...)
- *   2. Meta Ad Library API — real active Meta/IG ads + advertiser names for the niche
- *      Uses app-access-token (META_APP_ID|META_APP_SECRET) — no user OAuth required.
- */
-
 export interface SerperData {
   organic_result_count: number;    // total Google-indexed pages for this query
   google_ads_count: number;        // advertisers actively buying this keyword on Google right now

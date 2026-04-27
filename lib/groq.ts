@@ -1,17 +1,4 @@
-/**
- * lib/groq.ts
- *
- * Centralised Groq API client for LaunchLense.
- * All LLM calls go through callGroq() — never call the Groq endpoint directly in route files.
- *
- * Exports:
- *   callGroq()          — single fetch wrapper with error handling
- *   META_SYSTEM_PROMPT  — kept for backward compat; prefer buildAgentPrompt() from lib/prompts.ts
- */
-
 import { buildAgentPrompt } from './prompts';
-
-// ── Config ────────────────────────────────────────────────────────────────
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'llama-3.1-8b-instant';
@@ -99,14 +86,3 @@ export async function callGroqJSON<T>(
     throw new Error(`Groq returned non-JSON content: ${content.slice(0, 200)}`);
   }
 }
-
-// ── Backward-compat export ────────────────────────────────────────────────
-
-/**
- * @deprecated Use buildAgentPrompt({ current_phase: 2, active_platforms: ['meta'] }) instead.
- * Kept for any code that imported META_SYSTEM_PROMPT directly.
- */
-export const META_SYSTEM_PROMPT = buildAgentPrompt({
-  current_phase: 2,
-  active_platforms: ['meta'],
-});
