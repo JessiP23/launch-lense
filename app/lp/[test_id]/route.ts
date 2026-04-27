@@ -9,8 +9,9 @@ export async function GET(
 ) {
   const { test_id } = await params;
 
-  const { data: test } = await supabaseAdmin
-    .from('tests').select('lp_html, lp_json, name, idea, angles').eq('id', test_id).single();
+  const { data: test } = await supabaseAdmin.from('tests').select('lp_html, lp_json, name, idea, angles').eq('id', test_id).single();
+
+  // this approach returns status and statustext if found, returns a single row and not an array
 
   console.log('data testing:', test);
 
