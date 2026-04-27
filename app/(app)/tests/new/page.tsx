@@ -1,532 +1,465 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import type { GenomeOutput } from '@/lib/prompts';
+import type { SprintRecord, Platform, GenomeAgentOutput, HealthgateAgentOutput } from '@/lib/agents/types';
 
-// ── Agent pipeline definition ──────────────────────────────────────────────
+// ── PROOF design tokens ────────────────────────────────────────────────────
+const C = {
+  ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
+  surface: '#FFFFFF', canvas: '#FAFAF8', faint: '#F3F0EB',
+  go: '#059669', warn: '#D97706', stop: '#DC2626',
+};
 
-type AgentStatus = 'waiting' | 'running' | 'done' | 'error';
-interface AgentStep {
-  id: string;
-  icon: React.ReactNode;
-  agent: string;
-  action: string;
-  dataSource: string;      // WHERE the model looks
-  reasoning?: string;      // WHAT it actually found (from LLM response)
-  metric: 'search_volume' | 'competitor_density' | 'language_fit' | 'orchestrator' | 'parser';
-  status: AgentStatus;
-  result?: string;
-}
+// ── Sprint state labels ────────────────────────────────────────────────────
+const STATE_LABELS: Record<string, string> = {
+  IDLE: 'Waiting', GENOME_RUNNING: 'Genome Running', GENOME_DONE: 'Genome Complete',
+  HEALTHGATE_RUNNING: 'Healthgate Running', HEALTHGATE_DONE: 'Healthgate Complete',
+  ANGLES_RUNNING: 'Angle Agent Running', ANGLES_DONE: 'Angles Generated',
+  CAMPAIGN_RUNNING: 'Campaigns Launching', CAMPAIGN_MONITORING: 'Monitoring Campaigns',
+  VERDICT_GENERATING: 'Generating Verdict', COMPLETE: 'Sprint Complete', BLOCKED: 'Blocked',
+};
 
-const AGENT_PIPELINE: Omit<AgentStep, 'status' | 'result' | 'reasoning'>[] = [
-  {
-    id: 'parser',
-    icon: null,
-    agent: 'Idea Parser',
-    action: 'Extracting keywords, vertical, and buyer intent',
-    dataSource: 'Llama 3 · semantic decomposition of your input',
-    metric: 'parser',
-  },
-  {
-    id: 'market',
-    icon: null,
-    agent: 'Market Signal Agent',
-    action: 'Identifying buyer search terms + estimating monthly volume',
-    dataSource: 'Llama 3 training data — Google Trends & SemRush category patterns up to early 2024',
-    metric: 'search_volume',
-  },
-  {
-    id: 'competitor',
-    icon: null,
-    agent: 'Competitor Intelligence Agent',
-    action: 'Naming companies running paid ads, rating niche saturation',
-    dataSource: 'Llama 3 training data — Meta Ad Library & Google Ads landscape up to early 2024',
-    metric: 'competitor_density',
-  },
-  {
-    id: 'language',
-    icon: null,
-    agent: 'Language–Market Fit Agent',
-    action: 'Scoring how well your wording matches buyer search behavior',
-    dataSource: 'Llama 3 training data — SERP intent & buyer keyword patterns',
-    metric: 'language_fit',
-  },
-  {
-    id: 'orchestrator',
-    icon: null,
-    agent: 'Verdict Orchestrator',
-    action: 'Synthesizing signals into GO / NO-GO + pivot suggestion',
-    dataSource: 'Weighted scoring model (Llama 3 · Groq)',
-    metric: 'orchestrator',
-  },
+type PipelineStepId = 'genome' | 'healthgate' | 'angles' | 'campaign' | 'verdict';
+type StepStatus = 'waiting' | 'running' | 'done' | 'blocked' | 'skipped';
+type StepStatuses = Record<PipelineStepId, StepStatus>;
+
+const PIPELINE: { id: PipelineStepId; label: string; sublabel: string; parallel?: boolean }[] = [
+  { id: 'genome',     label: 'GenomeAgent',        sublabel: 'Research · 5-axis score · Signal' },
+  { id: 'healthgate', label: 'HealthgateAgent ×4', sublabel: 'Meta · Google · LinkedIn · TikTok', parallel: true },
+  { id: 'angles',     label: 'AngleAgent',          sublabel: '3 archetypes · 4 channels' },
+  { id: 'campaign',   label: 'CampaignAgent ×n',   sublabel: 'Launch · Monitor · Auto-pause', parallel: true },
+  { id: 'verdict',    label: 'VerdictAgent',        sublabel: 'Per-channel + Aggregate' },
 ];
 
-// ── Component ──────────────────────────────────────────────────────────────
+const ALL_CHANNELS: Platform[] = ['meta', 'google', 'linkedin', 'tiktok'];
+const CHANNEL_LABELS: Record<Platform, string> = { meta: 'Meta', google: 'Google', linkedin: 'LinkedIn', tiktok: 'TikTok' };
+
+// ── Sub-components ─────────────────────────────────────────────────────────
+
+function StepIcon({ status }: { status: StepStatus }) {
+  if (status === 'done')    return <CheckCircle2 className="w-3.5 h-3.5" style={{ color: C.go }} />;
+  if (status === 'running') return <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: C.ink }} />;
+  if (status === 'blocked') return <XCircle className="w-3.5 h-3.5" style={{ color: C.stop }} />;
+  return <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: C.border }} />;
+}
+
+function CompositeBar({ scores }: { scores: GenomeAgentOutput['scores'] }) {
+  const axes = [
+    { key: 'demand' as const,      label: 'Demand',      w: '30%' },
+    { key: 'icp' as const,         label: 'ICP',         w: '25%' },
+    { key: 'competition' as const, label: 'Competition', w: '20%' },
+    { key: 'timing' as const,      label: 'Timing',      w: '15%' },
+    { key: 'moat' as const,        label: 'Moat',        w: '10%' },
+  ];
+  return (
+    <div className="space-y-2">
+      {axes.map(({ key, label, w }) => {
+        const val = scores[key];
+        const color = val >= 70 ? C.go : val >= 40 ? C.warn : C.stop;
+        return (
+          <div key={key} className="flex items-center gap-3">
+            <div className="w-20 text-right">
+              <span className="text-[0.6875rem] font-medium uppercase tracking-[0.06em]" style={{ color: C.muted }}>{label}</span>
+            </div>
+            <div className="flex-1 h-1.5 rounded-full" style={{ background: C.faint }}>
+              <motion.div
+                initial={{ width: 0 }} animate={{ width: `${val}%` }} transition={{ duration: 0.6, ease: 'easeOut' }}
+                className="h-full rounded-full" style={{ background: color }}
+              />
+            </div>
+            <span className="w-8 text-right font-mono text-[0.75rem] font-bold" style={{ color }}>{val}</span>
+            <span className="w-6 text-[0.625rem]" style={{ color: C.muted }}>{w}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HealthgateGrid({ healthgate }: { healthgate: Record<Platform, HealthgateAgentOutput> }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {ALL_CHANNELS.map((ch) => {
+        const h = healthgate[ch];
+        if (!h) return null;
+        const sc = h.status === 'HEALTHY' ? C.go : h.status === 'WARN' ? C.warn : C.stop;
+        return (
+          <div key={ch} className="rounded-lg border p-3 space-y-2" style={{ borderColor: C.border, background: C.surface }}>
+            <div className="flex items-center justify-between">
+              <span className="text-[0.75rem] font-medium" style={{ color: C.ink }}>{CHANNEL_LABELS[ch]}</span>
+              <span className="text-[0.625rem] font-semibold uppercase tracking-[0.06em] px-1.5 py-0.5 rounded" style={{ color: sc, background: `${sc}15` }}>{h.status}</span>
+            </div>
+            <div className="flex items-end gap-1">
+              <span className="font-mono font-bold text-[1.5rem] leading-none" style={{ color: sc }}>{h.score}</span>
+              <span className="text-[0.625rem] mb-1" style={{ color: C.muted }}>/100</span>
+            </div>
+            <div className="flex gap-0.5">
+              {h.checks.map((c) => (
+                <div key={c.key} title={`${c.name}: ${c.passed ? 'Pass' : 'Fail'}`} className="flex-1 h-1 rounded-full"
+                  style={{ background: c.passed ? C.go : c.weight === 'CRITICAL' ? C.stop : c.weight === 'HIGH' ? C.warn : `${C.muted}50` }} />
+              ))}
+            </div>
+            {h.blocking_issues.length > 0 && (
+              <p className="text-[0.625rem] leading-tight" style={{ color: C.stop }}>{h.blocking_issues[0]}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AngleCard({ angle, idx }: { angle: NonNullable<SprintRecord['angles']>['angles'][number]; idx: number }) {
+  const archetypeColors: Record<string, string> = {
+    PAIN: C.stop, ASPIRATION: C.go, SOCIAL_PROOF: C.warn, CURIOSITY: C.ink, AUTHORITY: C.muted,
+  };
+  const ac = archetypeColors[angle.archetype] ?? C.ink;
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }}
+      className="rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.surface }}>
+      <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[0.625rem] font-semibold uppercase tracking-[0.06em] px-1.5 py-0.5 rounded" style={{ color: ac, background: `${ac}15` }}>{angle.archetype}</span>
+            <span className="text-[0.625rem] uppercase tracking-[0.06em]" style={{ color: C.muted }}>{angle.emotional_lever}</span>
+          </div>
+          <p className="font-display font-bold text-[0.9375rem]" style={{ color: C.ink }}>{angle.id.replace('_', ' ').toUpperCase()}</p>
+        </div>
+        <span className="text-[0.6875rem] font-semibold px-2 py-1 rounded border" style={{ color: C.ink, borderColor: C.border, background: C.faint }}>{angle.cta}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-px border-t" style={{ borderColor: C.border, background: C.border }}>
+        {([
+          { ch: 'Meta',     text: angle.copy.meta.headline,     sub: angle.copy.meta.body },
+          { ch: 'Google',   text: angle.copy.google.headline1,  sub: angle.copy.google.description },
+          { ch: 'LinkedIn', text: angle.copy.linkedin.headline, sub: angle.copy.linkedin.intro },
+          { ch: 'TikTok',   text: angle.copy.tiktok.hook,       sub: angle.copy.tiktok.overlay },
+        ] as const).map(({ ch, text, sub }) => (
+          <div key={ch} className="p-3 space-y-1" style={{ background: C.surface }}>
+            <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em]" style={{ color: C.muted }}>{ch}</p>
+            <p className="text-[0.8125rem] font-semibold leading-snug" style={{ color: C.ink }}>{text}</p>
+            <p className="text-[0.6875rem] leading-relaxed" style={{ color: C.muted }}>{sub}</p>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────
 
 export default function NewTestPage() {
   const router = useRouter();
   const [idea, setIdea] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<GenomeOutput | null>(null);
-  const [analyzedIdea, setAnalyzedIdea] = useState('');
-  const [agentLog, setAgentLog] = useState<AgentStep[]>([]);
-  const [traceOpen, setTraceOpen] = useState(false); // kept for compat
-  const [override, setOverride] = useState(false);
-  const [continuing, setContinuing] = useState(false);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [channels, setChannels] = useState<Platform[]>(['meta', 'google', 'linkedin', 'tiktok']);
+  const [sprint, setSprint] = useState<SprintRecord | null>(null);
+  const [stepStatuses, setStepStatuses] = useState<StepStatuses>({
+    genome: 'waiting', healthgate: 'waiting', angles: 'waiting', campaign: 'waiting', verdict: 'waiting',
+  });
+  const [runningPhase, setRunningPhase] = useState<PipelineStepId | null>(null);
+  const [blockReason, setBlockReason] = useState<string | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
 
-  const runGenome = async () => {
-    if (!idea.trim()) return;
-    setLoading(true);
-    setResult(null);
-    setOverride(false);
-    setTraceOpen(false);
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
+  const setStep = useCallback((id: PipelineStepId, status: StepStatus) =>
+    setStepStatuses((prev) => ({ ...prev, [id]: status })), []);
 
-    const initLog: AgentStep[] = AGENT_PIPELINE.map((s) => ({ ...s, status: 'waiting' }));
-    setAgentLog(initLog);
-
-    const setStep = (idx: number, status: AgentStatus, res?: string) =>
-      setAgentLog((prev) => prev.map((s, i) => i === idx ? { ...s, status, result: res } : s));
-
-    AGENT_PIPELINE.forEach((_, idx) => {
-      if (idx === AGENT_PIPELINE.length - 1) return;
-      const t = setTimeout(() => {
-        setStep(idx, 'running');
-        const done = setTimeout(() => setStep(idx, 'done'), 650);
-        timers.current.push(done);
-      }, idx * 750);
-      timers.current.push(t);
-    });
-
-    const orchT = setTimeout(() => setStep(AGENT_PIPELINE.length - 1, 'running'), (AGENT_PIPELINE.length - 1) * 750);
-    timers.current.push(orchT);
-
-    try {
-      const res = await fetch('/api/ai/genome', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idea: idea.trim() }),
-      });
-      const data: GenomeOutput = await res.json();
-
-      // Wire per-agent reasoning from LLM response into the trace
-      setAgentLog((prev) => prev.map((s) => {
-        const reasoning =
-          s.metric === 'search_volume' ? data.step1_keywords :
-          s.metric === 'competitor_density' ? data.step2_competitors :
-          s.metric === 'language_fit' ? data.step3_language :
-          s.metric === 'orchestrator' ? data.reasoning_1_sentence :
-          undefined;
-
-        const result =
-          s.metric === 'search_volume' ? `${data.search_volume_monthly >= 1000 ? (data.search_volume_monthly / 1000).toFixed(1) + 'K' : data.search_volume_monthly}/mo` :
-          s.metric === 'competitor_density' ? `${data.competitor_ad_density_0_10.toFixed(1)}/10` :
-          s.metric === 'language_fit' ? `${Math.round(data.language_market_fit_0_100)}/100` :
-          s.metric === 'orchestrator' ? data.verdict :
-          undefined;
-
-        return { ...s, status: 'done', result, reasoning };
-      }));
-
-      setResult(data);
-      setAnalyzedIdea(idea.trim());
-    } catch (err) {
-      console.error('[genome]', err);
-      setAgentLog((prev) => prev.map((s) => s.status === 'running' ? { ...s, status: 'error' } : s));
-    } finally {
-      setLoading(false);
-    }
+  const resetSprint = () => {
+    setSprint(null); setBlockReason(null);
+    setStepStatuses({ genome: 'waiting', healthgate: 'waiting', angles: 'waiting', campaign: 'waiting', verdict: 'waiting' });
+    setRunningPhase(null); setIsStarting(false);
   };
 
-  const handleContinue = async () => {
-    if (!result) return;
-    setContinuing(true);
+  const runSprint = async () => {
+    if (!idea.trim() || channels.length === 0) return;
+    setIsStarting(true);
+    setBlockReason(null);
+    setStepStatuses({ genome: 'waiting', healthgate: 'waiting', angles: 'waiting', campaign: 'waiting', verdict: 'waiting' });
+
     try {
-      const res = await fetch('/api/tests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idea: analyzedIdea, genome: result }),
+      // 1. Create sprint
+      const createRes = await fetch('/api/sprint', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea: idea.trim(), channels }),
       });
-      const data = await res.json();
-      if (data.id) {
-        // Cache idea + genome in sessionStorage so the setup page loads instantly
-        sessionStorage.setItem(`test:${data.id}`, JSON.stringify({ idea: analyzedIdea, genome: result }));
-        router.push(`/tests/${data.id}/setup`);
+      const createData = await createRes.json() as { sprint_id?: string; error?: string };
+      if (!createData.sprint_id) throw new Error(createData.error ?? 'Failed to create sprint');
+
+      const sprint_id = createData.sprint_id;
+      setSprint({ ...(createData as unknown as SprintRecord), idea: idea.trim(), state: 'IDLE' as const });
+      setIsStarting(false);
+
+      // 2. Genome
+      setStep('genome', 'running'); setRunningPhase('genome');
+      const genomeRes = await fetch(`/api/sprint/${sprint_id}/genome`, { method: 'POST' });
+      const genomeData = await genomeRes.json() as { state: string; genome?: GenomeAgentOutput; blocked_reason?: string };
+      setSprint((prev) => prev ? { ...prev, state: genomeData.state as SprintRecord['state'], genome: genomeData.genome } : prev);
+
+      if (genomeData.state === 'BLOCKED') {
+        setStep('genome', 'blocked');
+        setBlockReason(genomeData.blocked_reason ?? 'Genome returned STOP signal.');
+        setRunningPhase(null); return;
       }
+      setStep('genome', 'done');
+
+      // 3. Healthgate (parallel)
+      setStep('healthgate', 'running'); setRunningPhase('healthgate');
+      const hgRes = await fetch(`/api/sprint/${sprint_id}/healthgate`, { method: 'POST' });
+      const hgData = await hgRes.json() as { state: string; healthgate?: Record<Platform, HealthgateAgentOutput>; active_channels?: Platform[]; blocked_reason?: string };
+      setSprint((prev) => prev ? { ...prev, state: hgData.state as SprintRecord['state'], healthgate: hgData.healthgate, active_channels: hgData.active_channels ?? prev.active_channels } : prev);
+
+      if (hgData.state === 'BLOCKED') {
+        setStep('healthgate', 'blocked');
+        setBlockReason(hgData.blocked_reason ?? 'All channels blocked.');
+        setRunningPhase(null); return;
+      }
+      setStep('healthgate', 'done');
+
+      // 4. Angles
+      setStep('angles', 'running'); setRunningPhase('angles');
+      const anglesRes = await fetch(`/api/sprint/${sprint_id}/angles`, { method: 'POST' });
+      const anglesData = await anglesRes.json() as { state: string; angles?: SprintRecord['angles']; blocked_reason?: string; sprint_id?: string };
+      setSprint((prev) => prev ? { ...prev, state: anglesData.state as SprintRecord['state'], angles: anglesData.angles } : prev);
+
+      if (anglesData.state === 'BLOCKED') {
+        setStep('angles', 'blocked');
+        setBlockReason(anglesData.blocked_reason ?? 'AngleAgent failed.');
+        setRunningPhase(null); return;
+      }
+      setStep('angles', 'done');
+      setStep('campaign', 'skipped');
+      setRunningPhase(null);
+
+      // Persist for setup page
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(`sprint:${sprint_id}`, JSON.stringify(anglesData));
+      }
+
+      router.push(`/tests/${sprint_id}/setup`);
+
     } catch (err) {
-      console.error('[create test]', err);
-      setContinuing(false);
+      console.error('[newSprint]', err);
+      setBlockReason(`Error: ${String(err)}`);
+      setRunningPhase(null); setIsStarting(false);
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  const toggleChannel = (ch: Platform) =>
+    setChannels((prev) => prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]);
+
+  const isRunning = isStarting || runningPhase !== null;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 pb-20">
+    <div className="max-w-2xl mx-auto space-y-6 pb-24 text-black">
+
       {/* Header */}
       <div>
-        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em] text-[#8C8880] mb-1">
-          Tests
-        </p>
-        <h1 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] text-[#111110]">
-          New Test
-        </h1>
-        <p className="text-[0.875rem] text-[#8C8880] mt-1">
-          Phase 0 — Genome pre-qualification. Kill bad ideas before spending a dollar.
+        <p className="text-[0.75rem] font-medium uppercase tracking-[0.08em]" style={{ color: C.muted }}>Sprint Orchestrator</p>
+        <h1 className="font-display text-[1.75rem] font-bold tracking-[-0.03em] mt-0.5" style={{ color: C.ink }}>New Validation Sprint</h1>
+        <p className="text-[0.875rem] mt-1" style={{ color: C.muted }}>
+          7 agents · 4 channels · 48 h · $500 → GO / ITERATE / NO-GO
         </p>
       </div>
 
       {/* Idea input */}
-      <div className="bg-white rounded-xl border border-[#E8E4DC] p-5 space-y-4">
-        <div>
-          <p className="font-display text-[1.0625rem] font-bold tracking-[-0.01em] text-[#111110]">
-            Describe your idea
-          </p>
-          <p className="text-[0.8125rem] text-[#8C8880] mt-0.5">
-            A 5-agent pipeline queries Google Search and Meta Ad Library for live signals, then uses Llama 3 (Groq) to score the results.
-          </p>
-        </div>
-        <Textarea
-          value={idea}
-          onChange={(e) => setIdea(e.target.value)}
-          placeholder="e.g., AI-powered scheduling software for dental practices"
-          rows={3}
-          disabled={loading}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runGenome(); }}
-          className="border-[#E8E4DC] bg-[#FAFAF8] focus:ring-[#111110]/10 text-[#111110] placeholder:text-[#8C8880]/60 resize-none"
-        />
-        <div className="flex items-center justify-between">
-          <Button
-            onClick={runGenome}
-            disabled={!idea.trim() || loading}
-            className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
-          >
-            {loading ? (
-              <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Analyzing…</>
-            ) : (
-              'Run'
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {/* Agent pipeline (running state) */}
-      <AnimatePresence>
-        {agentLog.length > 0 && loading && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="bg-white rounded-xl border border-[#E8E4DC] p-4 space-y-1"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#8C8880]" />
-              <span className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                Agent Pipeline · Running
-              </span>
-            </div>
-            {agentLog.map((step) => (
-              <motion.div
-                key={step.id}
-                initial={{ opacity: 0, x: -4 }}
-                animate={{ opacity: 1, x: 0 }}
-                className={`flex items-center gap-3 py-1.5 px-2 rounded-lg transition-colors ${
-                  step.status === 'running' ? 'bg-[#F3F0EB]' : ''
-                }`}
-              >
-                <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                  step.status === 'done'    ? 'border-[#059669] text-[#059669]' :
-                  step.status === 'running' ? 'border-[#111110] text-[#111110]' :
-                  step.status === 'error'   ? 'border-[#DC2626] text-[#DC2626]' :
-                                              'border-[#E8E4DC] text-[#8C8880]'
-                }`}>
-                  {step.status === 'done'    ? <CheckCircle2 className="w-3 h-3" /> :
-                   step.status === 'running' ? <Loader2 className="w-3 h-3 animate-spin" /> :
-                   step.status === 'error'   ? <XCircle className="w-3 h-3" /> :
-                   <span className="w-1.5 h-1.5 rounded-full bg-[#E8E4DC] inline-block" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[0.8125rem] font-medium ${
-                      step.status === 'waiting' ? 'text-[#8C8880]' : 'text-[#111110]'
-                    }`}>
-                      {step.agent}
-                    </span>
-                    {step.status === 'running' && (
-                      <span className="text-[0.6875rem] text-[#8C8880] animate-pulse">running…</span>
-                    )}
-                    {step.result && (
-                      <span className="text-[0.6875rem] font-mono text-[#8C8880] ml-auto">{step.result}</span>
-                    )}
-                  </div>
-                  <p className="text-[0.75rem] text-[#8C8880] truncate">{step.action}</p>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Result */}
-      <AnimatePresence>
-        {result && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-
-            {/* Analyzed idea label */}
-            <p className="text-[0.75rem] text-[#8C8880] px-1">
-              Analyzed: <em className="text-[#111110]">&ldquo;{analyzedIdea}&rdquo;</em>
-            </p>
-
-            {/* Verdict banner */}
-            <div className={`p-5 rounded-xl border ${
-              result.verdict === 'GO' || override
-                ? 'border-[#059669]/20 bg-[#ECFDF5]'
-                : 'border-[#DC2626]/20 bg-[#FEF2F2]'
-            }`}>
-              <p className={`font-display text-[1.375rem] font-bold tracking-[-0.02em] ${
-                result.verdict === 'GO' ? 'text-[#059669]' : override ? 'text-[#D97706]' : 'text-[#DC2626]'
-              }`}>
-                {result.verdict === 'GO' ? '✓ GO — Launch it' : override ? 'Override — proceed with caution' : '✗ NO-GO — Bad signal'}
-              </p>
-              <p className="text-[0.875rem] text-[#8C8880] mt-1.5 max-w-lg">{result.reasoning_1_sentence}</p>
-              <span className="inline-block mt-2 text-[0.6875rem] font-mono text-[#8C8880] border border-[#E8E4DC] bg-white px-2 py-0.5 rounded">
-                Phase 0
-              </span>
-            </div>
-
-            {/* Data source badge */}
-            <p className={`text-[0.75rem] font-mono px-1 ${
-              result.data_source === 'real' ? 'text-[#059669]' : 'text-[#8C8880]'
-            }`}>
-              {result.data_source === 'real'
-                ? '⬤ Live data — Google Search + Meta Ad Library'
-                : '◯ Estimate — add SERPER_API_KEY for live data'}
-            </p>
-
-            {/* 3 metric cards */}
-            <div className="space-y-3">
-
-              {/* Search Volume */}
-              <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
-                <div className="flex items-start gap-4 p-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">
-                      Search Volume / mo
-                    </p>
-                    <p className="text-[2rem] font-mono font-bold text-[#111110] tabular-nums">
-                      {result.search_volume_monthly >= 1000
-                        ? `${(result.search_volume_monthly / 1000).toFixed(1)}K`
-                        : result.search_volume_monthly.toLocaleString()}
-                    </p>
-                    <div className="h-1 bg-[#F3F0EB] mt-2 rounded-full">
-                      <div
-                        className="h-full bg-[#111110] rounded-full"
-                        style={{ width: `${Math.min(100, (result.search_volume_monthly / 50000) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
-                    {result.search_volume_monthly >= 10000 ? 'Strong' : result.search_volume_monthly >= 1000 ? 'Moderate' : 'Weak'}
-                  </span>
-                </div>
-                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
-                  {result.source_google && (
-                    <div className="space-y-2">
-                      <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                        Google Search — Live Data
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2">
-                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Indexed Pages</p>
-                          <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums mt-0.5">{result.source_google.organic_result_count.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2">
-                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Active Google Ads</p>
-                          <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums mt-0.5">{result.source_google.google_ads_count}</p>
-                        </div>
-                      </div>
-                      {result.source_google.related_searches.length > 0 && (
-                        <div>
-                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5">Buyer Search Terms</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {result.source_google.related_searches.slice(0, 6).map((s) => (
-                              <span key={s} className="text-[0.6875rem] px-2 py-0.5 bg-white border border-[#E8E4DC] rounded-full text-[#111110]">{s}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {result.step1_keywords && (
-                    <div className="border-l-2 border-[#111110]/20 pl-3">
-                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
-                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step1_keywords}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Competitor Density */}
-              <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
-                <div className="flex items-start gap-4 p-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">
-                      Ad Saturation
-                    </p>
-                    <p className="text-[2rem] font-mono font-bold text-[#111110] tabular-nums">
-                      {result.competitor_ad_density_0_10.toFixed(1)}
-                      <span className="text-[1.25rem] font-normal text-[#8C8880]"> /10</span>
-                    </p>
-                    <div className="h-1 bg-[#F3F0EB] mt-2 rounded-full">
-                      <div
-                        className="h-full bg-[#111110] rounded-full"
-                        style={{ width: `${(result.competitor_ad_density_0_10 / 10) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
-                    {result.competitor_ad_density_0_10 <= 3 ? 'Untapped market' : result.competitor_ad_density_0_10 <= 6 ? 'Moderate competition' : 'Saturated'}
-                  </span>
-                </div>
-                <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
-                  {result.source_meta && result.source_meta.active_ads_count !== undefined && (
-                    <div className="space-y-2">
-                      <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                        Meta Ad Library — Last 90 Days
-                      </p>
-                      <div className="bg-white rounded-lg border border-[#E8E4DC] px-3 py-2 flex items-center justify-between">
-                        <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">Active Ads Found</p>
-                        <p className="font-mono font-bold text-[#111110] text-[0.9375rem] tabular-nums">
-                          {result.source_meta.active_ads_count}
-                          {result.source_meta.active_ads_count === 25 && <span className="text-[0.75rem] font-normal text-[#D97706] ml-1.5">cap reached</span>}
-                        </p>
-                      </div>
-                      {result.source_meta.advertiser_names && result.source_meta.advertiser_names.length > 0 && (
-                        <div>
-                          <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1.5">Known Advertisers</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {result.source_meta.advertiser_names.slice(0, 8).map((name) => (
-                              <span key={name} className="text-[0.6875rem] px-2 py-0.5 bg-white border border-[#E8E4DC] rounded-full text-[#111110]">{name}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {result.step2_competitors && (
-                    <div className="border-l-2 border-[#111110]/20 pl-3">
-                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
-                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step2_competitors}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Language-Market Fit */}
-              <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
-                <div className="flex items-start gap-4 p-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">
-                      Language–Market Fit
-                    </p>
-                    <p className="text-[2rem] font-mono font-bold text-[#111110] tabular-nums">
-                      {Math.round(result.language_market_fit_0_100)}
-                      <span className="text-[1.25rem] font-normal text-[#8C8880]"> /100</span>
-                    </p>
-                    <div className="h-1 bg-[#F3F0EB] mt-2 rounded-full">
-                      <div
-                        className="h-full bg-[#111110] rounded-full"
-                        style={{ width: `${result.language_market_fit_0_100}%` }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-[0.75rem] font-mono text-[#8C8880] border border-[#E8E4DC] px-2 py-1 rounded whitespace-nowrap">
-                    {result.language_market_fit_0_100 >= 60 ? 'Strong fit' : result.language_market_fit_0_100 >= 40 ? 'Weak fit' : 'Poor fit'}
-                  </span>
-                </div>
-                {result.step3_language && (
-                  <div className="border-t border-[#E8E4DC] px-4 py-3 space-y-3 bg-[#FAFAF8]">
-                    {result.source_google?.top_titles && result.source_google.top_titles.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] text-[#8C8880]">
-                          Top Ranking Results
-                        </p>
-                        {result.source_google.top_titles.slice(0, 3).map((t, i) => (
-                          <div key={t} className="flex items-start gap-2.5 bg-white border border-[#E8E4DC] rounded-lg px-3 py-2">
-                            <span className="text-[0.625rem] font-mono text-[#8C8880] mt-0.5 shrink-0">#{i + 1}</span>
-                            <p className="text-[0.75rem] text-[#111110] leading-snug">{t}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="border-l-2 border-[#111110]/20 pl-3">
-                      <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] text-[#8C8880] mb-1">AI Analysis</p>
-                      <p className="text-[0.75rem] text-[#111110] leading-relaxed">{result.step3_language}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Pivot suggestion */}
-            {result.verdict === 'NO-GO' && result.pivot_suggestion_15_words && (
-              <div className="p-4 rounded-xl border border-[#D97706]/20 bg-[#FFFBEB]">
-                <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] text-[#D97706] mb-1.5">
-                  Pivot Suggestion
-                </p>
-                <p className="text-[0.9375rem] font-medium text-[#111110]">
-                  {result.pivot_suggestion_15_words}
-                </p>
-                <p className="text-[0.75rem] text-[#8C8880] mt-1">
-                  Tweak your idea above and re-run Genome.
-                </p>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setResult(null); setAgentLog([]); setIdea(''); setOverride(false); }}
-                  className="border-[#E8E4DC] text-[#111110] hover:bg-[#F3F0EB]"
-                >
-                  Start Over
-                </Button>
-                {result.verdict === 'NO-GO' && !override && (
-                  <button
-                    className="text-[0.8125rem] text-[#8C8880] underline underline-offset-2 hover:text-[#111110]"
-                    onClick={() => setOverride(true)}
-                  >
-                    Override — proceed anyway
+      {!sprint && (
+        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border p-5 space-y-4" style={{ borderColor: C.border, background: C.surface }}>
+          <div>
+            <p className="font-display font-bold text-[1.0625rem] tracking-[-0.01em]" style={{ color: C.ink }}>Describe your idea</p>
+            <p className="text-[0.8125rem] mt-0.5" style={{ color: C.muted }}>One sentence to three paragraphs. Specificity improves Genome signal.</p>
+          </div>
+          <Textarea value={idea} onChange={(e) => setIdea(e.target.value)}
+            placeholder="e.g., AI-powered SOC automation for Series A startups that can't afford a full security team"
+            rows={3} disabled={isRunning}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runSprint(); }}
+            className="resize-none text-black" style={{ borderColor: C.border, background: C.canvas }} />
+          <div className="space-y-2">
+            <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em]" style={{ color: C.muted }}>Active Channels</p>
+            <div className="flex gap-2 flex-wrap">
+              {ALL_CHANNELS.map((ch) => {
+                const active = channels.includes(ch);
+                return (
+                  <button key={ch} onClick={() => toggleChannel(ch)} disabled={isRunning}
+                    className="px-3 py-1.5 rounded-full text-[0.8125rem] font-medium border transition-colors"
+                    style={{ borderColor: active ? C.ink : C.border, background: active ? C.ink : C.surface, color: active ? '#fff' : C.muted }}>
+                    {CHANNEL_LABELS[ch]}
                   </button>
-                )}
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <p className="text-[0.75rem]" style={{ color: C.muted }}>
+              {channels.length === 0
+                ? <span style={{ color: C.stop }}>Select at least one channel</span>
+                : `${channels.length} channel${channels.length > 1 ? 's' : ''} · $${(500 / channels.length).toFixed(0)}/ch`}
+            </p>
+            <Button onClick={runSprint} disabled={!idea.trim() || channels.length === 0 || isRunning}
+              className="h-9 px-5 rounded-full border-0 text-[0.875rem] font-semibold" style={{ background: C.ink, color: '#fff' }}>
+              {isStarting ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Starting…</> : 'Launch Sprint →'}
+            </Button>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Pipeline status */}
+      <AnimatePresence>
+        {(sprint || isStarting) && (
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.surface }}>
+            <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: C.border, background: C.faint }}>
+              <div>
+                <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em]" style={{ color: C.muted }}>Sprint</p>
+                <p className="font-mono text-[0.8125rem] font-bold mt-0.5" style={{ color: C.ink }}>{(sprint as SprintRecord & { sprint_id?: string })?.sprint_id ?? '…'}</p>
               </div>
-              {(result.verdict === 'GO' || override) && (
-                <Button
-                  onClick={handleContinue}
-                  disabled={continuing}
-                  className="h-9 px-5 rounded-full bg-[#111110] text-white text-[0.875rem] font-medium hover:bg-[#111110]/90 border-0 disabled:opacity-40"
-                >
-                  {continuing ? (
-                    <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Creating…</>
-                  ) : (
-                    'Continue to Setup →'
-                  )}
-                </Button>
-              )}
+              <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.06em] px-2 py-1 rounded"
+                style={{
+                  color: sprint?.state === 'BLOCKED' ? C.stop : sprint?.state === 'COMPLETE' ? C.go : C.warn,
+                  background: sprint?.state === 'BLOCKED' ? `${C.stop}12` : sprint?.state === 'COMPLETE' ? `${C.go}12` : `${C.warn}12`,
+                }}>
+                {STATE_LABELS[sprint?.state ?? 'IDLE'] ?? sprint?.state ?? 'Starting…'}
+              </span>
+            </div>
+            <div className="divide-y" style={{ borderColor: C.border }}>
+              {PIPELINE.map((step) => {
+                const status = stepStatuses[step.id];
+                return (
+                  <div key={step.id} className="flex items-center gap-3 px-4 py-3 transition-colors"
+                    style={{ background: status === 'running' ? C.faint : 'transparent' }}>
+                    <StepIcon status={status} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[0.875rem] font-medium" style={{ color: status === 'waiting' ? C.muted : C.ink }}>{step.label}</span>
+                        {step.parallel && <span className="text-[0.625rem] font-medium px-1.5 py-0.5 rounded" style={{ color: C.muted, background: C.faint, border: `1px solid ${C.border}` }}>parallel</span>}
+                        {status === 'running' && <span className="text-[0.6875rem] animate-pulse" style={{ color: C.muted }}>running…</span>}
+                        {status === 'skipped' && <span className="text-[0.6875rem]" style={{ color: C.muted }}>awaiting platform launch</span>}
+                      </div>
+                      <p className="text-[0.75rem]" style={{ color: C.muted }}>{step.sublabel}</p>
+                    </div>
+                    <span className="text-[0.6875rem] font-mono uppercase"
+                      style={{ color: status === 'done' ? C.go : status === 'blocked' ? C.stop : status === 'running' ? C.ink : C.muted }}>
+                      {status}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* BLOCKED banner */}
+      <AnimatePresence>
+        {blockReason && (
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border p-4 flex gap-3" style={{ borderColor: `${C.stop}40`, background: `${C.stop}08` }}>
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: C.stop }} />
+            <div className="space-y-1 flex-1">
+              <p className="text-[0.8125rem] font-semibold" style={{ color: C.stop }}>Sprint Blocked</p>
+              <p className="text-[0.8125rem]" style={{ color: C.ink }}>{blockReason}</p>
+              <button onClick={resetSprint} className="text-[0.8125rem] underline underline-offset-2 mt-1" style={{ color: C.muted }}>
+                Start over
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Genome result */}
+      <AnimatePresence>
+        {sprint?.genome && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+            {/* Signal banner */}
+            <div className="rounded-xl border p-5" style={{
+              borderColor: sprint.genome.signal === 'GO' ? `${C.go}30` : sprint.genome.signal === 'ITERATE' ? `${C.warn}30` : `${C.stop}30`,
+              background: sprint.genome.signal === 'GO' ? `${C.go}08` : sprint.genome.signal === 'ITERATE' ? `${C.warn}08` : `${C.stop}08`,
+            }}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-display font-bold text-[1.5rem] tracking-[-0.03em]"
+                    style={{ color: sprint.genome.signal === 'GO' ? C.go : sprint.genome.signal === 'ITERATE' ? C.warn : C.stop }}>
+                    {sprint.genome.signal === 'GO' ? 'GO — Proceed to Healthgate' :
+                     sprint.genome.signal === 'ITERATE' ? 'ITERATE — Proceed with caution' : 'STOP — Do not spend'}
+                  </p>
+                  <p className="text-[0.875rem] mt-1.5 max-w-lg" style={{ color: C.muted }}>
+                    {sprint.genome.proceed_note ?? sprint.genome.pivot_brief ?? ''}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono font-bold text-[2.25rem] leading-none"
+                    style={{ color: sprint.genome.signal === 'GO' ? C.go : sprint.genome.signal === 'ITERATE' ? C.warn : C.stop }}>
+                    {sprint.genome.composite}
+                  </p>
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-[0.06em] mt-1" style={{ color: C.muted }}>composite</p>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t" style={{ borderColor: `${C.border}80` }}>
+                <CompositeBar scores={sprint.genome.scores} />
+              </div>
+            </div>
+
+            {/* ICP + signals */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'ICP', value: sprint.genome.icp },
+                { label: 'Market Category', value: sprint.genome.market_category },
+                { label: 'Unique Mechanism', value: sprint.genome.unique_mechanism },
+                { label: 'Data Source', value: sprint.genome.data_source === 'real' ? '⬤ Live — Google + Meta' : '◯ LLM estimate' },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg border p-3" style={{ borderColor: C.border, background: C.surface }}>
+                  <p className="text-[0.625rem] font-medium uppercase tracking-[0.06em] mb-1" style={{ color: C.muted }}>{label}</p>
+                  <p className="text-[0.8125rem] leading-snug" style={{ color: C.ink }}>{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Risks */}
+            {sprint.genome.risks.length > 0 && (
+              <div className="rounded-xl border p-4 space-y-2" style={{ borderColor: C.border, background: C.surface }}>
+                <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em]" style={{ color: C.muted }}>Cited Risks</p>
+                {sprint.genome.risks.map((r, i) => (
+                  <div key={i} className="flex gap-2.5">
+                    <span className="w-4 h-4 rounded-full border flex items-center justify-center text-[0.5rem] font-bold shrink-0 mt-0.5" style={{ borderColor: C.warn, color: C.warn }}>{i + 1}</span>
+                    <p className="text-[0.8125rem] leading-snug" style={{ color: C.ink }}>{r}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Healthgate */}
+      <AnimatePresence>
+        {sprint?.healthgate && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+            <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] px-1" style={{ color: C.muted }}>
+              Healthgate — Per-Channel Account Health
+            </p>
+            <HealthgateGrid healthgate={sprint.healthgate as Record<Platform, HealthgateAgentOutput>} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Angles */}
+      <AnimatePresence>
+        {sprint?.angles && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+            <p className="text-[0.75rem] font-medium uppercase tracking-[0.06em] px-1" style={{ color: C.muted }}>AngleAgent — 3 Archetypes · 4 Channels</p>
+            <p className="text-[0.8125rem] px-1" style={{ color: C.ink }}><strong>ICP:</strong> {(sprint.angles as NonNullable<SprintRecord['angles']>).icp}</p>
+            <div className="space-y-3">
+              {(sprint.angles as NonNullable<SprintRecord['angles']>).angles.map((a, i) => (
+                <AngleCard key={a.id} angle={a} idx={i} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

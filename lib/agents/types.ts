@@ -1,0 +1,254 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// LaunchLense — Agent Type Definitions
+// Full 7-agent orchestration: Genome → Healthgate → Angle → Landing →
+//   Campaign → Verdict → Report
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type Platform = 'meta' | 'google' | 'linkedin' | 'tiktok';
+export type SprintSignal = 'GO' | 'ITERATE' | 'STOP';
+export type ChannelVerdict = 'GO' | 'ITERATE' | 'NO-GO';
+export type HealthStatus = 'HEALTHY' | 'WARN' | 'BLOCKED';
+export type AngleArchetype = 'PAIN' | 'ASPIRATION' | 'SOCIAL_PROOF' | 'CURIOSITY' | 'AUTHORITY';
+export type AngleEmotionalLever = 'fear' | 'ambition' | 'relief' | 'intrigue' | 'trust';
+
+// ── Sprint State Machine ───────────────────────────────────────────────────
+
+export type SprintState =
+  | 'IDLE'
+  | 'GENOME_RUNNING'
+  | 'GENOME_DONE'
+  | 'HEALTHGATE_RUNNING'
+  | 'HEALTHGATE_DONE'
+  | 'ANGLES_RUNNING'
+  | 'ANGLES_DONE'
+  | 'LANDING_RUNNING'
+  | 'LANDING_DONE'
+  | 'CAMPAIGN_RUNNING'
+  | 'CAMPAIGN_MONITORING'
+  | 'VERDICT_GENERATING'
+  | 'COMPLETE'
+  | 'BLOCKED';
+
+export interface SprintRecord {
+  sprint_id: string;
+  idea: string;
+  org_id: string | null;
+  state: SprintState;
+  active_channels: Platform[];
+  budget_cents: number; // total across all channels
+  blocked_reason?: string;
+  created_at: string;
+  updated_at: string;
+  // Agent outputs (written as they complete)
+  genome?: GenomeAgentOutput;
+  healthgate?: Record<Platform, HealthgateAgentOutput>;
+  angles?: AngleAgentOutput;
+  landing?: LandingAgentOutput;
+  campaign?: Record<Platform, CampaignAgentOutput>;
+  verdict?: VerdictAgentOutput;
+  report?: ReportAgentOutput;
+}
+
+// ── Agent 1: GenomeAgent ──────────────────────────────────────────────────
+
+export interface GenomeScores {
+  demand: number;       // 0-100 — evidence of active search/complaint
+  competition: number;  // 0-100 — inverse of crowding (100 = blue ocean)
+  icp: number;          // 0-100 — can you name the exact buyer
+  timing: number;       // 0-100 — macro tailwinds present now
+  moat: number;         // 0-100 — defensible mechanism exists
+}
+
+export interface GenomeAgentOutput {
+  signal: SprintSignal;
+  composite: number;    // weighted: demand*0.3 + icp*0.25 + competition*0.2 + timing*0.15 + moat*0.10
+  scores: GenomeScores;
+  icp: string;          // named buyer + reason they buy today
+  problem_statement: string;
+  solution_wedge: string;
+  market_category: string;
+  unique_mechanism: string;
+  risks: string[];      // each MUST cite a specific signal — no generics
+  pivot_brief: string | null;   // if STOP — specific pivot direction
+  proceed_note: string | null;  // if GO/ITERATE — seeds AngleAgent brief
+  research_sources: string[];
+  // Raw research data
+  source_google?: {
+    organic_result_count: number;
+    google_ads_count: number;
+    related_searches: string[];
+    top_titles: string[];
+    top_snippet?: string;
+  } | null;
+  source_meta?: {
+    active_ads_count: number;
+    advertiser_names: string[];
+    error?: string;
+  } | null;
+  data_source: 'real' | 'llm_estimate';
+  elapsed_ms: number;
+}
+
+// ── Agent 2: HealthgateAgent (per channel) ────────────────────────────────
+
+export type CheckWeight = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface HealthCheck {
+  key: string;
+  name: string;
+  weight: CheckWeight;
+  passed: boolean;
+  value: string;
+  points_awarded: number;
+  points_max: number;
+  fix: string;
+  estimated_fix_hours?: number;
+}
+
+export interface HealthgateAgentOutput {
+  channel: Platform;
+  score: number;         // 0-100, capped at 40 if any CRITICAL fails
+  status: HealthStatus;  // BLOCKED <60, WARN 60-79, HEALTHY 80-100
+  checks: HealthCheck[];
+  blocking_issues: string[];   // check names that are blocking
+  fix_summary: string[];       // ordered by urgency
+  estimated_unblock_hours: number;
+}
+
+// ── Agent 3: AngleAgent ───────────────────────────────────────────────────
+
+export interface ChannelCopy {
+  meta: {
+    headline: string;    // ≤40 chars
+    body: string;        // ≤125 chars
+  };
+  google: {
+    headline1: string;   // ≤30 chars
+    headline2: string;   // ≤30 chars
+    description: string; // ≤90 chars
+  };
+  linkedin: {
+    intro: string;       // ≤70 chars
+    headline: string;    // ≤25 chars
+    body: string;        // ≤150 chars
+  };
+  tiktok: {
+    hook: string;        // ≤100 chars — first 3 seconds
+    overlay: string;     // ≤80 chars
+  };
+}
+
+export interface Angle {
+  id: 'angle_A' | 'angle_B' | 'angle_C';
+  archetype: AngleArchetype;
+  emotional_lever: AngleEmotionalLever;
+  copy: ChannelCopy;
+  cta: string;         // verb-first, outcome-focused, ≤5 words
+  utm_tags: Record<Platform, string>;
+}
+
+export interface AngleAgentOutput {
+  angles: [Angle, Angle, Angle];
+  icp: string;
+  value_prop: string;
+}
+
+// ── Agent 4: LandingPageAgent ─────────────────────────────────────────────
+
+export interface LandingSection {
+  type: 'hero' | 'proof' | 'form' | 'trust';
+  headline?: string;
+  subheadline?: string;
+  cta_label?: string;
+  bullets?: string[];
+  quote?: string;
+  quote_attribution?: string;
+}
+
+export interface LandingPage {
+  angle_id: 'angle_A' | 'angle_B' | 'angle_C';
+  sections: LandingSection[];
+  html: string;         // single-file HTML with inline CSS using PROOF tokens
+  utm_base: string;
+}
+
+export interface LandingAgentOutput {
+  pages: LandingPage[];
+}
+
+// ── Agent 5: CampaignAgent (per channel) ─────────────────────────────────
+
+export type AngleStatus = 'PASS' | 'FAIL' | 'PAUSED';
+
+export interface AngleMetrics {
+  id: 'angle_A' | 'angle_B' | 'angle_C';
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpc_cents: number;
+  spend_cents: number;
+  status: AngleStatus;
+}
+
+export interface CampaignAgentOutput {
+  channel: Platform;
+  status: 'PENDING' | 'ACTIVE' | 'COMPLETE' | 'FAILED';
+  campaign_id: string | null;
+  campaign_start_time: string | null;
+  budget_cents: number;
+  spent_cents: number;
+  angle_metrics: AngleMetrics[];
+  last_polled_at: string | null;
+  error?: string;
+}
+
+// ── Agent 6: VerdictAgent ─────────────────────────────────────────────────
+
+export interface ChannelVerdictOutput {
+  channel: Platform;
+  verdict: ChannelVerdict;
+  confidence: number;
+  blended_ctr: number;
+  total_spend_cents: number;
+  impressions: number;
+  clicks: number;
+  avg_cpc_cents: number;
+  winning_angle: 'angle_A' | 'angle_B' | 'angle_C' | null;
+  angle_breakdown: {
+    id: 'angle_A' | 'angle_B' | 'angle_C';
+    ctr: number;
+    cpc_cents: number;
+    spend_cents: number;
+    status: AngleStatus;
+  }[];
+  reasoning: string;   // 2 sentences citing specific numbers
+  next_action: string; // specific, not generic
+}
+
+export interface AggregateMetrics {
+  total_spend_cents: number;
+  total_impressions: number;
+  total_clicks: number;
+  weighted_blended_ctr: number;
+  avg_cpc_cents: number;
+}
+
+export interface VerdictAgentOutput {
+  verdict: ChannelVerdict;
+  confidence: number;
+  channel_verdicts: Record<Platform, ChannelVerdict>;
+  per_channel: ChannelVerdictOutput[];
+  aggregate_metrics: AggregateMetrics;
+  cross_channel_winning_angle: 'angle_A' | 'angle_B' | 'angle_C' | null;
+  reasoning: string;   // 3 sentences
+  recommended_channel: Platform | null;
+}
+
+// ── Agent 7: ReportAgent ──────────────────────────────────────────────────
+
+export interface ReportAgentOutput {
+  sprint_id: string;
+  pdf_url: string | null;     // hosted PDF URL (null if generation failed)
+  html: string;               // full report HTML
+  generated_at: string;
+}
