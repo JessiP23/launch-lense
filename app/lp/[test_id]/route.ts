@@ -10,10 +10,9 @@ export async function GET(
   const { test_id } = await params;
 
   const { data: test } = await supabaseAdmin
-    .from('tests')
-    .select('lp_html, lp_json, name, idea, angles')
-    .eq('id', test_id)
-    .single();
+    .from('tests').select('lp_html, lp_json, name, idea, angles').eq('id', test_id).single();
+
+  console.log('data testing:', test);
 
   if (!test) {
     return new Response('Not found', { status: 404 });
