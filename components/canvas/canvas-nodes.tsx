@@ -2,6 +2,7 @@
 
 import { memo, type ReactNode } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { motion } from 'framer-motion';
 
 // ── PROOF design tokens ─────────────────────────────────────────────────────
 const C = {
@@ -58,7 +59,21 @@ function NodeCard({
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      animate={{
+        opacity: 1,
+        y: isRunning ? [0, -2, 0] : 0,
+        scale: selected ? 1.015 : 1,
+      }}
+      whileHover={{ y: -3, scale: 1.015 }}
+      transition={{
+        opacity: { duration: 0.22 },
+        scale: { duration: 0.18 },
+        y: isRunning
+          ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+          : { duration: 0.18 },
+      }}
       style={{
         width,
         height,
@@ -118,7 +133,7 @@ function NodeCard({
         <p style={{ fontSize: '0.8125rem', fontWeight: 500, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
       )}
       {children}
-    </div>
+    </motion.div>
   );
 }
 
@@ -254,16 +269,65 @@ function handleFor(brandName?: string) {
   return (brandName ?? 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'brand';
 }
 
-export type LandingNodeData = { pageCount?: number; stage: NodeStage };
+export type LandingNodeData = {
+  pageCount?: number;
+  stage: NodeStage;
+  eyebrow?: string;
+  headline?: string;
+  subheadline?: string;
+  cta?: string;
+  proof?: string[];
+  testimonial?: string;
+  theme?: string;
+  url?: string | null;
+};
 export type LandingNodeType = Node<LandingNodeData, 'landing'>;
 export const LandingNode = memo(({ data, selected }: NodeProps<LandingNodeType>) => (
   <NodeCard
-    label="Landing Page" stage={data.stage} selected={!!selected}
+    label="Landing Page" stage={data.stage} selected={!!selected} width={236} height={340}
     metric={data.pageCount != null ? `${data.pageCount}` : data.stage === 'running' ? '…' : '—'}
-    metricLabel="editable pages"
-  />
+    metricLabel={data.url ? 'deployed page' : 'live page draft'}
+  >
+    <LandingNodePreview data={data} />
+  </NodeCard>
 ));
 LandingNode.displayName = 'LandingNode';
+
+function LandingNodePreview({ data }: { data: LandingNodeData }) {
+  const proof = data.proof?.filter(Boolean).slice(0, 3) ?? [];
+  const isEditorial = data.theme === 'editorial';
+  return (
+    <div style={{ marginTop: 10, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', background: C.surface }}>
+      <div style={{ padding: 10, background: isEditorial ? C.ink : C.faint, color: isEditorial ? '#FFF' : C.ink }}>
+        <p style={{ margin: '0 0 5px', color: isEditorial ? '#FFFFFF99' : C.muted, fontSize: '0.5625rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          {data.eyebrow || 'Validation page'}
+        </p>
+        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, lineHeight: 1.05, letterSpacing: '-0.04em', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {data.headline || 'Open this node to build the page'}
+        </p>
+        <p style={{ margin: '7px 0 0', color: isEditorial ? '#FFFFFFB3' : C.muted, fontSize: '0.625rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {data.subheadline || 'Real-time landing preview appears here before deploy.'}
+        </p>
+      </div>
+      <div style={{ padding: 10, display: 'grid', gap: 6 }}>
+        {proof.length ? proof.map((item, index) => (
+          <div key={`${item}-${index}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <span style={{ width: 14, height: 14, borderRadius: 999, background: C.ink, color: '#FFF', display: 'grid', placeItems: 'center', fontSize: '0.5rem', fontWeight: 900, flexShrink: 0 }}>{index + 1}</span>
+            <p style={{ margin: 0, color: C.ink, fontSize: '0.625rem', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item}</p>
+          </div>
+        )) : (
+          <div style={{ height: 38, border: `1px dashed ${C.border}`, borderRadius: 8, display: 'grid', placeItems: 'center', color: C.muted, fontSize: '0.625rem' }}>Proof blocks</div>
+        )}
+        <div style={{ marginTop: 4, border: `1px solid ${C.border}`, borderRadius: 10, padding: 8, background: C.faint }}>
+          <p style={{ margin: 0, fontSize: '0.625rem', color: C.muted, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.testimonial || 'Customer quote or demand signal'}</p>
+        </div>
+        <div style={{ marginTop: 3, height: 30, borderRadius: 999, background: C.ink, color: '#FFF', display: 'grid', placeItems: 'center', fontSize: '0.6875rem', fontWeight: 900 }}>
+          {data.cta || 'Join Waitlist'}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export type CampaignNodeData  = { channel: string; ctr?: number; spendCents?: number; stage: NodeStage };
 export type CampaignNodeType  = Node<CampaignNodeData, 'campaign'>;

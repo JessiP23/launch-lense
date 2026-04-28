@@ -43,6 +43,7 @@ const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
 const NODE_SIZE = {
   standard: { width: 168, height: 96 },
   creative: { width: 236, height: 340 },
+  landing: { width: 236, height: 340 },
 };
 const LAYOUT = {
   left: 80,
@@ -62,7 +63,7 @@ const X = (() => {
     ['creative', NODE_SIZE.creative.width],
     ['campaign', NODE_SIZE.standard.width],
     ['verdict', NODE_SIZE.standard.width],
-    ['landing', NODE_SIZE.standard.width],
+    ['landing', NODE_SIZE.landing.width],
     ['report', NODE_SIZE.standard.width],
   ] as const;
 
@@ -82,6 +83,19 @@ type CreativeDraft = {
   image: string | null;
 };
 type CreativeDrafts = Partial<Record<Platform, CreativeDraft>>;
+type LandingDraft = {
+  theme: string;
+  eyebrow: string;
+  headline: string;
+  subheadline: string;
+  cta: string;
+  audience: string;
+  offer: string;
+  proof: string[];
+  testimonial: string;
+  formTitle: string;
+  formSubtext: string;
+};
 
 // ── Sprint state → node/edge stage mapping ───────────────────────────────────
 type NodeStage = 'idle' | 'running' | 'done' | 'blocked' | 'warn';
@@ -214,6 +228,7 @@ function buildLayout(channelCount: number) {
 }
 
 function nodeSize(node: Node) {
+  if (node.type === 'landing') return NODE_SIZE.landing;
   return node.type === 'creative' ? NODE_SIZE.creative : NODE_SIZE.standard;
 }
 
@@ -297,6 +312,30 @@ function creativeDataFor(channel: Platform, sprint: SprintRecord | null, drafts:
   };
 }
 
+function landingDraftFor(sprint: SprintRecord | null, draft?: LandingDraft | null) {
+  const selectedAngle = selectedAngleFor(sprint);
+  const firstPage = sprint?.landing?.pages?.[0] as {
+    url?: string;
+    sections?: Array<{ headline?: string; subheadline?: string; cta_label?: string; bullets?: string[]; quote?: string }>;
+  } | undefined;
+
+  const hero = firstPage?.sections?.[0];
+  const proof = firstPage?.sections?.[1];
+  const trust = firstPage?.sections?.[3];
+
+  return {
+    pageCount: sprint?.landing?.pages?.length,
+    url: firstPage?.url ?? null,
+    theme: draft?.theme ?? 'studio',
+    eyebrow: draft?.eyebrow ?? 'LaunchLense validation sprint',
+    headline: draft?.headline ?? hero?.headline ?? selectedAngle?.copy.meta.headline,
+    subheadline: draft?.subheadline ?? hero?.subheadline ?? selectedAngle?.copy.meta.body,
+    cta: draft?.cta ?? hero?.cta_label ?? selectedAngle?.cta,
+    proof: draft?.proof ?? proof?.bullets,
+    testimonial: draft?.testimonial ?? trust?.quote,
+  };
+}
+
 function draftFingerprint(draft: CreativeDraft) {
   return JSON.stringify({
     channel: draft.channel,
@@ -308,8 +347,12 @@ function draftFingerprint(draft: CreativeDraft) {
   });
 }
 
+function landingFingerprint(draft: LandingDraft) {
+  return JSON.stringify(draft);
+}
+
 // ── Build static node list ───────────────────────────────────────────────────
-function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts): Node[] {
+function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts, landingDraft: LandingDraft | null): Node[] {
   const s  = sprint?.state;
   const g  = sprint?.genome;
   const hg = sprint?.healthgate;
@@ -348,7 +391,7 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts)
 
     // Landing pages
     { id: 'landing', type: 'landing', position: { x: X.landing, y: layout.standardTop },
-      data: { pageCount: l?.pages?.length, stage: sprintStageFor('landing', s, sprint) } },
+      data: { ...landingDraftFor(sprint, landingDraft), stage: sprintStageFor('landing', s, sprint) } },
 
     // Campaign per selected channel
     ...activeChannels.map((ch, i) => ({
@@ -689,13 +732,14 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [creativeDrafts, setCreativeDrafts] = useState<CreativeDrafts>({});
+  const [landingDraft, setLandingDraft] = useState<LandingDraft | null>(null);
 
   const nodes = useMemo(() => {
-    const built = buildNodes(sprintData, creativeDrafts);
+    const built = buildNodes(sprintData, creativeDrafts, landingDraft);
     if (!built[0]) return built;
     built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
     return built;
-  }, [sprintData, creativeDrafts, connectedPlatforms.length]);
+  }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length]);
 
   const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
 
@@ -761,6 +805,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
   useEffect(() => {
     setCreativeDrafts({});
+    setLandingDraft(null);
   }, [activeSprint]);
 
   // ── Poll active sprint ───────────────────────────────────────────────────
@@ -936,6 +981,13 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     });
   }, []);
 
+  const handleLandingDraftChange = useCallback((draft: LandingDraft) => {
+    setLandingDraft((current) => {
+      if (current && landingFingerprint(current) === landingFingerprint(draft)) return current;
+      return draft;
+    });
+  }, []);
+
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#FAFAF8', position: 'relative', fontFamily: 'inherit' }}>
       <ReactFlow
@@ -980,6 +1032,8 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
               onContinueAfterCreatives={(id) => void runDemoAfterCreatives(id)}
               creativeDraft={panelChannel ? creativeDrafts[panelChannel as Platform] : undefined}
               onCreativeDraftChange={handleCreativeDraftChange}
+              landingDraft={landingDraft}
+              onLandingDraftChange={handleLandingDraftChange}
               onSprintPatched={handleSprintPatched}
               workflowRunning={pipelineRunning}
               embedded

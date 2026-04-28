@@ -25,6 +25,20 @@ export type CreativeDraft = {
   image: string | null;
 };
 
+export type LandingDraft = {
+  theme: string;
+  eyebrow: string;
+  headline: string;
+  subheadline: string;
+  cta: string;
+  audience: string;
+  offer: string;
+  proof: string[];
+  testimonial: string;
+  formTitle: string;
+  formSubtext: string;
+};
+
 interface Props {
   panel:       PanelId;
   channel?:    string;
@@ -36,6 +50,8 @@ interface Props {
   onContinueAfterCreatives?: (sprintId: string) => void;
   creativeDraft?: CreativeDraft;
   onCreativeDraftChange?: (draft: CreativeDraft) => void;
+  landingDraft?: LandingDraft | null;
+  onLandingDraftChange?: (draft: LandingDraft) => void;
   onSprintPatched?: (rawSprint: unknown) => void;
   workflowRunning?: boolean;
   embedded?:   boolean;
@@ -770,31 +786,57 @@ function CreativePreviewPanel({
 // ════════════════════════════════════════════════════════════════════════════
 // Landing Panel
 // ════════════════════════════════════════════════════════════════════════════
-function LandingPanel({ sprint }: { sprint?: SprintRecord | null }) {
+function LandingPanel({
+  sprint,
+  landingDraft,
+  onLandingDraftChange,
+}: {
+  sprint?: SprintRecord | null;
+  landingDraft?: LandingDraft | null;
+  onLandingDraftChange?: (draft: LandingDraft) => void;
+}) {
   const landing = sprint?.landing;
   const angles = sprint?.angles?.angles ?? [];
   const selectedAngleId = (sprint?.angles as { selected_angle_id?: string } | undefined)?.selected_angle_id;
   const firstAngle = angles.find((angle) => angle.id === selectedAngleId) ?? angles[0];
   const firstPage = landing?.pages?.[0];
-  const [headline, setHeadline] = useState(firstPage?.sections?.[0]?.headline ?? firstAngle?.copy.meta.headline ?? '');
-  const [subheadline, setSubheadline] = useState(firstPage?.sections?.[0]?.subheadline ?? firstAngle?.copy.meta.body ?? '');
-  const [cta, setCta] = useState(firstPage?.sections?.[0]?.cta_label ?? firstAngle?.cta ?? 'Join Waitlist');
-  const [proofOne, setProofOne] = useState(firstPage?.sections?.[1]?.bullets?.[0] ?? 'Validated through a structured 48-hour market sprint.');
-  const [proofTwo, setProofTwo] = useState(firstPage?.sections?.[1]?.bullets?.[1] ?? 'Channel-normalized verdicts remove platform bias.');
-  const [proofThree, setProofThree] = useState(firstPage?.sections?.[1]?.bullets?.[2] ?? 'Angle isolation shows which message to build around.');
+  const [theme, setTheme] = useState(landingDraft?.theme ?? 'studio');
+  const [eyebrow, setEyebrow] = useState(landingDraft?.eyebrow ?? 'LaunchLense validation sprint');
+  const [headline, setHeadline] = useState(landingDraft?.headline ?? firstPage?.sections?.[0]?.headline ?? firstAngle?.copy.meta.headline ?? '');
+  const [subheadline, setSubheadline] = useState(landingDraft?.subheadline ?? firstPage?.sections?.[0]?.subheadline ?? firstAngle?.copy.meta.body ?? '');
+  const [cta, setCta] = useState(landingDraft?.cta ?? firstPage?.sections?.[0]?.cta_label ?? firstAngle?.cta ?? 'Join Waitlist');
+  const [audience, setAudience] = useState(landingDraft?.audience ?? sprint?.genome?.icp ?? 'Early teams validating demand before they build');
+  const [offer, setOffer] = useState(landingDraft?.offer ?? sprint?.idea ?? 'A focused validation sprint that turns market interest into a decision');
+  const [proofOne, setProofOne] = useState(landingDraft?.proof?.[0] ?? firstPage?.sections?.[1]?.bullets?.[0] ?? 'Validated through a structured 48-hour market sprint.');
+  const [proofTwo, setProofTwo] = useState(landingDraft?.proof?.[1] ?? firstPage?.sections?.[1]?.bullets?.[1] ?? 'Channel-normalized verdicts remove platform bias.');
+  const [proofThree, setProofThree] = useState(landingDraft?.proof?.[2] ?? firstPage?.sections?.[1]?.bullets?.[2] ?? 'Angle isolation shows which message to build around.');
+  const [testimonial, setTestimonial] = useState(landingDraft?.testimonial ?? firstPage?.sections?.[3]?.quote ?? 'This gives us a decision, not another dashboard.');
+  const [formTitle, setFormTitle] = useState(landingDraft?.formTitle ?? 'Join the validation list');
+  const [formSubtext, setFormSubtext] = useState(landingDraft?.formSubtext ?? 'Get early access when this offer opens.');
   const [deploying, setDeploying] = useState(false);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(firstPage && 'url' in firstPage ? String(firstPage.url) : null);
   const [deployMessage, setDeployMessage] = useState<string | null>(null);
 
-  if (!landing?.pages?.length && !angles.length) {
-    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Landing pages are generated after AngleAgent completes.</p>;
-  }
+  const draft: LandingDraft = {
+    theme,
+    eyebrow,
+    headline,
+    subheadline,
+    cta,
+    audience,
+    offer,
+    proof: [proofOne, proofTwo, proofThree],
+    testimonial,
+    formTitle,
+    formSubtext,
+  };
+
+  useEffect(() => {
+    onLandingDraftChange?.(draft);
+  }, [theme, eyebrow, headline, subheadline, cta, audience, offer, proofOne, proofTwo, proofThree, testimonial, formTitle, formSubtext, onLandingDraftChange]);
 
   const html = buildLandingHtml({
-    title: headline,
-    subtitle: subheadline,
-    cta,
-    bullets: [proofOne, proofTwo, proofThree],
+    ...draft,
     sprintId: sprint?.sprint_id ?? 'preview',
   });
 
@@ -806,7 +848,7 @@ function LandingPanel({ sprint }: { sprint?: SprintRecord | null }) {
       const res = await fetch('/api/lp/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sprint_id: sprint.sprint_id, html }),
+        body: JSON.stringify({ sprint_id: sprint.sprint_id, html, gjsData: { landingDraft: draft } }),
       });
       const text = await res.text();
       const data = text ? JSON.parse(text) as { url?: string; error?: string } : {};
@@ -823,16 +865,39 @@ function LandingPanel({ sprint }: { sprint?: SprintRecord | null }) {
   return (
     <div>
       <SectionTitle>Landing Page</SectionTitle>
+      {!landing?.pages?.length && !angles.length && (
+        <p style={{ color: C.muted, fontSize: '0.875rem', marginBottom: 14 }}>Landing pages are generated after the demo workflow completes.</p>
+      )}
       <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 16 }}>
-        One deployable page is generated from the selected angle only. CampaignAgent stays gated until this URL is saved.
+        Build a polished single-page offer from the winning angle. The canvas node previews this draft before it is deployed.
       </p>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+        <div>
+          <Label>Visual System</Label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {[
+              { id: 'studio', label: 'Studio' },
+              { id: 'editorial', label: 'Editorial' },
+              { id: 'signal', label: 'Signal' },
+            ].map((item) => (
+              <button key={item.id} onClick={() => setTheme(item.id)} style={{ height: 32, border: `1px solid ${theme === item.id ? C.ink : C.border}`, borderRadius: 9, background: theme === item.id ? C.ink : C.canvas, color: theme === item.id ? '#FFF' : C.muted, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800 }}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <LandingInput label="Eyebrow" value={eyebrow} onChange={setEyebrow} />
         <LandingInput label="Hero Headline" value={headline} onChange={setHeadline} />
         <LandingInput label="Subheadline" value={subheadline} onChange={setSubheadline} multiline />
         <LandingInput label="CTA" value={cta} onChange={setCta} />
+        <LandingInput label="Audience" value={audience} onChange={setAudience} multiline />
+        <LandingInput label="Offer Mechanism" value={offer} onChange={setOffer} multiline />
         <LandingInput label="Proof 1" value={proofOne} onChange={setProofOne} />
         <LandingInput label="Proof 2" value={proofTwo} onChange={setProofTwo} />
         <LandingInput label="Proof 3" value={proofThree} onChange={setProofThree} />
+        <LandingInput label="Testimonial / Signal Quote" value={testimonial} onChange={setTestimonial} multiline />
+        <LandingInput label="Form Title" value={formTitle} onChange={setFormTitle} />
+        <LandingInput label="Form Subtext" value={formSubtext} onChange={setFormSubtext} multiline />
         <button onClick={handleDeploy} disabled={deploying} style={{ height: 38, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontWeight: 800, cursor: deploying ? 'default' : 'pointer', opacity: deploying ? 0.7 : 1 }}>
           {deploying ? 'Deploying' : deployedUrl ? 'Redeploy Landing Page' : 'Deploy Landing Page'}
         </button>
@@ -863,9 +928,24 @@ function LandingInput({ label, value, onChange, multiline = false }: { label: st
   );
 }
 
-function buildLandingHtml({ title, subtitle, cta, bullets, sprintId }: { title: string; subtitle: string; cta: string; bullets: string[]; sprintId: string }) {
+function buildLandingHtml({
+  theme,
+  eyebrow,
+  headline,
+  subheadline,
+  cta,
+  audience,
+  offer,
+  proof,
+  testimonial,
+  formTitle,
+  formSubtext,
+  sprintId,
+}: LandingDraft & { sprintId: string }) {
   const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>:root{--canvas:#FAFAF8;--surface:#FFFFFF;--border:#E8E4DC;--ink:#111110;--muted:#8C8880;--faint:#F3F0EB}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,system-ui,-apple-system,sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:72px 24px}.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:800}.hero{display:grid;gap:28px;grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);align-items:center}.card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:24px}.dark{background:var(--ink);color:white}h1{font-size:clamp(42px,7vw,76px);line-height:.95;letter-spacing:-.06em;margin:12px 0 18px}p{color:var(--muted);font-size:17px;line-height:1.7}.cta{display:inline-flex;margin-top:18px;background:var(--ink);color:white;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:800}.proof{display:grid;gap:12px;margin-top:40px;grid-template-columns:repeat(3,1fr)}.proof div{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;font-weight:700}.form{display:flex;gap:8px;margin-top:18px}.form input{flex:1;border:1px solid var(--border);border-radius:12px;padding:13px;background:var(--surface)}.form button{border:0;border-radius:12px;background:var(--ink);color:white;font-weight:800;padding:0 16px}@media(max-width:800px){.hero,.proof{grid-template-columns:1fr}}</style></head><body><main class="wrap"><section class="hero"><div><div class="eyebrow">LaunchLense validation sprint</div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p><a class="cta" href="#signup">${esc(cta)}</a></div><div class="card dark"><div class="eyebrow">Sprint ID</div><h2>${esc(sprintId.slice(0,8))}</h2><p>Built from validated ad angles. UTM attribution is locked at publish time.</p></div></section><section class="proof">${bullets.map((bullet) => `<div>${esc(bullet)}</div>`).join('')}</section><section id="signup" class="card" style="margin-top:40px"><div class="eyebrow">Join the list</div><h2>Get early access</h2><p>Leave your email to register demand for this offer.</p><form class="form"><input placeholder="you@company.com"><button>${esc(cta)}</button></form></section></main></body></html>`;
+  const proofCards = proof.filter(Boolean).map((bullet, index) => `<article class="proof-card"><span>${index + 1}</span><p>${esc(bullet)}</p></article>`).join('');
+  const darkHero = theme === 'editorial';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(headline || 'LaunchLense Landing Page')}</title><meta name="robots" content="noindex,nofollow"><style>:root{--canvas:#FAFAF8;--surface:#FFFFFF;--border:#E8E4DC;--ink:#111110;--muted:#8C8880;--faint:#F3F0EB}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:28px 22px 72px}.nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:36px}.brand{font-weight:900;letter-spacing:-.04em}.badge,.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:900}.hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:28px;align-items:stretch}.panel{border:1px solid var(--border);border-radius:22px;background:var(--surface);padding:28px}.hero-copy{padding:38px;border-radius:24px;border:1px solid ${darkHero ? '#242424' : 'var(--border)'};background:${darkHero ? 'var(--ink)' : 'var(--surface)'};color:${darkHero ? '#FFF' : 'var(--ink)'}}.hero-copy p{color:${darkHero ? '#FFFFFFB3' : 'var(--muted)'}}h1{font-size:clamp(44px,7vw,88px);line-height:.9;letter-spacing:-.075em;margin:12px 0 18px;max-width:900px}p{font-size:17px;line-height:1.65;color:var(--muted)}.cta{display:inline-flex;align-items:center;justify-content:center;margin-top:22px;min-height:48px;padding:0 22px;border-radius:999px;background:${theme === 'signal' ? 'var(--surface)' : 'var(--ink)'};color:${theme === 'signal' ? 'var(--ink)' : '#FFF'};border:1px solid ${theme === 'signal' ? 'var(--border)' : 'var(--ink)'};text-decoration:none;font-weight:900}.signal{display:grid;gap:12px}.metric{background:${theme === 'signal' ? 'var(--ink)' : 'var(--faint)'};color:${theme === 'signal' ? '#FFF' : 'var(--ink)'};border-radius:18px;padding:18px}.metric strong{display:block;font-size:34px;letter-spacing:-.04em}.sections{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}.proof{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:22px}.proof-card{border:1px solid var(--border);border-radius:18px;background:var(--surface);padding:18px}.proof-card span{display:grid;place-items:center;width:26px;height:26px;border-radius:99px;background:var(--ink);color:#FFF;font-size:12px;font-weight:900;margin-bottom:12px}.quote{margin-top:22px;border-radius:22px;background:var(--ink);color:#FFF;padding:26px}.quote p{color:#FFFFFFCC;font-size:20px}.form{display:grid;gap:10px;margin-top:18px}.form input{height:46px;border:1px solid var(--border);border-radius:12px;padding:0 14px;background:var(--surface);font:inherit}.form button{height:46px;border:0;border-radius:12px;background:var(--ink);color:#FFF;font-weight:900;font:inherit}.footer{margin-top:32px;color:var(--muted);font-size:12px}@media(max-width:860px){.hero,.sections,.proof{grid-template-columns:1fr}h1{font-size:48px}}</style></head><body><main class="wrap"><nav class="nav"><div class="brand">${esc(offer.slice(0, 32) || 'LaunchLense')}</div><div class="badge">Sprint ${esc(sprintId.slice(0, 8))}</div></nav><section class="hero"><div class="hero-copy"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(headline)}</h1><p>${esc(subheadline)}</p><a class="cta" href="#signup">${esc(cta)}</a></div><aside class="panel signal"><div class="metric"><span class="badge">Audience</span><strong>${esc(audience.split(' ').slice(0, 5).join(' '))}</strong><p>${esc(audience)}</p></div><div class="metric"><span class="badge">Mechanism</span><p>${esc(offer)}</p></div></aside></section><section class="proof">${proofCards}</section><section class="sections"><div class="quote"><div class="eyebrow">Demand signal</div><p>"${esc(testimonial)}"</p></div><div id="signup" class="panel"><div class="eyebrow">Early access</div><h2>${esc(formTitle)}</h2><p>${esc(formSubtext)}</p><form class="form"><input placeholder="you@company.com" type="email"><button>${esc(cta)}</button></form></div></section><p class="footer">Built with LaunchLense. Pixel and UTM attribution are locked at deploy time.</p></main></body></html>`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1189,6 +1269,8 @@ export function NodePanel({
   onContinueAfterCreatives,
   creativeDraft,
   onCreativeDraftChange,
+  landingDraft,
+  onLandingDraftChange,
   onSprintPatched,
   workflowRunning = false,
   embedded = false,
@@ -1202,7 +1284,7 @@ export function NodePanel({
       case 'healthgate': return <HealthgatePanel sprint={sprint} channel={channel} />;
       case 'angles':     return <AnglesPanel sprint={sprint} onContinue={onContinueAfterAngles} onSprintPatched={onSprintPatched} workflowRunning={workflowRunning} />;
       case 'creative':   return <CreativePreviewPanel sprint={sprint} channel={channel} creativeDraft={creativeDraft} onCreativeDraftChange={onCreativeDraftChange} onSprintPatched={onSprintPatched} onContinue={onContinueAfterCreatives} workflowRunning={workflowRunning} />;
-      case 'landing':    return <LandingPanel sprint={sprint} />;
+      case 'landing':    return <LandingPanel sprint={sprint} landingDraft={landingDraft} onLandingDraftChange={onLandingDraftChange} />;
       case 'campaign':   return <CampaignPanel sprint={sprint} channel={channel} onEditSetup={onEditSetup} onSprintPatched={onSprintPatched} />;
       case 'verdict':    return <VerdictPanel sprint={sprint} />;
       case 'report':     return <ReportPanel sprint={sprint} />;
