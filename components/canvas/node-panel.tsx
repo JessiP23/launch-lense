@@ -26,6 +26,7 @@ export type CreativeDraft = {
 };
 
 export type LandingDraft = {
+  mode: 'builder' | 'code';
   theme: string;
   eyebrow: string;
   headline: string;
@@ -37,6 +38,8 @@ export type LandingDraft = {
   testimonial: string;
   formTitle: string;
   formSubtext: string;
+  customHtml: string;
+  customCss: string;
 };
 
 interface Props {
@@ -800,6 +803,7 @@ function LandingPanel({
   const selectedAngleId = (sprint?.angles as { selected_angle_id?: string } | undefined)?.selected_angle_id;
   const firstAngle = angles.find((angle) => angle.id === selectedAngleId) ?? angles[0];
   const firstPage = landing?.pages?.[0];
+  const [mode, setMode] = useState<LandingDraft['mode']>(landingDraft?.mode ?? 'builder');
   const [theme, setTheme] = useState(landingDraft?.theme ?? 'studio');
   const [eyebrow, setEyebrow] = useState(landingDraft?.eyebrow ?? 'LaunchLense validation sprint');
   const [headline, setHeadline] = useState(landingDraft?.headline ?? firstPage?.sections?.[0]?.headline ?? firstAngle?.copy.meta.headline ?? '');
@@ -813,11 +817,14 @@ function LandingPanel({
   const [testimonial, setTestimonial] = useState(landingDraft?.testimonial ?? firstPage?.sections?.[3]?.quote ?? 'This gives us a decision, not another dashboard.');
   const [formTitle, setFormTitle] = useState(landingDraft?.formTitle ?? 'Join the validation list');
   const [formSubtext, setFormSubtext] = useState(landingDraft?.formSubtext ?? 'Get early access when this offer opens.');
+  const [customHtml, setCustomHtml] = useState(landingDraft?.customHtml ?? '');
+  const [customCss, setCustomCss] = useState(landingDraft?.customCss ?? '');
   const [deploying, setDeploying] = useState(false);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(firstPage && 'url' in firstPage ? String(firstPage.url) : null);
   const [deployMessage, setDeployMessage] = useState<string | null>(null);
 
   const draft: LandingDraft = {
+    mode,
     theme,
     eyebrow,
     headline,
@@ -829,11 +836,13 @@ function LandingPanel({
     testimonial,
     formTitle,
     formSubtext,
+    customHtml,
+    customCss,
   };
 
   useEffect(() => {
     onLandingDraftChange?.(draft);
-  }, [theme, eyebrow, headline, subheadline, cta, audience, offer, proofOne, proofTwo, proofThree, testimonial, formTitle, formSubtext, onLandingDraftChange]);
+  }, [mode, theme, eyebrow, headline, subheadline, cta, audience, offer, proofOne, proofTwo, proofThree, testimonial, formTitle, formSubtext, customHtml, customCss, onLandingDraftChange]);
 
   const html = buildLandingHtml({
     ...draft,
@@ -871,56 +880,83 @@ function LandingPanel({
       <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 16 }}>
         Build a polished single-page offer from the winning angle. The canvas node previews this draft before it is deployed.
       </p>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-        <div>
-          <Label>Visual System</Label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-            {[
-              { id: 'studio', label: 'Studio' },
-              { id: 'editorial', label: 'Editorial' },
-              { id: 'signal', label: 'Signal' },
-            ].map((item) => (
-              <button key={item.id} onClick={() => setTheme(item.id)} style={{ height: 32, border: `1px solid ${theme === item.id ? C.ink : C.border}`, borderRadius: 9, background: theme === item.id ? C.ink : C.canvas, color: theme === item.id ? '#FFF' : C.muted, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800 }}>
-                {item.label}
-              </button>
-            ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.92fr) minmax(340px, 1.08fr)', gap: 14, alignItems: 'start' }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <Label>Editor Mode</Label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {[
+                { id: 'builder', label: 'Builder' },
+                { id: 'code', label: 'HTML/CSS' },
+              ].map((item) => (
+                <button key={item.id} onClick={() => setMode(item.id as LandingDraft['mode'])} style={{ height: 32, border: `1px solid ${mode === item.id ? C.ink : C.border}`, borderRadius: 9, background: mode === item.id ? C.ink : C.canvas, color: mode === item.id ? '#FFF' : C.muted, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800 }}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
+          {mode === 'builder' ? (
+            <>
+              <div>
+                <Label>Visual System</Label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                  {[
+                    { id: 'studio', label: 'Studio' },
+                    { id: 'editorial', label: 'Editorial' },
+                    { id: 'signal', label: 'Signal' },
+                  ].map((item) => (
+                    <button key={item.id} onClick={() => setTheme(item.id)} style={{ height: 32, border: `1px solid ${theme === item.id ? C.ink : C.border}`, borderRadius: 9, background: theme === item.id ? C.ink : C.canvas, color: theme === item.id ? '#FFF' : C.muted, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800 }}>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <LandingInput label="Eyebrow" value={eyebrow} onChange={setEyebrow} />
+              <LandingInput label="Hero Headline" value={headline} onChange={setHeadline} />
+              <LandingInput label="Subheadline" value={subheadline} onChange={setSubheadline} multiline />
+              <LandingInput label="CTA" value={cta} onChange={setCta} />
+              <LandingInput label="Audience" value={audience} onChange={setAudience} multiline />
+              <LandingInput label="Offer Mechanism" value={offer} onChange={setOffer} multiline />
+              <LandingInput label="Proof 1" value={proofOne} onChange={setProofOne} />
+              <LandingInput label="Proof 2" value={proofTwo} onChange={setProofTwo} />
+              <LandingInput label="Proof 3" value={proofThree} onChange={setProofThree} />
+              <LandingInput label="Testimonial / Signal Quote" value={testimonial} onChange={setTestimonial} multiline />
+              <LandingInput label="Form Title" value={formTitle} onChange={setFormTitle} />
+              <LandingInput label="Form Subtext" value={formSubtext} onChange={setFormSubtext} multiline />
+            </>
+          ) : (
+            <>
+              <LandingInput label="Custom HTML Body" value={customHtml} onChange={setCustomHtml} multiline rows={10} />
+              <LandingInput label="Custom CSS" value={customCss} onChange={setCustomCss} multiline rows={10} />
+              <p style={{ margin: 0, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
+                Paste body HTML and CSS only. LaunchLense wraps it in a fast single-file page for deploy.
+              </p>
+            </>
+          )}
+          <button onClick={handleDeploy} disabled={deploying} style={{ height: 38, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontWeight: 800, cursor: deploying ? 'default' : 'pointer', opacity: deploying ? 0.7 : 1 }}>
+            {deploying ? 'Deploying' : deployedUrl ? 'Redeploy Landing Page' : 'Deploy Landing Page'}
+          </button>
+          {deployedUrl && <a href={deployedUrl} target="_blank" rel="noreferrer" style={{ color: C.ink, fontSize: '0.8125rem', fontWeight: 700 }}>{deployedUrl}</a>}
+          {deployMessage && <p style={{ margin: 0, color: deployMessage.startsWith('Landing') ? C.go : C.stop, fontSize: '0.75rem' }}>{deployMessage}</p>}
         </div>
-        <LandingInput label="Eyebrow" value={eyebrow} onChange={setEyebrow} />
-        <LandingInput label="Hero Headline" value={headline} onChange={setHeadline} />
-        <LandingInput label="Subheadline" value={subheadline} onChange={setSubheadline} multiline />
-        <LandingInput label="CTA" value={cta} onChange={setCta} />
-        <LandingInput label="Audience" value={audience} onChange={setAudience} multiline />
-        <LandingInput label="Offer Mechanism" value={offer} onChange={setOffer} multiline />
-        <LandingInput label="Proof 1" value={proofOne} onChange={setProofOne} />
-        <LandingInput label="Proof 2" value={proofTwo} onChange={setProofTwo} />
-        <LandingInput label="Proof 3" value={proofThree} onChange={setProofThree} />
-        <LandingInput label="Testimonial / Signal Quote" value={testimonial} onChange={setTestimonial} multiline />
-        <LandingInput label="Form Title" value={formTitle} onChange={setFormTitle} />
-        <LandingInput label="Form Subtext" value={formSubtext} onChange={setFormSubtext} multiline />
-        <button onClick={handleDeploy} disabled={deploying} style={{ height: 38, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontWeight: 800, cursor: deploying ? 'default' : 'pointer', opacity: deploying ? 0.7 : 1 }}>
-          {deploying ? 'Deploying' : deployedUrl ? 'Redeploy Landing Page' : 'Deploy Landing Page'}
-        </button>
-        {deployedUrl && <a href={deployedUrl} target="_blank" rel="noreferrer" style={{ color: C.ink, fontSize: '0.8125rem', fontWeight: 700 }}>{deployedUrl}</a>}
-        {deployMessage && <p style={{ margin: 0, color: deployMessage.startsWith('Landing') ? C.go : C.stop, fontSize: '0.75rem' }}>{deployMessage}</p>}
-      </div>
-      <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', background: '#FFF' }}>
-        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '0.6875rem', color: C.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Live Preview</span>
-          <span style={{ fontSize: '0.6875rem', color: C.muted }}>Desktop</span>
+        <div style={{ position: 'sticky', top: 0, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', background: '#FFF' }}>
+          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.6875rem', color: C.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Live Preview</span>
+            <span style={{ fontSize: '0.6875rem', color: C.muted }}>{mode === 'code' ? 'Custom HTML/CSS' : 'Builder'}</span>
+          </div>
+          <iframe title="Landing page preview" srcDoc={html} style={{ width: '100%', height: 640, border: 0, display: 'block' }} />
         </div>
-        <iframe title="Landing page preview" srcDoc={html} style={{ width: '100%', height: 420, border: 0, display: 'block' }} />
       </div>
     </div>
   );
 }
 
-function LandingInput({ label, value, onChange, multiline = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean }) {
+function LandingInput({ label, value, onChange, multiline = false, rows = 3 }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; rows?: number }) {
   return (
     <div>
       <Label>{label}</Label>
       {multiline ? (
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={3} style={{ width: '100%', boxSizing: 'border-box', resize: 'none', border: `1px solid ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }} />
+        <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', border: `1px solid ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none', fontFamily: rows > 4 ? 'monospace' : 'inherit' }} />
       ) : (
         <input value={value} onChange={(event) => onChange(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }} />
       )}
@@ -929,6 +965,7 @@ function LandingInput({ label, value, onChange, multiline = false }: { label: st
 }
 
 function buildLandingHtml({
+  mode,
   theme,
   eyebrow,
   headline,
@@ -940,9 +977,15 @@ function buildLandingHtml({
   testimonial,
   formTitle,
   formSubtext,
+  customHtml,
+  customCss,
   sprintId,
 }: LandingDraft & { sprintId: string }) {
   const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  if (mode === 'code') {
+    const fallback = `<main style="max-width:960px;margin:0 auto;padding:72px 24px"><p style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#8C8880;font-weight:800">Custom landing page</p><h1 style="font-size:64px;line-height:.95;letter-spacing:-.06em">${esc(headline || 'Paste custom HTML')}</h1><p style="color:#8C8880;font-size:18px;line-height:1.7">${esc(subheadline || 'Use the HTML/CSS editor to create a custom page.')}</p></main>`;
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(headline || 'LaunchLense Landing Page')}</title><meta name="robots" content="noindex,nofollow"><style>:root{--canvas:#FAFAF8;--surface:#FFFFFF;--border:#E8E4DC;--ink:#111110;--muted:#8C8880;--faint:#F3F0EB}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}${customCss}</style></head><body>${customHtml || fallback}</body></html>`;
+  }
   const proofCards = proof.filter(Boolean).map((bullet, index) => `<article class="proof-card"><span>${index + 1}</span><p>${esc(bullet)}</p></article>`).join('');
   const darkHero = theme === 'editorial';
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(headline || 'LaunchLense Landing Page')}</title><meta name="robots" content="noindex,nofollow"><style>:root{--canvas:#FAFAF8;--surface:#FFFFFF;--border:#E8E4DC;--ink:#111110;--muted:#8C8880;--faint:#F3F0EB}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:28px 22px 72px}.nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:36px}.brand{font-weight:900;letter-spacing:-.04em}.badge,.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:900}.hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:28px;align-items:stretch}.panel{border:1px solid var(--border);border-radius:22px;background:var(--surface);padding:28px}.hero-copy{padding:38px;border-radius:24px;border:1px solid ${darkHero ? '#242424' : 'var(--border)'};background:${darkHero ? 'var(--ink)' : 'var(--surface)'};color:${darkHero ? '#FFF' : 'var(--ink)'}}.hero-copy p{color:${darkHero ? '#FFFFFFB3' : 'var(--muted)'}}h1{font-size:clamp(44px,7vw,88px);line-height:.9;letter-spacing:-.075em;margin:12px 0 18px;max-width:900px}p{font-size:17px;line-height:1.65;color:var(--muted)}.cta{display:inline-flex;align-items:center;justify-content:center;margin-top:22px;min-height:48px;padding:0 22px;border-radius:999px;background:${theme === 'signal' ? 'var(--surface)' : 'var(--ink)'};color:${theme === 'signal' ? 'var(--ink)' : '#FFF'};border:1px solid ${theme === 'signal' ? 'var(--border)' : 'var(--ink)'};text-decoration:none;font-weight:900}.signal{display:grid;gap:12px}.metric{background:${theme === 'signal' ? 'var(--ink)' : 'var(--faint)'};color:${theme === 'signal' ? '#FFF' : 'var(--ink)'};border-radius:18px;padding:18px}.metric strong{display:block;font-size:34px;letter-spacing:-.04em}.sections{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}.proof{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:22px}.proof-card{border:1px solid var(--border);border-radius:18px;background:var(--surface);padding:18px}.proof-card span{display:grid;place-items:center;width:26px;height:26px;border-radius:99px;background:var(--ink);color:#FFF;font-size:12px;font-weight:900;margin-bottom:12px}.quote{margin-top:22px;border-radius:22px;background:var(--ink);color:#FFF;padding:26px}.quote p{color:#FFFFFFCC;font-size:20px}.form{display:grid;gap:10px;margin-top:18px}.form input{height:46px;border:1px solid var(--border);border-radius:12px;padding:0 14px;background:var(--surface);font:inherit}.form button{height:46px;border:0;border-radius:12px;background:var(--ink);color:#FFF;font-weight:900;font:inherit}.footer{margin-top:32px;color:var(--muted);font-size:12px}@media(max-width:860px){.hero,.sections,.proof{grid-template-columns:1fr}h1{font-size:48px}}</style></head><body><main class="wrap"><nav class="nav"><div class="brand">${esc(offer.slice(0, 32) || 'LaunchLense')}</div><div class="badge">Sprint ${esc(sprintId.slice(0, 8))}</div></nav><section class="hero"><div class="hero-copy"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(headline)}</h1><p>${esc(subheadline)}</p><a class="cta" href="#signup">${esc(cta)}</a></div><aside class="panel signal"><div class="metric"><span class="badge">Audience</span><strong>${esc(audience.split(' ').slice(0, 5).join(' '))}</strong><p>${esc(audience)}</p></div><div class="metric"><span class="badge">Mechanism</span><p>${esc(offer)}</p></div></aside></section><section class="proof">${proofCards}</section><section class="sections"><div class="quote"><div class="eyebrow">Demand signal</div><p>"${esc(testimonial)}"</p></div><div id="signup" class="panel"><div class="eyebrow">Early access</div><h2>${esc(formTitle)}</h2><p>${esc(formSubtext)}</p><form class="form"><input placeholder="you@company.com" type="email"><button>${esc(cta)}</button></form></div></section><p class="footer">Built with LaunchLense. Pixel and UTM attribution are locked at deploy time.</p></main></body></html>`;
@@ -1276,6 +1319,7 @@ export function NodePanel({
   embedded = false,
 }: Props) {
   if (!panel) return null;
+  const panelWidth = panel === 'landing' ? 820 : 380;
 
   const content = () => {
     switch (panel) {
@@ -1307,7 +1351,7 @@ export function NodePanel({
           top: embedded ? 'auto' : 48,
           right: embedded ? 'auto' : 0,
           bottom: embedded ? 'auto' : 0,
-          width: 380,
+          width: panelWidth,
           maxHeight: embedded ? 'calc(100vh - 88px)' : undefined,
           background: C.canvas,
           border: embedded ? `1px solid ${C.border}` : undefined,

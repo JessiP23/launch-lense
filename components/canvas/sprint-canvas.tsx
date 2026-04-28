@@ -84,6 +84,7 @@ type CreativeDraft = {
 };
 type CreativeDrafts = Partial<Record<Platform, CreativeDraft>>;
 type LandingDraft = {
+  mode: 'builder' | 'code';
   theme: string;
   eyebrow: string;
   headline: string;
@@ -95,6 +96,8 @@ type LandingDraft = {
   testimonial: string;
   formTitle: string;
   formSubtext: string;
+  customHtml: string;
+  customCss: string;
 };
 
 // ── Sprint state → node/edge stage mapping ───────────────────────────────────
@@ -326,6 +329,7 @@ function landingDraftFor(sprint: SprintRecord | null, draft?: LandingDraft | nul
   return {
     pageCount: sprint?.landing?.pages?.length,
     url: firstPage?.url ?? null,
+    mode: draft?.mode ?? 'builder',
     theme: draft?.theme ?? 'studio',
     eyebrow: draft?.eyebrow ?? 'LaunchLense validation sprint',
     headline: draft?.headline ?? hero?.headline ?? selectedAngle?.copy.meta.headline,
