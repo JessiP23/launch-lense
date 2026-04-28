@@ -45,11 +45,11 @@ function ConnectPageContent() {
         .catch(console.error)
         .finally(() => {
           setStatus('success');
-          setTimeout(() => router.push('/accounts'), 2000);
+          setTimeout(() => router.push('/?panel=accounts'), 2000);
         });
     } else {
-      // No OAuth params — go straight back to accounts
-      router.replace('/accounts');
+      // No OAuth params — go to canvas with accounts panel open
+      router.replace('/?panel=accounts');
     }
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
