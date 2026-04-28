@@ -30,7 +30,7 @@ export function LandingGenome() {
             </ul>
             <div className="mt-8">
               <Link
-                href="/tests/new"
+                href="/canvas?new=1"
                 className="inline-flex h-12 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-canvas)] px-7 text-[15px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-border-2)]"
               >
                 Run Genome →

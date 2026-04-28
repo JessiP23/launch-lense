@@ -4,28 +4,64 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
-// Deploy landing page from GrapesJS JSON
-// POST /api/lp/deploy { test_id, html, gjsData }
+// Deploy landing page from editor HTML
+// POST /api/lp/deploy { test_id | sprint_id, html, gjsData }
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { test_id, html, gjsData } = body as {
-      test_id: string;
+    const { test_id, sprint_id, html, gjsData } = body as {
+      test_id?: string;
+      sprint_id?: string;
       html?: string;
       gjsData?: Record<string, unknown>;
     };
+    const recordId = sprint_id ?? test_id;
 
-    if (!test_id) {
-      return Response.json({ error: 'test_id required' }, { status: 400 });
+    if (!recordId) {
+      return Response.json({ error: 'test_id or sprint_id required' }, { status: 400 });
     }
 
     const supabase = createServiceClient();
 
-    // Fetch the test to verify it exists
+    if (sprint_id) {
+      const { data: sprint, error: sprintError } = await supabase
+        .from('sprints')
+        .select('id, idea, landing, angles')
+        .eq('id', sprint_id)
+        .single();
+
+      if (sprintError || !sprint) {
+        return Response.json({ error: 'Sprint not found' }, { status: 404 });
+      }
+
+      const fullHtml = generateLPHtml(html || '', sprint.idea || 'LaunchLense Sprint', sprint_id);
+      const lpUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/lp/${sprint_id}`;
+      const landing = sprint.landing as { pages?: Array<Record<string, unknown>> } | null;
+      const angles = sprint.angles as { selected_angle_id?: string } | null;
+      const selectedAngleId = angles?.selected_angle_id ?? 'angle_A';
+      const existingPage = landing?.pages?.find((page) => page.angle_id === selectedAngleId) ?? landing?.pages?.[0] ?? {};
+      const pages = [{ ...existingPage, angle_id: selectedAngleId, html: fullHtml, url: lpUrl, deployed_at: new Date().toISOString() }];
+
+      const { error: updateError } = await supabase
+        .from('sprints')
+        .update({
+          landing: { ...(landing ?? {}), pages },
+          state: 'LANDING_DONE',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', sprint_id);
+
+      if (updateError) {
+        return Response.json({ error: updateError.message }, { status: 500 });
+      }
+
+      return Response.json({ success: true, url: lpUrl, sprint_id });
+    }
+
     const { data: test, error: testError } = await supabase
       .from('tests')
       .select('id, org_id, name')
-      .eq('id', test_id)
+      .eq('id', recordId)
       .single();
 
     if (testError || !test) {
@@ -33,10 +69,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate full HTML page from GrapesJS output
-    const fullHtml = generateLPHtml(html || '', test.name);
+    const fullHtml = generateLPHtml(html || '', test.name, recordId);
 
     // Upload to Supabase Storage
-    const fileName = `lp/${test_id}/index.html`;
+    const fileName = `lp/${recordId}/index.html`;
     let lpUrl: string | null = null;
 
     try {
@@ -63,7 +99,7 @@ export async function POST(request: NextRequest) {
 
     // Fallback: use app URL as LP endpoint
     if (!lpUrl) {
-      lpUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://launchlense.app'}/lp/${test_id}`;
+      lpUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://launchlense.app'}/lp/${recordId}`;
     }
 
     // Update test record with LP data
@@ -75,7 +111,7 @@ export async function POST(request: NextRequest) {
         lp_json: gjsData || { html: fullHtml },
         lp_html: fullHtml,
       })
-      .eq('id', test_id);
+      .eq('id', recordId);
 
     if (updateError) {
       // lp_html column may not exist — retry without it, store HTML inside lp_json
@@ -85,7 +121,7 @@ export async function POST(request: NextRequest) {
           lp_url: lpUrl,
           lp_json: gjsData || { html: fullHtml },
         })
-        .eq('id', test_id);
+        .eq('id', recordId);
 
       if (retryError) {
         console.error('[lp/deploy] DB update failed:', retryError.message);
@@ -94,7 +130,7 @@ export async function POST(request: NextRequest) {
 
     // Insert annotation
     await supabase.from('annotations').insert({
-      test_id,
+      test_id: recordId,
       author: 'system',
       message: `Landing page deployed: ${lpUrl}`,
     });
@@ -102,7 +138,7 @@ export async function POST(request: NextRequest) {
     return Response.json({
       success: true,
       url: lpUrl,
-      test_id,
+      test_id: recordId,
     });
   } catch (error) {
     console.error('[lp/deploy] Error:', error);
@@ -116,7 +152,7 @@ export async function POST(request: NextRequest) {
 /**
  * Generate a complete HTML page from GrapesJS body content
  */
-function generateLPHtml(bodyHtml: string, testName: string): string {
+function generateLPHtml(bodyHtml: string, testName: string, recordId: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -152,7 +188,7 @@ function generateLPHtml(bodyHtml: string, testName: string): string {
   <!-- LaunchLense tracking pixel -->
   <script>
     (function() {
-      var testId = '${test_id_placeholder(testName)}';
+      var testId = '${recordId}';
       fetch('/api/lp/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,7 +213,3 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function test_id_placeholder(name: string): string {
-  // This will be replaced by actual test_id at deploy time
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 32);
-}

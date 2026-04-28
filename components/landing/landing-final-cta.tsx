@@ -22,7 +22,7 @@ export function LandingFinalCta() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href="/accounts/connect"
+              href="/canvas?panel=accounts"
               className="inline-flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] px-7 text-[15px] font-semibold text-white transition-colors hover:bg-[#2a2a28]"
             >
               Start validating

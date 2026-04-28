@@ -13,6 +13,7 @@ import {
   renderToStream,
   Font,
 } from '@react-pdf/renderer';
+import type { SprintRecord } from '@/lib/agents/types';
 
 // Register Geist-like font (fallback to Helvetica for reliability)
 Font.register({
@@ -192,6 +193,93 @@ interface Benchmark {
   avg_ctr: number;
   avg_cvr: number;
   avg_cpa_cents: number;
+}
+
+type DbSprintRecord = SprintRecord & { id?: string };
+
+function SprintVerdictPDF({ sprint }: { sprint: SprintRecord }) {
+  const verdict = sprint.verdict;
+  const metrics = verdict?.aggregate_metrics;
+  const verdictLabel = verdict?.verdict ?? 'PENDING';
+  const verdictColor =
+    verdictLabel === 'GO' ? colors.success : verdictLabel === 'NO-GO' ? colors.danger : colors.warning;
+
+  return React.createElement(
+    Document,
+    null,
+    React.createElement(
+      Page,
+      { size: 'A4', style: styles.page },
+      React.createElement(
+        View,
+        { style: styles.header },
+        React.createElement(
+          View,
+          null,
+          React.createElement(Text, { style: styles.logo }, 'LaunchLense'),
+          React.createElement(Text, { style: styles.logoSub }, `Sprint ${sprint.sprint_id.slice(0, 8)}`)
+        ),
+        React.createElement(
+          Text,
+          { style: [styles.verdictBadge, { backgroundColor: verdictColor, color: colors.bg }] },
+          verdictLabel
+        )
+      ),
+      React.createElement(
+        View,
+        { style: styles.section },
+        React.createElement(Text, { style: styles.sectionTitle }, 'Executive Summary'),
+        React.createElement(Text, { style: { fontSize: 12, lineHeight: 1.5, marginBottom: 8 } }, sprint.idea),
+        React.createElement(
+          Text,
+          { style: { color: colors.muted, lineHeight: 1.5 } },
+          verdict?.reasoning ?? sprint.blocked_reason ?? 'Sprint is still in progress. Complete the canvas workflow to generate the final verdict.'
+        )
+      ),
+      React.createElement(
+        View,
+        { style: styles.kpiGrid },
+        React.createElement(
+          View,
+          { style: styles.kpiCard },
+          React.createElement(Text, { style: styles.kpiLabel }, 'Spend'),
+          React.createElement(Text, { style: styles.kpiValue }, `$${((metrics?.total_spend_cents ?? 0) / 100).toFixed(0)}`)
+        ),
+        React.createElement(
+          View,
+          { style: styles.kpiCard },
+          React.createElement(Text, { style: styles.kpiLabel }, 'Clicks'),
+          React.createElement(Text, { style: styles.kpiValue }, String(metrics?.total_clicks ?? 0))
+        ),
+        React.createElement(
+          View,
+          { style: styles.kpiCard },
+          React.createElement(Text, { style: styles.kpiLabel }, 'Weighted CTR'),
+          React.createElement(Text, { style: styles.kpiValue }, `${(((metrics?.weighted_blended_ctr ?? 0) * 100)).toFixed(2)}%`)
+        )
+      ),
+      React.createElement(
+        View,
+        { style: styles.section },
+        React.createElement(Text, { style: styles.sectionTitle }, 'Channel Verdicts'),
+        ...(verdict?.per_channel ?? []).map((channel) =>
+          React.createElement(
+            View,
+            { key: channel.channel, style: styles.verdictRow },
+            React.createElement(Text, { style: styles.rowLabel }, channel.channel.toUpperCase()),
+            React.createElement(Text, { style: [styles.rowValue, { color: channel.verdict === 'GO' ? colors.success : channel.verdict === 'NO-GO' ? colors.danger : colors.warning }] }, `${channel.verdict} · ${(channel.blended_ctr * 100).toFixed(2)}% CTR`)
+          )
+        )
+      ),
+      React.createElement(
+        View,
+        { style: styles.section },
+        React.createElement(Text, { style: styles.sectionTitle }, 'Genome'),
+        React.createElement(Text, { style: styles.rowLabel }, `Signal: ${sprint.genome?.signal ?? 'Not run'} · Composite: ${sprint.genome?.composite ?? 0}/100`),
+        React.createElement(Text, { style: { color: colors.muted, marginTop: 6, lineHeight: 1.5 } }, sprint.genome?.proceed_note ?? sprint.genome?.pivot_brief ?? 'No Genome notes available.')
+      )
+    )
+  );
 }
 
 function VerdictPDF({
@@ -426,10 +514,6 @@ export async function GET(
   try {
     const { test_id } = await params;
 
-    let test: TestData;
-    let metrics: EventMetrics;
-    let benchmark: Benchmark;
-
     // Fetch from Supabase
     const supabase = createServiceClient();
 
@@ -440,10 +524,43 @@ export async function GET(
       .single();
 
     if (testError || !testData) {
-      return Response.json({ error: 'Test not found' }, { status: 404 });
+      const { data: sprintData } = await supabase
+        .from('sprints')
+        .select('*')
+        .eq('id', test_id)
+        .single();
+
+      if (!sprintData) {
+        return Response.json({ error: 'Report not found' }, { status: 404 });
+      }
+
+      const rawSprint = sprintData as DbSprintRecord;
+      const sprint: SprintRecord = {
+        ...rawSprint,
+        sprint_id: rawSprint.sprint_id ?? rawSprint.id ?? test_id,
+      };
+      const doc = SprintVerdictPDF({ sprint });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stream = await renderToStream(doc as any);
+
+      const webStream = new ReadableStream({
+        start(controller) {
+          stream.on('data', (chunk: Buffer) => controller.enqueue(chunk));
+          stream.on('end', () => controller.close());
+          stream.on('error', (err: Error) => controller.error(err));
+        },
+      });
+
+      return new Response(webStream, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `inline; filename="launchlense-sprint-${test_id}.pdf"`,
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
     }
 
-    test = testData as TestData;
+    const test = testData as TestData;
 
     // Aggregate metrics from events
     const { data: events } = await supabase
@@ -452,7 +569,7 @@ export async function GET(
       .eq('test_id', test_id)
       .eq('type', 'metrics');
 
-    metrics = (events || []).reduce<EventMetrics>(
+    const metrics = (events || []).reduce<EventMetrics>(
       (acc, e) => {
         const p = e.payload as Record<string, number>;
         return {
@@ -473,7 +590,7 @@ export async function GET(
       .eq('vertical', test.vertical || 'saas')
       .single();
 
-    benchmark = bench || { avg_ctr: 0.012, avg_cvr: 0.025, avg_cpa_cents: 4500 };
+    const benchmark = bench || { avg_ctr: 0.012, avg_cvr: 0.025, avg_cpa_cents: 4500 };
 
     // Render PDF
     const doc = VerdictPDF({ test, metrics, benchmark });

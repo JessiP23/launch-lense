@@ -67,7 +67,7 @@ export function LandingHero() {
 
           <motion.div variants={heroItem} className="mt-8 flex flex-wrap gap-3">
             <Link
-              href="/accounts/connect"
+              href="/canvas"
               className="inline-flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] px-7 text-[15px] font-semibold text-white transition-colors duration-150 hover:bg-[#2a2a28]"
             >
               Start validating

@@ -119,14 +119,14 @@ export function LandingNavbar() {
               </div>
               <div className="mt-auto flex flex-col gap-3 border-t border-[var(--color-border)] pt-6">
                 <Link
-                  href="/accounts/connect"
+                  href="/canvas?panel=accounts"
                   className="rounded-lg px-4 py-3 text-[16px] text-[var(--color-muted)]"
                   onClick={() => setMobileOpen(false)}
                 >
                   Sign in
                 </Link>
                 <Link
-                  href="/accounts/connect"
+                  href="/canvas?new=1"
                   className="flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] text-[15px] font-semibold text-white"
                   onClick={() => setMobileOpen(false)}
                 >

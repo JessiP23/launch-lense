@@ -88,7 +88,7 @@ export function LandingHealthgateBlock() {
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <Link
-              href="/accounts/connect"
+              href="/canvas?panel=accounts"
               className="inline-flex h-11 items-center justify-center rounded-full bg-white px-6 text-[14px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-raised)]"
             >
               Check your account
