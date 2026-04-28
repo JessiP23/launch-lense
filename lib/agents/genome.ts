@@ -32,6 +32,46 @@ function signalFromComposite(composite: number): GenomeAgentOutput['signal'] {
   return 'STOP';
 }
 
+type RawGenomeResponse = {
+  scores: GenomeScores;
+  icp: string;
+  problem_statement: string;
+  solution_wedge: string;
+  market_category: string;
+  unique_mechanism: string;
+  risks: string[];
+  pivot_brief: string | null;
+  proceed_note: string | null;
+  research_sources: string[];
+};
+
+function fallbackGenomeResponse(idea: string, hasReal: boolean): RawGenomeResponse {
+  return {
+    scores: {
+      demand: hasReal ? 62 : 52,
+      competition: hasReal ? 58 : 50,
+      icp: 64,
+      timing: 60,
+      moat: 46,
+    },
+    icp: 'Founder or growth lead with a time-sensitive need to validate demand before committing engineering budget.',
+    problem_statement: `Teams are trying to determine whether "${idea.slice(0, 120)}" has enough market pull before they build.`,
+    solution_wedge: 'Run a constrained validation sprint that turns early market interest into channel-specific evidence.',
+    market_category: 'Startup validation and demand testing',
+    unique_mechanism: 'Combines market pre-screening, account health checks, channel-specific ads, and normalized verdict math in one stateful workflow.',
+    risks: [
+      hasReal
+        ? 'Live research was partially available, but the scoring model fallback was used; treat this as a directional signal until the LLM provider is healthy.'
+        : 'Live research and LLM scoring were unavailable; this fallback is directional and should be rerun before committing spend.',
+      'ICP needs to stay narrow enough for ad targeting; broad founder audiences can make CTR data hard to interpret.',
+      'Moat is not proven by ad interest alone; a GO signal still needs product-level defensibility validation.',
+    ],
+    pivot_brief: null,
+    proceed_note: 'Watch whether at least two angles beat channel-normalized CTR thresholds; one winning angle is not enough to justify a full build.',
+    research_sources: hasReal ? ['market research hooks', 'fallback scoring'] : ['fallback scoring'],
+  };
+}
+
 // ── System prompt ──────────────────────────────────────────────────────────
 const GENOME_SYSTEM = `You are GenomeAgent inside LaunchLense — a ruthless market pre-screener.
 Your job: score a startup idea across 5 axes using REAL data provided to you.
@@ -109,21 +149,16 @@ Return ONLY this JSON:
   "research_sources": ["<source 1>", "<source 2>"]
 }`;
 
-  const raw = await callGroqJSON<{
-    scores: GenomeScores;
-    icp: string;
-    problem_statement: string;
-    solution_wedge: string;
-    market_category: string;
-    unique_mechanism: string;
-    risks: string[];
-    pivot_brief: string | null;
-    proceed_note: string | null;
-    research_sources: string[];
-  }>(
-    [{ role: 'system', content: GENOME_SYSTEM }, { role: 'user', content: userPrompt }],
-    { temperature: 0.2, max_tokens: 1200 }
-  );
+  let raw: RawGenomeResponse;
+  try {
+    raw = await callGroqJSON<RawGenomeResponse>(
+      [{ role: 'system', content: GENOME_SYSTEM }, { role: 'user', content: userPrompt }],
+      { temperature: 0.2, max_tokens: 1200 }
+    );
+  } catch (err) {
+    console.warn('[GenomeAgent] Falling back to deterministic scoring:', err);
+    raw = fallbackGenomeResponse(idea, hasReal);
+  }
 
   // 2. Clamp + validate scores
   const clamp = (v: unknown, min = 0, max = 100) =>

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   ReactFlow, useNodesState, useEdgesState, Background, BackgroundVariant,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler,
-  ReactFlowProvider,
+  ReactFlowProvider, Panel,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -13,10 +13,10 @@ import { NodePanel, type PanelId } from './node-panel';
 import { PipelineEdge, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
-  CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
+  LandingNode, CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
 } from './canvas-nodes';
 import { useAppStore } from '@/lib/store';
-import type { SprintRecord, SprintState } from '@/lib/agents/types';
+import type { Platform, SprintRecord, SprintState } from '@/lib/agents/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
@@ -26,6 +26,7 @@ const nodeTypes: NodeTypes = {
   genome:     GenomeNode,
   healthgate: HealthgateNode,
   angles:     AnglesNode,
+  landing:    LandingNode,
   campaign:   CampaignNode,
   verdict:    VerdictNode,
   report:     ReportNode,
@@ -36,7 +37,7 @@ const nodeTypes: NodeTypes = {
 const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
 
 // ── Layout constants ─────────────────────────────────────────────────────────
-const X = { accounts: 80, genome: 290, hg: 500, angles: 710, campaign: 920, verdict: 1130, report: 1340 };
+const X = { accounts: 80, genome: 290, hg: 500, angles: 710, landing: 920, campaign: 1130, verdict: 1340, report: 1550 };
 const Y_CENTER = 255;
 const Y_STACK  = [90, 200, 310, 420]; // HG + Campaign rows per channel
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
@@ -65,6 +66,12 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState): NodeStage {
     if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     return 'idle';
   }
+  if (nodeId === 'landing') {
+    if (s === 'LANDING_RUNNING') return 'running';
+    if (['LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    if (s === 'ANGLES_DONE') return 'warn';
+    return 'idle';
+  }
   if (nodeId.startsWith('campaign-')) {
     if (s === 'CAMPAIGN_RUNNING') return 'running';
     if (s === 'CAMPAIGN_MONITORING') return 'running';
@@ -83,7 +90,7 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState): NodeStage {
   return 'idle';
 }
 
-function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: SprintRecord | null): EdgeState {
+function edgeStageFor(edgeId: string, sprintState?: SprintState): EdgeState {
   if (!sprintState || sprintState === 'IDLE') return 'pending';
   const s = sprintState;
 
@@ -102,7 +109,12 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
     if (s === 'ANGLES_RUNNING') return 'running';
     if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
   }
-  if (edgeId.startsWith('e-angles-campaign-')) {
+  if (edgeId === 'e-angles-landing') {
+    if (s === 'LANDING_RUNNING') return 'running';
+    if (['LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
+    if (s === 'ANGLES_DONE') return 'warn';
+  }
+  if (edgeId.startsWith('e-landing-campaign-')) {
     if (CAMPAIGN_STATES.includes(s)) return 'running';
     return 'pending';
   }
@@ -123,6 +135,7 @@ function buildNodes(sprint: SprintRecord | null): Node[] {
   const g  = sprint?.genome;
   const hg = sprint?.healthgate;
   const a  = sprint?.angles;
+  const l  = sprint?.landing;
   const c  = sprint?.campaign;
   const v  = sprint?.verdict;
 
@@ -144,6 +157,10 @@ function buildNodes(sprint: SprintRecord | null): Node[] {
     // Angles
     { id: 'angles', type: 'angles', position: { x: X.angles, y: Y_CENTER },
       data: { angleCount: a?.angles?.length, archetypes: a?.angles?.map((ang) => ang.archetype), stage: sprintStageFor('angles', s) } },
+
+    // Landing pages
+    { id: 'landing', type: 'landing', position: { x: X.landing, y: Y_CENTER },
+      data: { pageCount: l?.pages?.length, stage: sprintStageFor('landing', s) } },
 
     // Campaign × 4
     ...CHANNELS.map((ch, i) => ({
@@ -186,9 +203,10 @@ function buildEdges(sprint: SprintRecord | null): Edge[] {
       id: `e-hg-${ch}-angles`, type: 'pipeline', source: `hg-${ch}`, target: 'angles',
       data: { state: edgeStageFor(`e-hg-${ch}-angles`, s) },
     })),
+    { id: 'e-angles-landing', type: 'pipeline', source: 'angles', target: 'landing', data: { state: edgeStageFor('e-angles-landing', s) } },
     ...CHANNELS.map((ch) => ({
-      id: `e-angles-campaign-${ch}`, type: 'pipeline', source: 'angles', target: `campaign-${ch}`,
-      data: { state: edgeStageFor(`e-angles-campaign-${ch}`, s) },
+      id: `e-landing-campaign-${ch}`, type: 'pipeline', source: 'landing', target: `campaign-${ch}`,
+      data: { state: edgeStageFor(`e-landing-campaign-${ch}`, s) },
     })),
     ...CHANNELS.map((ch) => ({
       id: `e-campaign-${ch}-verdict`, type: 'pipeline', source: `campaign-${ch}`, target: 'verdict',
@@ -199,8 +217,79 @@ function buildEdges(sprint: SprintRecord | null): Edge[] {
   return edges;
 }
 
+type RawSprintRecord = Partial<SprintRecord> & {
+  id?: string;
+  name?: string;
+  status?: string;
+};
+
+function normalizeSprint(raw: RawSprintRecord | null): SprintRecord | null {
+  if (!raw) return null;
+  const sprintId = raw.sprint_id ?? raw.id;
+  if (!sprintId) return null;
+
+  return {
+    ...raw,
+    sprint_id: sprintId,
+    idea: raw.idea ?? raw.name ?? 'Untitled sprint',
+    org_id: raw.org_id ?? null,
+    state: raw.state ?? (raw.status === 'completed' ? 'COMPLETE' : 'IDLE'),
+    active_channels: raw.active_channels ?? [...CHANNELS],
+    budget_cents: raw.budget_cents ?? 50000,
+    created_at: raw.created_at ?? new Date().toISOString(),
+    updated_at: raw.updated_at ?? raw.created_at ?? new Date().toISOString(),
+  } as SprintRecord;
+}
+
+const DEMO_HEALTHGATE_DATA: Record<Platform, Record<string, unknown>> = {
+  meta: {
+    account_status: 'ACTIVE',
+    balance: 50000,
+    disapproved_90d: 0,
+    funding_source: true,
+    policy_violations: 0,
+    pixel_active: true,
+    two_factor_enabled: true,
+    domain_verified: 'VERIFIED',
+    page_quality: 0.82,
+  },
+  google: {
+    account_status: 'ENABLED',
+    past_due_invoices: false,
+    policy_violations: 0,
+    payment_method: true,
+    conversion_tracking_active: true,
+    search_network: true,
+    account_age_days: 45,
+    landing_page_policy: true,
+    quality_score: 5,
+  },
+  linkedin: {
+    account_status: 'ACTIVE',
+    failed_payments: false,
+    restricted_ads_90d: 0,
+    payment_method: true,
+    insight_tag_active: true,
+    company_page_verified: true,
+    review_status: 'CLEAR',
+    sponsored_content_access: true,
+    projected_audience: 1200,
+  },
+  tiktok: {
+    account_status: 'APPROVED',
+    failed_charges: false,
+    rejected_creatives_90d: 0,
+    pixel_active: true,
+    identity_verified: true,
+    business_center_access: true,
+    region_eligible: true,
+    content_category_status: 'APPROVED',
+    flag_count: 0,
+  },
+};
+
 // ── New Sprint Modal ─────────────────────────────────────────────────────────
-function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated: (sprint: SprintRecord) => void }) {
   const [idea, setIdea] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,7 +304,9 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Failed to create sprint'); return; }
-      onCreated(data.sprint_id || data.id || data.sprint?.sprint_id);
+      const sprint = normalizeSprint(data.sprint ?? data);
+      if (!sprint) { setError('Sprint was created but no sprint id was returned'); return; }
+      onCreated(sprint);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally { setLoading(false); }
@@ -230,7 +321,7 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
       <motion.div
         initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-        style={{ background: '#FAFAF8', borderRadius: 16, padding: 28, width: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+        style={{ background: '#FAFAF8', borderRadius: 16, padding: 28, width: 520, boxShadow: '0 1px 2px rgba(0,0,0,0.06)', border: '1px solid #E8E4DC' }}
         onClick={(e) => e.stopPropagation()}
       >
         <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8C8880', marginBottom: 6 }}>New Sprint</p>
@@ -262,7 +353,7 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
             style={{ flex: 2, height: 38, background: '#111110', border: 'none', borderRadius: 10, color: '#FFF', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: idea.trim() ? 1 : 0.5 }}
           >
             {loading && <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />}
-            {loading ? 'Creating sprint…' : 'Run Genome'}
+            {loading ? 'Creating sprint…' : 'Start Canvas Sprint'}
           </button>
         </div>
       </motion.div>
@@ -284,7 +375,7 @@ function StateLabel({ state }: { state?: SprintState }) {
     BLOCKED: 'Sprint blocked',
   };
   return (
-    <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10, display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', background: '#FFF', border: '1px solid #E8E4DC', borderRadius: 99, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', background: '#FFF', border: '1px solid #E8E4DC', borderRadius: 99, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
       {running && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#111110' }} className="animate-pulse" />}
       <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#111110' }}>{label[state] ?? state}</span>
     </div>
@@ -307,6 +398,8 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [showNew, setShowNew] = useState(openNew ?? false);
   const [activePanel, setActivePanel] = useState<PanelId>((initialPanel as PanelId) ?? null);
   const [panelChannel, setPanelChannel] = useState<string | undefined>(undefined);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -315,34 +408,40 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   useEffect(() => {
     async function loadSprints() {
       try {
-        const res = await fetch('/api/tests');
+        const res = await fetch('/api/sprint');
         if (res.ok) {
           const data = await res.json();
-          const rows = (data.tests ?? data.sprints ?? []) as { id: string; name?: string; status: string; sprint_id?: string }[];
-          const mapped = rows.map((r) => ({ id: r.sprint_id ?? r.id, name: r.name ?? r.sprint_id ?? r.id, status: r.status }));
+          const rows = (data.sprints ?? []) as RawSprintRecord[];
+          const mapped = rows
+            .map(normalizeSprint)
+            .filter((s): s is SprintRecord => Boolean(s))
+            .map((s) => ({
+              id: s.sprint_id,
+              name: s.idea || s.sprint_id.slice(0, 8),
+              status: s.state.toLowerCase().replace(/_/g, ' '),
+            }));
           setSprints(mapped);
           if (mapped.length > 0 && !activeSprint) setActiveSprint(mapped[0].id);
         }
       } catch {}
     }
     loadSprints();
-  }, []);
+  }, [activeSprint]);
 
   // ── Load sprint detail ───────────────────────────────────────────────────
   const loadSprintDetail = useCallback(async (id: string) => {
     try {
-      // Try sprint API first, fall back to tests API
       let data: SprintRecord | null = null;
       const res = await fetch(`/api/sprint/${id}`);
       if (res.ok) {
         const json = await res.json();
-        data = json.sprint ?? json;
+        data = normalizeSprint(json.sprint ?? json);
       } else {
         const res2 = await fetch(`/api/tests/${id}/metrics`);
         if (res2.ok) {
           const json2 = await res2.json();
           // Map legacy test format to sprint format
-          data = {
+          data = normalizeSprint({
             sprint_id: id,
             idea: json2.test?.name ?? '',
             org_id: null,
@@ -351,11 +450,14 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
             budget_cents: 50000,
             created_at: json2.test?.created_at ?? new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          };
+          });
         }
       }
       setSprintData(data);
-    } catch {}
+      return data;
+    } catch {
+      return null;
+    }
   }, []);
 
   useEffect(() => {
@@ -378,7 +480,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     n[0] = { ...n[0], data: { ...n[0].data, connectedCount: connectedPlatforms.length } };
     setNodes(n);
     setEdges(buildEdges(sprintData));
-  }, [sprintData, connectedPlatforms.length]);
+  }, [sprintData, connectedPlatforms.length, setEdges, setNodes]);
 
   // ── Node click handler ───────────────────────────────────────────────────
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
@@ -391,6 +493,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       return;
     }
     if (id === 'angles')     { setActivePanel('angles');     setPanelChannel(undefined); return; }
+    if (id === 'landing')    { setActivePanel('landing');    setPanelChannel(undefined); return; }
     if (id.startsWith('campaign-')) {
       setActivePanel('campaign');
       setPanelChannel(id.replace('campaign-', ''));
@@ -402,69 +505,152 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (id === 'settings')   { setActivePanel('settings');   setPanelChannel(undefined); return; }
   }, []);
 
-  const handleCreated = (id: string) => {
-    setSprints((prev) => [{ id, name: id.slice(0, 8), status: 'active' }, ...prev]);
-    setActiveSprint(id);
+  const runSprintPipeline = useCallback(async (id: string) => {
+    setPipelineError(null);
+    setPipelineRunning(true);
+    try {
+      let current = await loadSprintDetail(id);
+      if (!current) throw new Error('Sprint could not be loaded');
+
+      if (current.state === 'BLOCKED') {
+        throw new Error(current.blocked_reason ?? 'Sprint is blocked');
+      }
+
+      if (current.state === 'IDLE') {
+        setActivePanel('genome');
+        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'GENOME_RUNNING' } : prev);
+        const res = await fetch(`/api/sprint/${id}/genome`, { method: 'POST' });
+        if (!res.ok) throw new Error((await res.json()).error ?? 'Genome failed');
+        current = await loadSprintDetail(id);
+        if (!current || current.state === 'BLOCKED') return;
+      }
+
+      if (current.state === 'GENOME_DONE') {
+        setActivePanel('healthgate');
+        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'HEALTHGATE_RUNNING' } : prev);
+        const res = await fetch(`/api/sprint/${id}/healthgate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel_data: DEMO_HEALTHGATE_DATA }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error ?? 'Healthgate failed');
+        current = await loadSprintDetail(id);
+        if (!current || current.state === 'BLOCKED') return;
+      }
+
+      if (current.state === 'HEALTHGATE_DONE') {
+        setActivePanel('angles');
+        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'ANGLES_RUNNING' } : prev);
+        const res = await fetch(`/api/sprint/${id}/angles`, { method: 'POST' });
+        if (!res.ok) throw new Error((await res.json()).error ?? 'Angles failed');
+        current = await loadSprintDetail(id);
+        if (!current || current.state === 'BLOCKED') return;
+      }
+
+      if (current.state === 'ANGLES_DONE' || current.state === 'LANDING_RUNNING' || current.state === 'LANDING_DONE') {
+        setActivePanel('landing');
+        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'LANDING_RUNNING' } : prev);
+        const res = await fetch(`/api/sprint/${id}/demo-complete`, { method: 'POST' });
+        if (!res.ok) throw new Error((await res.json()).error ?? 'Demo completion failed');
+        await loadSprintDetail(id);
+        setActivePanel('verdict');
+      }
+    } catch (err) {
+      setPipelineError(err instanceof Error ? err.message : 'Sprint pipeline failed');
+      await loadSprintDetail(id);
+    } finally {
+      setPipelineRunning(false);
+    }
+  }, [loadSprintDetail]);
+
+  const handleCreated = (sprint: SprintRecord) => {
+    setSprints((prev) => [{ id: sprint.sprint_id, name: sprint.idea, status: 'idle' }, ...prev]);
+    setActiveSprint(sprint.sprint_id);
+    setSprintData(sprint);
+    setActivePanel('genome');
     setShowNew(false);
+    void runSprintPipeline(sprint.sprint_id);
   };
 
   const handleEditSetup = (sprintId: string) => {
-    window.location.href = `/tests/${sprintId}/setup`;
+    setActiveSprint(sprintId);
+    setActivePanel('campaign');
+    setPanelChannel(undefined);
   };
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#FAFAF8', position: 'relative', fontFamily: 'inherit' }}>
-      <CanvasToolbar
-        sprints={sprints}
-        activeSprint={activeSprint}
-        onSelect={(id) => { setActiveSprint(id); setActivePanel(null); }}
-        onNew={() => setShowNew(true)}
-        onOpenPanel={(panel) => { setActivePanel(panel as PanelId); setPanelChannel(undefined); }}
-      />
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodeClick={onNodeClick}
+        onPaneClick={() => setActivePanel(null)}
+        fitView
+        fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
+        minZoom={0.3}
+        maxZoom={1.7}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#E8E4DC" />
 
-      <div style={{ position: 'absolute', top: 48, left: 0, right: activePanel ? 380 : 0, bottom: 0 }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodeClick={onNodeClick}
-          onPaneClick={() => setActivePanel(null)}
-          fitView
-          fitViewOptions={{ padding: 0.25, maxZoom: 1.2 }}
-          minZoom={0.3}
-          maxZoom={2}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#E8E4DC" />
-          <Controls
-            style={{ bottom: 48, left: 16, boxShadow: 'none', border: '1px solid #E8E4DC', borderRadius: 10, overflow: 'hidden' }}
+        <Panel position="top-left" style={{ margin: 14 }}>
+          <CanvasToolbar
+            sprints={sprints}
+            activeSprint={activeSprint}
+            onSelect={(id) => { setActiveSprint(id); setActivePanel(null); }}
+            onNew={() => setShowNew(true)}
+            onOpenPanel={(panel) => { setActivePanel(panel as PanelId); setPanelChannel(undefined); }}
           />
-        </ReactFlow>
+        </Panel>
 
-        {/* Sprint state label */}
-        {sprintData?.state && <StateLabel state={sprintData.state} />}
-
-        {/* Empty state */}
-        {!activeSprint && sprints.length === 0 && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <p style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8C8880', marginBottom: 8 }}>No sprints yet</p>
-            <p style={{ fontSize: '1.125rem', fontWeight: 700, color: '#111110', marginBottom: 4 }}>Start your first validation</p>
-            <p style={{ fontSize: '0.875rem', color: '#8C8880' }}>Click <strong>+ New Sprint</strong> in the toolbar above</p>
-          </div>
+        {activePanel && (
+          <Panel position="top-right" style={{ margin: 14 }}>
+            <NodePanel
+              panel={activePanel}
+              channel={panelChannel}
+              sprint={sprintData}
+              onClose={() => setActivePanel(null)}
+              onEditSetup={handleEditSetup}
+              onRunWorkflow={(id) => void runSprintPipeline(id)}
+              workflowRunning={pipelineRunning}
+              embedded
+            />
+          </Panel>
         )}
-      </div>
 
-      {/* Right panel */}
-      <NodePanel
-        panel={activePanel}
-        channel={panelChannel}
-        sprint={sprintData}
-        onClose={() => setActivePanel(null)}
-        onEditSetup={handleEditSetup}
-      />
+        {sprintData?.state && (
+          <Panel position="bottom-center" style={{ marginBottom: 16 }}>
+            <StateLabel state={sprintData.state} />
+          </Panel>
+        )}
+
+        {pipelineError && (
+          <Panel position="bottom-right" style={{ margin: 16 }}>
+            <div style={{ maxWidth: 360, padding: '10px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, color: '#DC2626', fontSize: '0.8125rem' }}>
+              {pipelineError}
+            </div>
+          </Panel>
+        )}
+
+        {!activeSprint && sprints.length === 0 && (
+          <Panel position="top-center" style={{ marginTop: 120, pointerEvents: 'none' }}>
+            <div style={{ width: 360, background: '#FFFFFF', border: '1px solid #E8E4DC', borderRadius: 16, padding: 22, textAlign: 'center' }}>
+              <p style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8C8880', marginBottom: 8 }}>No sprints yet</p>
+              <p style={{ fontSize: '1.125rem', fontWeight: 700, color: '#111110', marginBottom: 4 }}>Start your first validation</p>
+              <p style={{ fontSize: '0.875rem', color: '#8C8880', margin: 0 }}>Use New Sprint to watch Genome, Healthgate, Angles, Landing, Campaign, Verdict, and Report in one canvas.</p>
+            </div>
+          </Panel>
+        )}
+
+        <Controls
+          position="bottom-left"
+          style={{ margin: 16, boxShadow: 'none', border: '1px solid #E8E4DC', borderRadius: 10, overflow: 'hidden' }}
+        />
+      </ReactFlow>
 
       {/* New Sprint modal */}
       <AnimatePresence>

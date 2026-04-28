@@ -17,7 +17,7 @@ const plans = [
       'Go/No-Go report',
     ],
     cta: 'Start Starter',
-    href: '/accounts/connect',
+    href: '/canvas?panel=accounts',
     highlight: false,
   },
   {
@@ -32,7 +32,7 @@ const plans = [
       'BYOK ad deployment',
     ],
     cta: 'Start Studio',
-    href: '/accounts/connect',
+    href: '/canvas?panel=accounts',
     highlight: true,
   },
   {

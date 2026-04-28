@@ -33,6 +33,69 @@ Rules:
 - Meta copy: copy supports an image — it does NOT explain it. The image does the visual work.
 Return ONLY valid JSON. No prose. No markdown fences.`;
 
+type RawAngleResponse = {
+  icp: string;
+  value_prop: string;
+  angles: Array<{
+    id: string;
+    archetype: string;
+    emotional_lever: string;
+    copy: {
+      meta: { headline: string; body: string };
+      google: { headline1: string; headline2: string; description: string };
+      linkedin: { intro: string; headline: string; body: string };
+      tiktok: { hook: string; overlay: string };
+    };
+    cta: string;
+  }>;
+};
+
+function fallbackAngleResponse(idea: string, genome: GenomeAgentOutput): RawAngleResponse {
+  const shortIdea = idea.replace(/\s+/g, ' ').slice(0, 42);
+  return {
+    icp: genome.icp,
+    value_prop: genome.solution_wedge || `Validate demand for ${shortIdea}`,
+    angles: [
+      {
+        id: 'angle_A',
+        archetype: 'PAIN',
+        emotional_lever: 'fear',
+        copy: {
+          meta: { headline: 'Stop Building Blind', body: 'Find out if buyers care before your team spends six weeks building.' },
+          google: { headline1: 'Validate Startup Idea', headline2: 'Before You Build', description: 'Run a fast demand test before investing in product development.' },
+          linkedin: { intro: 'Reduce MVP risk before engineering starts.', headline: 'Validate First', body: 'Give your team market evidence before committing roadmap and budget.' },
+          tiktok: { hook: 'Wait before building this', overlay: 'Test demand first' },
+        },
+        cta: 'Validate Demand',
+      },
+      {
+        id: 'angle_B',
+        archetype: 'ASPIRATION',
+        emotional_lever: 'ambition',
+        copy: {
+          meta: { headline: 'Know What To Build', body: 'Turn your startup idea into a 48-hour market signal with real channel data.' },
+          google: { headline1: 'Startup Demand Test', headline2: '48 Hour Signal', description: 'Use paid channel data to find the message buyers respond to.' },
+          linkedin: { intro: 'Prioritize the ideas buyers already signal.', headline: 'Build With Proof', body: 'Compare angle performance and choose the product narrative with evidence.' },
+          tiktok: { hook: 'This idea might win', overlay: 'Find the signal' },
+        },
+        cta: 'Find Signal',
+      },
+      {
+        id: 'angle_C',
+        archetype: 'SOCIAL_PROOF',
+        emotional_lever: 'relief',
+        copy: {
+          meta: { headline: 'Proof Before MVP', body: 'Use Genome, Healthgate, and channel CTRs to decide GO, ITERATE, or NO-GO.' },
+          google: { headline1: 'MVP Validation Test', headline2: 'GO or NO-GO', description: 'Get structured channel verdicts before you commit product budget.' },
+          linkedin: { intro: 'Give stakeholders a decision-ready validation report.', headline: 'Proof Before MVP', body: 'Replace opinion with a clear sprint report across campaign, channel, and angle data.' },
+          tiktok: { hook: 'Proof beats opinions', overlay: 'Get the verdict' },
+        },
+        cta: 'Get Verdict',
+      },
+    ],
+  };
+}
+
 function buildUserPrompt(params: {
   idea: string;
   icp: string;
@@ -117,46 +180,35 @@ export async function runAngleAgent(params: {
 }): Promise<AngleAgentOutput> {
   const { idea, genome, active_channels } = params;
 
-  const raw = await callGroqJSON<{
-    icp: string;
-    value_prop: string;
-    angles: Array<{
-      id: string;
-      archetype: string;
-      emotional_lever: string;
-      copy: {
-        meta: { headline: string; body: string };
-        google: { headline1: string; headline2: string; description: string };
-        linkedin: { intro: string; headline: string; body: string };
-        tiktok: { hook: string; overlay: string };
-      };
-      cta: string;
-    }>;
-  }>(
-    [
-      { role: 'system', content: SYSTEM },
-      {
-        role: 'user',
-        content: buildUserPrompt({
-          idea,
-          icp: genome.icp,
-          problem_statement: genome.problem_statement,
-          solution_wedge: genome.solution_wedge,
-          unique_mechanism: genome.unique_mechanism,
-          proceed_note: genome.proceed_note,
-          active_channels,
-        }),
-      },
-    ],
-    { temperature: 0.7, max_tokens: 2000 }
-  );
+  let raw: RawAngleResponse;
+  try {
+    raw = await callGroqJSON<RawAngleResponse>(
+      [
+        { role: 'system', content: SYSTEM },
+        {
+          role: 'user',
+          content: buildUserPrompt({
+            idea,
+            icp: genome.icp,
+            problem_statement: genome.problem_statement,
+            solution_wedge: genome.solution_wedge,
+            unique_mechanism: genome.unique_mechanism,
+            proceed_note: genome.proceed_note,
+            active_channels,
+          }),
+        },
+      ],
+      { temperature: 0.7, max_tokens: 2000 }
+    );
+  } catch (err) {
+    console.warn('[AngleAgent] Falling back to deterministic angles:', err);
+    raw = fallbackAngleResponse(idea, genome);
+  }
 
   const s = (v: unknown, max: number) => String(v ?? '').slice(0, max);
   const ids: Array<'angle_A' | 'angle_B' | 'angle_C'> = ['angle_A', 'angle_B', 'angle_C'];
   const archetypes: AngleArchetype[] = ['PAIN', 'ASPIRATION', 'SOCIAL_PROOF'];
   const levers: AngleEmotionalLever[] = ['fear', 'ambition', 'relief'];
-
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.launchlense.com';
 
   const angles: [Angle, Angle, Angle] = (raw.angles ?? []).slice(0, 3).map((a, i) => {
     const id = ids[i];

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
@@ -15,7 +14,7 @@ const C = {
 
 export type PanelId =
   | 'accounts' | 'genome' | 'healthgate' | 'angles'
-  | 'campaign' | 'verdict' | 'report'
+  | 'landing' | 'campaign' | 'verdict' | 'report'
   | 'benchmarks' | 'settings' | null;
 
 interface Props {
@@ -24,6 +23,9 @@ interface Props {
   sprint?:     SprintRecord | null;
   onClose:     () => void;
   onEditSetup: (sprintId: string) => void;
+  onRunWorkflow?: (sprintId: string) => void;
+  workflowRunning?: boolean;
+  embedded?:   boolean;
 }
 
 // ── shared label ─────────────────────────────────────────────────────────────
@@ -43,7 +45,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Pill({ value, go }: { value: string; go?: boolean }) {
+function Pill({ value }: { value: string }) {
   const color = value === 'GO' ? C.go : value === 'NO-GO' || value === 'STOP' ? C.stop : C.warn;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 99, fontSize: '0.6875rem', fontWeight: 600, background: `${color}18`, color }}>
@@ -73,7 +75,7 @@ function AccountsPanel() {
   const handleDemoConnect = async (id: PlatformId) => {
     setDemoConnecting(id);
     await new Promise((r) => setTimeout(r, 1100));
-    connectPlatform({ platform: id, accountId: `demo_${id}_${Date.now()}`, connectedAt: new Date().toISOString() });
+    connectPlatform({ platform: id, accountId: `demo_${id}`, connectedAt: new Date().toISOString() });
     setDemoConnecting(null);
   };
 
@@ -82,6 +84,10 @@ function AccountsPanel() {
     await new Promise((r) => setTimeout(r, 500));
     disconnectPlatform(id);
     setDisconnecting(null);
+  };
+
+  const handleMetaOAuth = () => {
+    window.location.href = '/api/auth/meta/start?platform=meta';
   };
 
   return (
@@ -135,7 +141,12 @@ function AccountsPanel() {
                       {isDemo ? 'Connecting…' : 'Connect'}
                     </button>
                   ) : (
-                    <span style={{ fontSize: '0.75rem', color: C.muted }}>OAuth</span>
+                    <button
+                      onClick={handleMetaOAuth}
+                      style={{ height: 28, padding: '0 10px', background: C.ink, border: 'none', borderRadius: 8, fontSize: '0.8125rem', color: '#FFF', cursor: 'pointer' }}
+                    >
+                      Connect
+                    </button>
                   )}
                 </div>
               </div>
@@ -301,10 +312,6 @@ function AnglesPanel({ sprint }: { sprint?: SprintRecord | null }) {
             {(['meta', 'google', 'linkedin', 'tiktok'] as const).map((ch) => {
               const copy = angle.copy[ch];
               if (!copy) return null;
-              const headline = ch === 'meta' ? (copy as { headline: string }).headline
-                : ch === 'google' ? (copy as { headline1: string; headline2: string }).headline1
-                : ch === 'linkedin' ? (copy as { headline: string }).headline
-                : (copy as { hook: string }).hook;
               const body = ch === 'meta' ? (copy as { body: string }).body
                 : ch === 'google' ? (copy as { description: string }).description
                 : ch === 'linkedin' ? (copy as { body: string }).body
@@ -318,6 +325,40 @@ function AnglesPanel({ sprint }: { sprint?: SprintRecord | null }) {
               );
             })}
             <p style={{ fontSize: '0.75rem', fontWeight: 600, color: C.ink, margin: 0 }}>CTA: {angle.cta}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Landing Panel
+// ════════════════════════════════════════════════════════════════════════════
+function LandingPanel({ sprint }: { sprint?: SprintRecord | null }) {
+  const landing = sprint?.landing;
+  const angles = sprint?.angles?.angles ?? [];
+
+  if (!landing?.pages?.length && !angles.length) {
+    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Landing pages are generated after AngleAgent completes.</p>;
+  }
+
+  return (
+    <div>
+      <SectionTitle>Landing Pages</SectionTitle>
+      <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 16 }}>
+        One editable page is prepared per winning angle with locked UTM integrity and PROOF tokens.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {(landing?.pages ?? angles.map((angle) => ({ angle_id: angle.id, sections: [] }))).map((page) => (
+          <div key={page.angle_id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8125rem', color: C.ink }}>{page.angle_id}</span>
+              <span style={{ fontSize: '0.6875rem', color: C.muted }}>{page.sections.length || 4} sections</span>
+            </div>
+            <p style={{ fontSize: '0.8125rem', color: C.muted, margin: '8px 0 0' }}>
+              Hero, proof, form, and trust blocks stay editable before publish. Campaign UTMs are preview-only for clean attribution.
+            </p>
           </div>
         ))}
       </div>
@@ -389,7 +430,6 @@ function VerdictPanel({ sprint }: { sprint?: SprintRecord | null }) {
   const v = sprint?.verdict;
   if (!v) return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Verdict not yet generated.</p>;
 
-  const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
   const aggColor = v.verdict === 'GO' ? C.go : v.verdict === 'NO-GO' ? C.stop : C.warn;
 
   return (
@@ -595,9 +635,16 @@ function SettingsPanel() {
 // ════════════════════════════════════════════════════════════════════════════
 // Panel Shell  
 // ════════════════════════════════════════════════════════════════════════════
-export function NodePanel({ panel, channel, sprint, onClose, onEditSetup }: Props) {
-  const router = useRouter();
-
+export function NodePanel({
+  panel,
+  channel,
+  sprint,
+  onClose,
+  onEditSetup,
+  onRunWorkflow,
+  workflowRunning = false,
+  embedded = false,
+}: Props) {
   if (!panel) return null;
 
   const content = () => {
@@ -606,6 +653,7 @@ export function NodePanel({ panel, channel, sprint, onClose, onEditSetup }: Prop
       case 'genome':     return <GenomePanel sprint={sprint} />;
       case 'healthgate': return <HealthgatePanel sprint={sprint} channel={channel} />;
       case 'angles':     return <AnglesPanel sprint={sprint} />;
+      case 'landing':    return <LandingPanel sprint={sprint} />;
       case 'campaign':   return <CampaignPanel sprint={sprint} channel={channel} onEditSetup={onEditSetup} />;
       case 'verdict':    return <VerdictPanel sprint={sprint} />;
       case 'report':     return <ReportPanel sprint={sprint} />;
@@ -624,13 +672,20 @@ export function NodePanel({ panel, channel, sprint, onClose, onEditSetup }: Prop
         exit={{ x: 360, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         style={{
-          position: 'absolute', top: 48, right: 0, bottom: 0,
+          position: embedded ? 'relative' : 'absolute',
+          top: embedded ? 'auto' : 48,
+          right: embedded ? 'auto' : 0,
+          bottom: embedded ? 'auto' : 0,
           width: 380,
+          maxHeight: embedded ? 'calc(100vh - 88px)' : undefined,
           background: C.canvas,
-          borderLeft: `1px solid ${C.border}`,
+          border: embedded ? `1px solid ${C.border}` : undefined,
+          borderLeft: embedded ? `1px solid ${C.border}` : `1px solid ${C.border}`,
+          borderRadius: embedded ? 16 : 0,
           zIndex: 20,
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
+          boxShadow: embedded ? '0 1px 2px rgba(0,0,0,0.06)' : undefined,
         }}
       >
         {/* Panel header */}
@@ -642,12 +697,21 @@ export function NodePanel({ panel, channel, sprint, onClose, onEditSetup }: Prop
               </span>
             )}
           </div>
+          {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && (
+            <button
+              onClick={() => onRunWorkflow(sprint.sprint_id)}
+              disabled={workflowRunning}
+              style={{ height: 28, padding: '0 10px', border: 'none', borderRadius: 8, background: C.ink, color: '#FFF', cursor: workflowRunning ? 'default' : 'pointer', fontSize: '0.75rem', opacity: workflowRunning ? 0.65 : 1 }}
+            >
+              {workflowRunning ? 'Running' : sprint.genome ? 'Resume' : 'Run Workflow'}
+            </button>
+          )}
           <button
             onClick={onClose}
-            style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', color: C.muted, fontSize: '0.9rem' }}
+            style={{ height: 28, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', color: C.muted, fontSize: '0.75rem' }}
             aria-label="Close panel"
           >
-            ✕
+            Close
           </button>
         </div>
 

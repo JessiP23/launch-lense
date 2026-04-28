@@ -6,6 +6,6 @@ import { useRouter } from 'next/navigation';
 export default function TestDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  useEffect(() => { router.replace(`/?sprint=${id}`); }, [router, id]);
+  useEffect(() => { router.replace(`/canvas?sprint=${id}`); }, [router, id]);
   return null;
 }

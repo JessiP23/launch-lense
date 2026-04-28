@@ -7,17 +7,17 @@ import { Search, Shield, Zap, BarChart3, FileText, Settings, X } from 'lucide-re
 import { useAppStore } from '@/lib/store';
 
 const commands = [
-  { id: 'accounts', label: 'Go to Accounts', icon: Shield, href: '/accounts' },
-  { id: 'connect', label: 'Connect Ad Account', icon: Shield, href: '/accounts/connect' },
-  { id: 'tests', label: 'Go to Tests', icon: Zap, href: '/tests' },
-  { id: 'new-test', label: 'Create New Test', icon: Zap, href: '/tests/new' },
-  { id: 'reports', label: 'Go to Reports', icon: BarChart3, href: '/reports' },
-  { id: 'benchmarks', label: 'View Benchmarks', icon: FileText, href: '/benchmarks' },
-  { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
+  { id: 'accounts', label: 'Open Accounts Node', icon: Shield, href: '/canvas?panel=accounts' },
+  { id: 'connect', label: 'Connect Ad Account', icon: Shield, href: '/canvas?panel=accounts' },
+  { id: 'tests', label: 'Open Sprint Canvas', icon: Zap, href: '/canvas' },
+  { id: 'new-test', label: 'Create New Sprint', icon: Zap, href: '/canvas?new=1' },
+  { id: 'reports', label: 'Open Report Node', icon: BarChart3, href: '/canvas?panel=report' },
+  { id: 'benchmarks', label: 'Open Benchmarks Node', icon: FileText, href: '/canvas?panel=benchmarks' },
+  { id: 'settings', label: 'Open Settings Node', icon: Settings, href: '/canvas?panel=settings' },
 ];
 
 export function CommandPalette() {
-  const { cmdkOpen, setCmdkOpen, canLaunch } = useAppStore();
+  const { cmdkOpen, setCmdkOpen } = useAppStore();
   const [query, setQuery] = useState('');
   const router = useRouter();
 
@@ -43,11 +43,7 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const executeCommand = (href: string, id: string) => {
-    // Block test creation if healthgate is red
-    if ((id === 'new-test') && !canLaunch) {
-      return;
-    }
+  const executeCommand = (href: string) => {
     setCmdkOpen(false);
     setQuery('');
     router.push(href);
@@ -93,21 +89,14 @@ export function CommandPalette() {
               {/* Results */}
               <div className="max-h-64 overflow-y-auto p-1.5">
                 {filtered.map((cmd) => {
-                  const disabled = cmd.id === 'new-test' && !canLaunch;
                   return (
                     <button
                       key={cmd.id}
-                      onClick={() => executeCommand(cmd.href, cmd.id)}
-                      disabled={disabled}
-                      className="flex items-center gap-3 w-full px-3 py-2.5 text-[0.875rem] rounded-lg text-left transition-colors hover:bg-[#F3F0EB] disabled:opacity-40 disabled:cursor-not-allowed text-[#111110]"
+                      onClick={() => executeCommand(cmd.href)}
+                      className="flex items-center gap-3 w-full px-3 py-2.5 text-[0.875rem] rounded-lg text-left transition-colors hover:bg-[#F3F0EB] text-[#111110]"
                     >
                       <cmd.icon className="w-4 h-4 text-[#8C8880] shrink-0" />
                       <span className="font-medium">{cmd.label}</span>
-                      {disabled && (
-                        <span className="ml-auto text-[0.6875rem] font-medium text-[#DC2626]">
-                          Blocked by Healthgate
-                        </span>
-                      )}
                     </button>
                   );
                 })}

@@ -23,22 +23,20 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
   return (
     <div
       style={{
-        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+        position: 'relative',
+        zIndex: 10,
         height: 48,
         background: C.surface,
-        borderBottom: `1px solid ${C.border}`,
+        border: `1px solid ${C.border}`,
+        borderRadius: 16,
         display: 'flex', alignItems: 'center',
         padding: '0 16px',
         gap: 12,
+        boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
       }}
     >
       {/* Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="9" stroke={C.ink} strokeWidth="1.5" />
-          <circle cx="10" cy="10" r="5" fill={C.ink} />
-          <path d="M8.5 11.5L11.5 8.5M11.5 8.5H9.5M11.5 8.5V10.5" stroke="#FFF" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
         <span style={{ fontWeight: 700, fontSize: '0.9rem', letterSpacing: '-0.02em', color: C.ink }}>
           LaunchLense
         </span>
@@ -118,10 +116,15 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
       <div style={{ flex: 1 }} />
 
       {/* Nav shortcuts */}
-      {(['Accounts', 'Reports', 'Benchmarks', 'Settings'] as const).map((label) => (
+      {[
+        { label: 'Accounts', panel: 'accounts' },
+        { label: 'Report', panel: 'report' },
+        { label: 'Benchmarks', panel: 'benchmarks' },
+        { label: 'Settings', panel: 'settings' },
+      ].map(({ label, panel }) => (
         <button
           key={label}
-          onClick={() => onOpenPanel(label.toLowerCase())}
+          onClick={() => onOpenPanel(panel)}
           style={{
             height: 30, padding: '0 10px',
             background: 'transparent', border: `1px solid ${C.border}`,
@@ -146,7 +149,7 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
       >
         Search
         <kbd style={{ fontSize: '0.625rem', border: `1px solid ${C.border}`, borderRadius: 4, padding: '1px 4px', fontFamily: 'monospace' }}>
-          ⌘K
+          Cmd K
         </kbd>
       </button>
     </div>

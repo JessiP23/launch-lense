@@ -153,6 +153,17 @@ export const AnglesNode = memo(({ data, selected }: NodeProps<AnglesNodeType>) =
 ));
 AnglesNode.displayName = 'AnglesNode';
 
+export type LandingNodeData = { pageCount?: number; stage: NodeStage };
+export type LandingNodeType = Node<LandingNodeData, 'landing'>;
+export const LandingNode = memo(({ data, selected }: NodeProps<LandingNodeType>) => (
+  <NodeCard
+    label="Landing Page" stage={data.stage} selected={!!selected}
+    metric={data.pageCount != null ? `${data.pageCount}` : data.stage === 'running' ? '…' : '—'}
+    metricLabel="editable pages"
+  />
+));
+LandingNode.displayName = 'LandingNode';
+
 export type CampaignNodeData  = { channel: string; ctr?: number; spendCents?: number; stage: NodeStage };
 export type CampaignNodeType  = Node<CampaignNodeData, 'campaign'>;
 export const CampaignNode = memo(({ data, selected }: NodeProps<CampaignNodeType>) => (
