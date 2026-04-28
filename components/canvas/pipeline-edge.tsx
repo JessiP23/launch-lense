@@ -11,8 +11,8 @@ export interface PipelineEdgeData extends Record<string, unknown> {
 const COLORS: Record<EdgeState, string> = {
   pending: '#E8E4DC',
   running: '#111110',
-  done:    '#059669',
-  warn:    '#D97706',
+  done:    '#111110',
+  warn:    '#8C8880',
   blocked: '#DC2626',
 };
 

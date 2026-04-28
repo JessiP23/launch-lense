@@ -83,7 +83,11 @@ export async function dispatchHealthgate(
   await transitionState(sprint_id, 'HEALTHGATE_RUNNING');
 
   try {
-    const healthgate = await runAllHealthgateAgents(channelAccountData);
+    const sprint = await getSprint(sprint_id);
+    if (!sprint) throw new Error(`Sprint ${sprint_id} not found`);
+
+    const selectedChannels = sprint.active_channels.length ? sprint.active_channels : (Object.keys(channelAccountData) as Platform[]);
+    const healthgate = await runAllHealthgateAgents(channelAccountData, selectedChannels);
     await patchSprint(sprint_id, { healthgate, state: 'HEALTHGATE_DONE' });
 
     // Check if at least one channel is not BLOCKED
@@ -98,11 +102,8 @@ export async function dispatchHealthgate(
       );
     } else {
       // Restrict active channels to those that passed
-      const sprint = await getSprint(sprint_id);
-      if (sprint) {
-        const filtered = sprint.active_channels.filter((ch) => passedChannels.includes(ch));
-        await patchSprint(sprint_id, { active_channels: filtered });
-      }
+      const filtered = selectedChannels.filter((ch) => passedChannels.includes(ch));
+      await patchSprint(sprint_id, { active_channels: filtered });
     }
   } catch (err) {
     await blockSprint(sprint_id, `HealthgateAgent failed: ${String(err)}`);
@@ -139,10 +140,13 @@ export async function dispatchAngles(sprint_id: string): Promise<SprintRecord> {
 
 export async function dispatchCampaignStart(
   sprint_id: string,
-  campaignData: Partial<Record<Platform, Pick<CampaignAgentOutput, 'campaign_id' | 'campaign_start_time' | 'budget_cents'>>>
+  campaignData: Partial<Record<Platform, Partial<Pick<CampaignAgentOutput, 'campaign_id' | 'campaign_start_time' | 'budget_cents'>>>>
 ): Promise<SprintRecord> {
   const sprint = await getSprint(sprint_id);
   if (!sprint) throw new Error(`Sprint ${sprint_id} not found`);
+  const selectedAngleId = (sprint.angles as { selected_angle_id?: string } | undefined)?.selected_angle_id;
+  const selectedAngle = sprint.angles?.angles.find((angle) => angle.id === selectedAngleId) ?? sprint.angles?.angles[0];
+  const activeAngles = selectedAngle ? [selectedAngle] : [];
 
   // Initialize campaign agent outputs
   const campaign: Partial<Record<Platform, CampaignAgentOutput>> = {};
@@ -155,7 +159,7 @@ export async function dispatchCampaignStart(
       campaign_start_time: d?.campaign_start_time ?? null,
       budget_cents: d?.budget_cents ?? Math.floor(sprint.budget_cents / sprint.active_channels.length),
       spent_cents: 0,
-      angle_metrics: sprint.angles?.angles.map((a) => ({
+      angle_metrics: activeAngles.map((a) => ({
         id: a.id,
         impressions: 0,
         clicks: 0,

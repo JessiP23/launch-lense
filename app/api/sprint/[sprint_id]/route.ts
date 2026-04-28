@@ -33,3 +33,43 @@ export async function GET(
 
   return Response.json({ ...data, events: events ?? [] });
 }
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ sprint_id: string }> }
+) {
+  const { sprint_id } = await params;
+  const db = createServiceClient();
+  const body = await req.json().catch(() => ({})) as {
+    angles?: unknown;
+    landing?: unknown;
+  };
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (body.angles) patch.angles = body.angles;
+  if (body.landing) patch.landing = body.landing;
+
+  if (!body.angles && !body.landing) {
+    return Response.json({ error: 'No supported sprint fields provided' }, { status: 400 });
+  }
+
+  const { data, error } = await db
+    .from('sprints')
+    .update(patch)
+    .eq('id', sprint_id)
+    .select('*')
+    .single();
+
+  if (error || !data) {
+    return Response.json({ error: error?.message ?? 'Failed to update sprint' }, { status: 500 });
+  }
+
+  await db.from('sprint_events').insert({
+    sprint_id,
+    agent: 'orchestrator',
+    event_type: 'edited',
+    payload: { fields: Object.keys(patch).filter((key) => key !== 'updated_at') },
+  });
+
+  return Response.json({ sprint: data });
+}

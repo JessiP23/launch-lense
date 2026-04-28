@@ -394,8 +394,6 @@ export function runHealthgateAgent(
     const points_max =
       def.weight === 'CRITICAL' ? 0 :  // CRITICAL checks gate the score via cap, not add points
       WEIGHT_POINTS[def.weight];
-    const points_awarded = passed ? points_max : 0;
-
     if (!passed) {
       if (def.weight === 'CRITICAL') {
         hasCriticalFail = true;
@@ -445,10 +443,9 @@ export function runHealthgateAgent(
 
 // ── Parallel runner for all channels ──────────────────────────────────────
 export async function runAllHealthgateAgents(
-  channelData: Partial<Record<Platform, Record<string, unknown>>>
+  channelData: Partial<Record<Platform, Record<string, unknown>>>,
+  platforms: Platform[] = ['meta', 'google', 'linkedin', 'tiktok']
 ): Promise<Record<Platform, HealthgateAgentOutput>> {
-  const platforms: Platform[] = ['meta', 'google', 'linkedin', 'tiktok'];
-
   const results = await Promise.all(
     platforms.map((p) =>
       Promise.resolve(runHealthgateAgent(p, channelData[p] ?? {}))

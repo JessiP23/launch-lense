@@ -16,7 +16,33 @@ export async function GET(
   console.log('data testing:', test);
 
   if (!test) {
-    return new Response('Not found', { status: 404 });
+    const { data: sprint } = await supabaseAdmin
+      .from('sprints')
+      .select('idea, landing, angles')
+      .eq('id', test_id)
+      .single();
+
+    if (!sprint) {
+      return new Response('Not found', { status: 404 });
+    }
+
+    const landing = sprint.landing as { pages?: Array<{ html?: string }> } | null;
+    const html = landing?.pages?.find((page) => typeof page.html === 'string' && page.html)?.html;
+    if (html) {
+      return new Response(html, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    const angles = sprint.angles as { angles?: Array<{ copy?: { meta?: { headline?: string; body?: string } }; cta?: string }> } | null;
+    const angle = angles?.angles?.[0];
+    return new Response(generateFallback(
+      angle?.copy?.meta?.headline || String(sprint.idea ?? 'LaunchLense Sprint'),
+      String(sprint.idea ?? ''),
+      angle ? { headline: angle.copy?.meta?.headline, primary_text: angle.copy?.meta?.body, cta: angle.cta } : null
+    ), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
   }
 
   // 1. Prefer explicitly stored HTML

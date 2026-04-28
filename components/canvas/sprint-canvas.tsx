@@ -13,10 +13,10 @@ import { NodePanel, type PanelId } from './node-panel';
 import { PipelineEdge, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
-  LandingNode, CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
+  CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
 } from './canvas-nodes';
 import { useAppStore } from '@/lib/store';
-import type { Platform, SprintRecord, SprintState } from '@/lib/agents/types';
+import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
@@ -26,6 +26,7 @@ const nodeTypes: NodeTypes = {
   genome:     GenomeNode,
   healthgate: HealthgateNode,
   angles:     AnglesNode,
+  creative:   CreativeNode,
   landing:    LandingNode,
   campaign:   CampaignNode,
   verdict:    VerdictNode,
@@ -37,15 +38,24 @@ const nodeTypes: NodeTypes = {
 const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
 
 // ── Layout constants ─────────────────────────────────────────────────────────
-const X = { accounts: 80, genome: 290, hg: 500, angles: 710, landing: 920, campaign: 1130, verdict: 1340, report: 1550 };
-const Y_CENTER = 255;
-const Y_STACK  = [90, 200, 310, 420]; // HG + Campaign rows per channel
+const X = { accounts: 80, genome: 300, hg: 520, angles: 750, creative: 980, campaign: 1290, verdict: 1530, landing: 1770, report: 2010 };
+const Y_CENTER = 420;
+const CHANNEL_ROW_GAP = 280;
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
+
+type CreativeDraft = {
+  channel: Platform;
+  angleId: Angle['id'];
+  angle: Angle;
+  brandName: string;
+  image: string | null;
+};
+type CreativeDrafts = Partial<Record<Platform, CreativeDraft>>;
 
 // ── Sprint state → node/edge stage mapping ───────────────────────────────────
 type NodeStage = 'idle' | 'running' | 'done' | 'blocked' | 'warn';
 
-function sprintStageFor(nodeId: string, sprintState?: SprintState): NodeStage {
+function sprintStageFor(nodeId: string, sprintState?: SprintState, sprint?: SprintRecord | null): NodeStage {
   if (!sprintState || sprintState === 'IDLE') return 'idle';
   const s = sprintState;
 
@@ -57,6 +67,8 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState): NodeStage {
     return 'done'; // any non-IDLE state means accounts are done
   }
   if (nodeId.startsWith('hg-')) {
+    const channel = nodeId.replace('hg-', '') as Platform;
+    if (sprint && !sprint.active_channels.includes(channel)) return 'idle';
     if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
     if (['HEALTHGATE_DONE','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     return 'idle';
@@ -66,13 +78,22 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState): NodeStage {
     if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     return 'idle';
   }
+  if (nodeId.startsWith('creative-')) {
+    const channel = nodeId.replace('creative-', '') as Platform;
+    if (sprint && !sprint.active_channels.includes(channel)) return 'idle';
+    if (s === 'ANGLES_RUNNING') return 'running';
+    if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    return 'idle';
+  }
   if (nodeId === 'landing') {
     if (s === 'LANDING_RUNNING') return 'running';
-    if (['LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
-    if (s === 'ANGLES_DONE') return 'warn';
+    if (s === 'LANDING_DONE') return 'done';
+    if (s === 'COMPLETE' && sprint?.verdict?.verdict === 'GO') return 'warn';
     return 'idle';
   }
   if (nodeId.startsWith('campaign-')) {
+    const channel = nodeId.replace('campaign-', '') as Platform;
+    if (sprint && !sprint.active_channels.includes(channel)) return 'idle';
     if (s === 'CAMPAIGN_RUNNING') return 'running';
     if (s === 'CAMPAIGN_MONITORING') return 'running';
     if (['VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
@@ -109,13 +130,13 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState): EdgeState {
     if (s === 'ANGLES_RUNNING') return 'running';
     if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
   }
-  if (edgeId === 'e-angles-landing') {
-    if (s === 'LANDING_RUNNING') return 'running';
-    if (['LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
-    if (s === 'ANGLES_DONE') return 'warn';
+  if (edgeId.startsWith('e-angles-creative-')) {
+    if (s === 'ANGLES_RUNNING') return 'running';
+    if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
   }
-  if (edgeId.startsWith('e-landing-campaign-')) {
-    if (CAMPAIGN_STATES.includes(s)) return 'running';
+  if (edgeId.startsWith('e-creative-') && edgeId.includes('-campaign-')) {
+    if (['VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    if (['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING'].includes(s)) return 'running';
     return 'pending';
   }
   if (edgeId.startsWith('e-campaign-') && edgeId.endsWith('-verdict')) {
@@ -125,12 +146,82 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState): EdgeState {
   if (edgeId === 'e-verdict-report') {
     if (s === 'COMPLETE') return 'done';
   }
+  if (edgeId === 'e-verdict-landing') {
+    if (s === 'LANDING_RUNNING') return 'running';
+    if (s === 'LANDING_DONE') return 'done';
+    if (s === 'COMPLETE') return 'warn';
+  }
 
   return 'pending';
 }
 
+function channelEdgeState(edgeId: string, channel: Platform, sprint: SprintRecord | null, fallback: EdgeState): EdgeState {
+  if (sprint && !sprint.active_channels.includes(channel)) return 'pending';
+  return edgeStageFor(edgeId, sprint?.state) ?? fallback;
+}
+
+function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
+  return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
+}
+
+function stackY(index: number, total: number) {
+  if (total <= 1) return Y_CENTER;
+  return Y_CENTER - ((total - 1) * CHANNEL_ROW_GAP) / 2 + index * CHANNEL_ROW_GAP;
+}
+
+function selectedAngleFor(sprint: SprintRecord | null): Angle | undefined {
+  const angles = sprint?.angles?.angles;
+  if (!angles?.length) return undefined;
+  const selectedAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id;
+  return angles.find((angle) => angle.id === selectedAngleId) ?? angles[0];
+}
+
+function creativeDataFor(channel: Platform, sprint: SprintRecord | null, drafts: CreativeDrafts) {
+  const selectedAngle = selectedAngleFor(sprint);
+  const draft = drafts[channel];
+  const angle = draft && draft.angleId === selectedAngle?.id ? draft.angle : selectedAngle;
+  const assets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> } | undefined)?.creative_assets?.[channel];
+  const brandName = draft?.brandName ?? assets?.brand_name ?? 'Your Brand';
+  const image = draft?.image ?? assets?.image ?? null;
+
+  if (!angle) {
+    return { channel, stage: sprintStageFor(`creative-${channel}`, sprint?.state, sprint) };
+  }
+
+  if (channel === 'meta') {
+    return {
+      channel, selectedAngle: angle.id, brandName, image, cta: angle.cta,
+      title: angle.copy.meta.headline,
+      body: angle.copy.meta.body,
+      stage: sprintStageFor(`creative-${channel}`, sprint?.state, sprint),
+    };
+  }
+  if (channel === 'google') {
+    return {
+      channel, selectedAngle: angle.id, brandName, image, cta: angle.cta,
+      title: `${angle.copy.google.headline1} | ${angle.copy.google.headline2}`,
+      body: angle.copy.google.description,
+      stage: sprintStageFor(`creative-${channel}`, sprint?.state, sprint),
+    };
+  }
+  if (channel === 'linkedin') {
+    return {
+      channel, selectedAngle: angle.id, brandName, image, cta: angle.cta,
+      title: angle.copy.linkedin.headline,
+      body: angle.copy.linkedin.intro || angle.copy.linkedin.body,
+      stage: sprintStageFor(`creative-${channel}`, sprint?.state, sprint),
+    };
+  }
+  return {
+    channel, selectedAngle: angle.id, brandName, image, cta: angle.cta,
+    title: angle.copy.tiktok.hook,
+    body: angle.copy.tiktok.overlay,
+    stage: sprintStageFor(`creative-${channel}`, sprint?.state, sprint),
+  };
+}
+
 // ── Build static node list ───────────────────────────────────────────────────
-function buildNodes(sprint: SprintRecord | null): Node[] {
+function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts): Node[] {
   const s  = sprint?.state;
   const g  = sprint?.genome;
   const hg = sprint?.healthgate;
@@ -138,33 +229,41 @@ function buildNodes(sprint: SprintRecord | null): Node[] {
   const l  = sprint?.landing;
   const c  = sprint?.campaign;
   const v  = sprint?.verdict;
+  const activeChannels = activeChannelsFor(sprint);
+  const selectedAngle = selectedAngleFor(sprint);
 
   return [
     // Accounts
     { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: Y_CENTER },
-      data: { connectedCount: 0, stage: sprintStageFor('accounts', s) } },
+      data: { connectedCount: 0, stage: sprintStageFor('accounts', s, sprint) } },
 
     // Genome
     { id: 'genome', type: 'genome', position: { x: X.genome, y: Y_CENTER },
-      data: { composite: g?.composite, signal: g?.signal, stage: sprintStageFor('genome', s) } },
+      data: { composite: g?.composite, signal: g?.signal, stage: sprintStageFor('genome', s, sprint) } },
 
-    // Healthgate × 4
-    ...CHANNELS.map((ch, i) => ({
-      id: `hg-${ch}`, type: 'healthgate', position: { x: X.hg, y: Y_STACK[i] },
-      data: { channel: ch, score: hg?.[ch]?.score, status: hg?.[ch]?.status, stage: sprintStageFor(`hg-${ch}`, s) },
+    // Healthgate per selected channel
+    ...activeChannels.map((ch, i) => ({
+      id: `hg-${ch}`, type: 'healthgate', position: { x: X.hg, y: stackY(i, activeChannels.length) },
+      data: { channel: ch, score: hg?.[ch]?.score, status: hg?.[ch]?.status, stage: sprintStageFor(`hg-${ch}`, s, sprint) },
     })),
 
     // Angles
     { id: 'angles', type: 'angles', position: { x: X.angles, y: Y_CENTER },
-      data: { angleCount: a?.angles?.length, archetypes: a?.angles?.map((ang) => ang.archetype), stage: sprintStageFor('angles', s) } },
+      data: { angleCount: selectedAngle ? 1 : a?.angles?.length, archetypes: selectedAngle ? [selectedAngle.archetype] : a?.angles?.map((ang) => ang.archetype), stage: sprintStageFor('angles', s, sprint) } },
+
+    // Channel creative previews for the selected angle only
+    ...activeChannels.map((ch, i) => ({
+      id: `creative-${ch}`, type: 'creative', position: { x: X.creative, y: stackY(i, activeChannels.length) },
+      data: creativeDataFor(ch, sprint, creativeDrafts),
+    })),
 
     // Landing pages
     { id: 'landing', type: 'landing', position: { x: X.landing, y: Y_CENTER },
-      data: { pageCount: l?.pages?.length, stage: sprintStageFor('landing', s) } },
+      data: { pageCount: l?.pages?.length, stage: sprintStageFor('landing', s, sprint) } },
 
-    // Campaign × 4
-    ...CHANNELS.map((ch, i) => ({
-      id: `campaign-${ch}`, type: 'campaign', position: { x: X.campaign, y: Y_STACK[i] },
+    // Campaign per selected channel
+    ...activeChannels.map((ch, i) => ({
+      id: `campaign-${ch}`, type: 'campaign', position: { x: X.campaign, y: stackY(i, activeChannels.length) },
       data: {
         channel: ch,
         ctr: c?.[ch]?.angle_metrics?.length
@@ -172,17 +271,17 @@ function buildNodes(sprint: SprintRecord | null): Node[] {
             Math.max(1, c[ch].angle_metrics.reduce((s, a) => s + a.impressions, 0))
           : undefined,
         spendCents: c?.[ch]?.spent_cents,
-        stage: sprintStageFor(`campaign-${ch}`, s),
+        stage: sprintStageFor(`campaign-${ch}`, s, sprint),
       },
     })),
 
     // Verdict
     { id: 'verdict', type: 'verdict', position: { x: X.verdict, y: Y_CENTER },
-      data: { verdict: v?.verdict, confidence: v?.confidence, stage: sprintStageFor('verdict', s) } },
+      data: { verdict: v?.verdict, confidence: v?.confidence, stage: sprintStageFor('verdict', s, sprint) } },
 
     // Report
     { id: 'report', type: 'report', position: { x: X.report, y: Y_CENTER },
-      data: { ready: !!sprint?.report?.pdf_url, stage: sprintStageFor('report', s) } },
+      data: { ready: !!sprint?.report?.pdf_url, stage: sprintStageFor('report', s, sprint) } },
 
     // Utility nodes
     { id: 'benchmarks', type: 'benchmarks', position: { x: X.accounts, y: 580 }, data: { stage: 'idle' as NodeStage } },
@@ -192,26 +291,31 @@ function buildNodes(sprint: SprintRecord | null): Node[] {
 
 function buildEdges(sprint: SprintRecord | null): Edge[] {
   const s = sprint?.state;
+  const activeChannels = activeChannelsFor(sprint);
 
   const edges: Edge[] = [
     { id: 'e-accounts-genome', type: 'pipeline', source: 'accounts', target: 'genome', data: { state: edgeStageFor('e-accounts-genome', s) } },
-    ...CHANNELS.map((ch) => ({
+    ...activeChannels.map((ch) => ({
       id: `e-genome-hg-${ch}`, type: 'pipeline', source: 'genome', target: `hg-${ch}`,
-      data: { state: edgeStageFor(`e-genome-hg-${ch}`, s) },
+      data: { state: channelEdgeState(`e-genome-hg-${ch}`, ch, sprint, 'pending') },
     })),
-    ...CHANNELS.map((ch) => ({
+    ...activeChannels.map((ch) => ({
       id: `e-hg-${ch}-angles`, type: 'pipeline', source: `hg-${ch}`, target: 'angles',
-      data: { state: edgeStageFor(`e-hg-${ch}-angles`, s) },
+      data: { state: channelEdgeState(`e-hg-${ch}-angles`, ch, sprint, 'pending') },
     })),
-    { id: 'e-angles-landing', type: 'pipeline', source: 'angles', target: 'landing', data: { state: edgeStageFor('e-angles-landing', s) } },
-    ...CHANNELS.map((ch) => ({
-      id: `e-landing-campaign-${ch}`, type: 'pipeline', source: 'landing', target: `campaign-${ch}`,
-      data: { state: edgeStageFor(`e-landing-campaign-${ch}`, s) },
+    ...activeChannels.map((ch) => ({
+      id: `e-angles-creative-${ch}`, type: 'pipeline', source: 'angles', target: `creative-${ch}`,
+      data: { state: channelEdgeState(`e-angles-creative-${ch}`, ch, sprint, 'pending') },
     })),
-    ...CHANNELS.map((ch) => ({
+    ...activeChannels.map((ch) => ({
+      id: `e-creative-${ch}-campaign-${ch}`, type: 'pipeline', source: `creative-${ch}`, target: `campaign-${ch}`,
+      data: { state: channelEdgeState(`e-creative-${ch}-campaign-${ch}`, ch, sprint, 'pending') },
+    })),
+    ...activeChannels.map((ch) => ({
       id: `e-campaign-${ch}-verdict`, type: 'pipeline', source: `campaign-${ch}`, target: 'verdict',
-      data: { state: edgeStageFor(`e-campaign-${ch}-verdict`, s) },
+      data: { state: channelEdgeState(`e-campaign-${ch}-verdict`, ch, sprint, 'pending') },
     })),
+    { id: 'e-verdict-landing', type: 'pipeline', source: 'verdict', target: 'landing', data: { state: edgeStageFor('e-verdict-landing', s) } },
     { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s) } },
   ];
   return edges;
@@ -288,11 +392,36 @@ const DEMO_HEALTHGATE_DATA: Record<Platform, Record<string, unknown>> = {
   },
 };
 
+async function readApiError(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => '');
+  if (!text) return fallback;
+  try {
+    const json = JSON.parse(text) as { error?: string };
+    return json.error ?? fallback;
+  } catch {
+    return text.slice(0, 180) || fallback;
+  }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ── New Sprint Modal ─────────────────────────────────────────────────────────
 function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated: (sprint: SprintRecord) => void }) {
   const [idea, setIdea] = useState('');
+  const [channels, setChannels] = useState<Platform[]>([...CHANNELS]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const toggleChannel = (channel: Platform) => {
+    setChannels((prev) => {
+      if (prev.includes(channel)) {
+        return prev.length === 1 ? prev : prev.filter((item) => item !== channel);
+      }
+      return [...prev, channel];
+    });
+  };
 
   const handleSubmit = async () => {
     if (!idea.trim()) return;
@@ -300,7 +429,7 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
     try {
       const res = await fetch('/api/sprint', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idea: idea.trim() }),
+        body: JSON.stringify({ idea: idea.trim(), channels }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Failed to create sprint'); return; }
@@ -340,6 +469,34 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
           }}
           autoFocus
         />
+        <div style={{ marginTop: 14 }}>
+          <p style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8C8880', marginBottom: 8 }}>Channels</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {CHANNELS.map((channel) => {
+              const selected = channels.includes(channel);
+              return (
+                <button
+                  key={channel}
+                  type="button"
+                  onClick={() => toggleChannel(channel)}
+                  style={{
+                    height: 38,
+                    border: `1px solid ${selected ? '#111110' : '#E8E4DC'}`,
+                    background: selected ? '#F3F0EB' : '#FFFFFF',
+                    borderRadius: 10,
+                    color: '#111110',
+                    cursor: 'pointer',
+                    fontSize: '0.8125rem',
+                    fontWeight: selected ? 700 : 500,
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {channel}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {error && <p style={{ fontSize: '0.8125rem', color: '#DC2626', margin: '8px 0 0' }}>{error}</p>}
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button
@@ -367,9 +524,9 @@ function StateLabel({ state }: { state?: SprintState }) {
   const running = ['GENOME_RUNNING','HEALTHGATE_RUNNING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(state);
   const label: Record<string, string> = {
     GENOME_RUNNING: 'GenomeAgent running…', GENOME_DONE: 'Genome complete',
-    HEALTHGATE_RUNNING: 'HealthgateAgent × 4 running…', HEALTHGATE_DONE: 'Healthgate complete',
+    HEALTHGATE_RUNNING: 'HealthgateAgent running…', HEALTHGATE_DONE: 'Healthgate complete',
     ANGLES_RUNNING: 'AngleAgent running…', ANGLES_DONE: 'Angles generated',
-    LANDING_RUNNING: 'Landing pages generating…', LANDING_DONE: 'Landing pages ready',
+    LANDING_RUNNING: 'Landing page generating…', LANDING_DONE: 'Landing page ready',
     CAMPAIGN_RUNNING: 'Campaigns launching…', CAMPAIGN_MONITORING: 'Monitoring campaigns…',
     VERDICT_GENERATING: 'VerdictAgent running…', COMPLETE: 'Sprint complete',
     BLOCKED: 'Sprint blocked',
@@ -378,6 +535,48 @@ function StateLabel({ state }: { state?: SprintState }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', background: '#FFF', border: '1px solid #E8E4DC', borderRadius: 99, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
       {running && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#111110' }} className="animate-pulse" />}
       <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#111110' }}>{label[state] ?? state}</span>
+    </div>
+  );
+}
+
+function AgentRunPanel({ state }: { state?: SprintState }) {
+  if (!state) return null;
+  const steps: { state: SprintState; label: string }[] = [
+    { state: 'GENOME_RUNNING', label: 'Genome' },
+    { state: 'HEALTHGATE_RUNNING', label: 'Healthgate' },
+    { state: 'ANGLES_RUNNING', label: 'Angles' },
+    { state: 'LANDING_RUNNING', label: 'Landing' },
+    { state: 'CAMPAIGN_RUNNING', label: 'Campaign' },
+    { state: 'VERDICT_GENERATING', label: 'Verdict' },
+  ];
+  const active = steps.find((step) => step.state === state);
+  if (!active) return null;
+
+  return (
+    <div style={{ width: 320, background: '#111110', color: '#FFFFFF', border: '1px solid #242424', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
+      <p style={{ margin: '0 0 4px', fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8C8880' }}>
+        Agent running
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <p style={{ margin: 0, fontSize: '1rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{active.label}Agent</p>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#FFFFFF' }} className="animate-pulse" />
+      </div>
+      <div style={{ display: 'flex', gap: 4, marginTop: 12 }}>
+        {steps.map((step) => {
+          const isActive = step.state === state;
+          return (
+            <div
+              key={step.state}
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: 99,
+                background: isActive ? '#FFFFFF' : '#2E2E2E',
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -400,6 +599,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [panelChannel, setPanelChannel] = useState<string | undefined>(undefined);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [creativeDrafts, setCreativeDrafts] = useState<CreativeDrafts>({});
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -464,6 +664,10 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (activeSprint) loadSprintDetail(activeSprint);
   }, [activeSprint, loadSprintDetail]);
 
+  useEffect(() => {
+    setCreativeDrafts({});
+  }, [activeSprint]);
+
   // ── Poll active sprint ───────────────────────────────────────────────────
   useEffect(() => {
     if (!activeSprint) return;
@@ -475,12 +679,12 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
   // ── Sync nodes / edges ───────────────────────────────────────────────────
   useEffect(() => {
-    const n = buildNodes(sprintData);
+    const n = buildNodes(sprintData, creativeDrafts);
     // Inject connected platforms count into accounts node
     n[0] = { ...n[0], data: { ...n[0].data, connectedCount: connectedPlatforms.length } };
     setNodes(n);
     setEdges(buildEdges(sprintData));
-  }, [sprintData, connectedPlatforms.length, setEdges, setNodes]);
+  }, [sprintData, creativeDrafts, connectedPlatforms.length, setEdges, setNodes]);
 
   // ── Node click handler ───────────────────────────────────────────────────
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
@@ -493,6 +697,11 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       return;
     }
     if (id === 'angles')     { setActivePanel('angles');     setPanelChannel(undefined); return; }
+    if (id.startsWith('creative-')) {
+      setActivePanel('creative');
+      setPanelChannel(id.replace('creative-', ''));
+      return;
+    }
     if (id === 'landing')    { setActivePanel('landing');    setPanelChannel(undefined); return; }
     if (id.startsWith('campaign-')) {
       setActivePanel('campaign');
@@ -505,7 +714,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (id === 'settings')   { setActivePanel('settings');   setPanelChannel(undefined); return; }
   }, []);
 
-  const runSprintPipeline = useCallback(async (id: string) => {
+  const runSprintPipeline = useCallback(async (id: string, options: { overrideStop?: boolean; continueAfterAngles?: boolean } = {}) => {
     setPipelineError(null);
     setPipelineRunning(true);
     try {
@@ -513,14 +722,21 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       if (!current) throw new Error('Sprint could not be loaded');
 
       if (current.state === 'BLOCKED') {
-        throw new Error(current.blocked_reason ?? 'Sprint is blocked');
+        if (!options.overrideStop || !current.genome) {
+          throw new Error(current.blocked_reason ?? 'Sprint is blocked');
+        }
+        const res = await fetch(`/api/sprint/${id}/override-stop`, { method: 'POST' });
+        if (!res.ok) throw new Error(await readApiError(res, 'Override failed'));
+        current = await loadSprintDetail(id);
+        if (!current) throw new Error('Sprint could not be loaded after override');
       }
 
       if (current.state === 'IDLE') {
         setActivePanel('genome');
         setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'GENOME_RUNNING' } : prev);
+        await wait(450);
         const res = await fetch(`/api/sprint/${id}/genome`, { method: 'POST' });
-        if (!res.ok) throw new Error((await res.json()).error ?? 'Genome failed');
+        if (!res.ok) throw new Error(await readApiError(res, 'Genome failed'));
         current = await loadSprintDetail(id);
         if (!current || current.state === 'BLOCKED') return;
       }
@@ -528,12 +744,16 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       if (current.state === 'GENOME_DONE') {
         setActivePanel('healthgate');
         setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'HEALTHGATE_RUNNING' } : prev);
+        await wait(450);
+        const selectedChannelData = Object.fromEntries(
+          current.active_channels.map((channel) => [channel, DEMO_HEALTHGATE_DATA[channel]])
+        );
         const res = await fetch(`/api/sprint/${id}/healthgate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channel_data: DEMO_HEALTHGATE_DATA }),
+          body: JSON.stringify({ channel_data: selectedChannelData }),
         });
-        if (!res.ok) throw new Error((await res.json()).error ?? 'Healthgate failed');
+        if (!res.ok) throw new Error(await readApiError(res, 'Healthgate failed'));
         current = await loadSprintDetail(id);
         if (!current || current.state === 'BLOCKED') return;
       }
@@ -541,19 +761,30 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       if (current.state === 'HEALTHGATE_DONE') {
         setActivePanel('angles');
         setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'ANGLES_RUNNING' } : prev);
+        await wait(450);
         const res = await fetch(`/api/sprint/${id}/angles`, { method: 'POST' });
-        if (!res.ok) throw new Error((await res.json()).error ?? 'Angles failed');
+        if (!res.ok) throw new Error(await readApiError(res, 'Angles failed'));
         current = await loadSprintDetail(id);
         if (!current || current.state === 'BLOCKED') return;
+        setActivePanel('angles');
+        return;
       }
 
-      if (current.state === 'ANGLES_DONE' || current.state === 'LANDING_RUNNING' || current.state === 'LANDING_DONE') {
+      if (current.state === 'ANGLES_DONE') {
+        setActivePanel(options.continueAfterAngles ? 'creative' : 'angles');
+        setPanelChannel(current.active_channels?.[0] ?? 'meta');
+        return;
+      }
+
+      if (current.state === 'LANDING_RUNNING') {
         setActivePanel('landing');
-        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'LANDING_RUNNING' } : prev);
-        const res = await fetch(`/api/sprint/${id}/demo-complete`, { method: 'POST' });
-        if (!res.ok) throw new Error((await res.json()).error ?? 'Demo completion failed');
-        await loadSprintDetail(id);
-        setActivePanel('verdict');
+        return;
+      }
+
+      if (current.state === 'LANDING_DONE') {
+        setActivePanel('campaign');
+        setPipelineError('Landing page is deployed. Campaign launch is the next gated step; verdict generation will wait for live spend or the 48-hour window.');
+        return;
       }
     } catch (err) {
       setPipelineError(err instanceof Error ? err.message : 'Sprint pipeline failed');
@@ -576,6 +807,11 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     setActiveSprint(sprintId);
     setActivePanel('campaign');
     setPanelChannel(undefined);
+  };
+
+  const handleSprintPatched = (raw: unknown) => {
+    const normalized = normalizeSprint(raw as RawSprintRecord);
+    if (normalized) setSprintData(normalized);
   };
 
   return (
@@ -615,7 +851,16 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
               sprint={sprintData}
               onClose={() => setActivePanel(null)}
               onEditSetup={handleEditSetup}
-              onRunWorkflow={(id) => void runSprintPipeline(id)}
+              onRunWorkflow={(id) => void runSprintPipeline(id, { overrideStop: true })}
+              onContinueAfterAngles={() => {
+                setActivePanel('creative');
+                setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
+              }}
+              creativeDraft={panelChannel ? creativeDrafts[panelChannel as Platform] : undefined}
+              onCreativeDraftChange={(draft) => {
+                setCreativeDrafts((prev) => ({ ...prev, [draft.channel]: draft }));
+              }}
+              onSprintPatched={handleSprintPatched}
               workflowRunning={pipelineRunning}
               embedded
             />
@@ -628,8 +873,14 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
           </Panel>
         )}
 
-        {pipelineError && (
+        {sprintData?.state && (
           <Panel position="bottom-right" style={{ margin: 16 }}>
+            <AgentRunPanel state={sprintData.state} />
+          </Panel>
+        )}
+
+        {pipelineError && (
+          <Panel position="top-center" style={{ marginTop: 76 }}>
             <div style={{ maxWidth: 360, padding: '10px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, color: '#DC2626', fontSize: '0.8125rem' }}>
               {pipelineError}
             </div>

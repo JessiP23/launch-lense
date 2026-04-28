@@ -16,6 +16,8 @@ import type {
   SprintRecord,
 } from '@/lib/agents/types';
 
+type DbSprintRecord = SprintRecord & { id?: string };
+
 const CHANNEL_MULTIPLIER: Record<Platform, number> = {
   meta: 1,
   google: 1.65,
@@ -25,17 +27,19 @@ const CHANNEL_MULTIPLIER: Record<Platform, number> = {
 const ALL_CHANNELS: Platform[] = ['meta', 'google', 'linkedin', 'tiktok'];
 
 function buildLanding(sprint: SprintRecord): LandingAgentOutput {
+  const selectedAngleId = (sprint.angles as { selected_angle_id?: string } | undefined)?.selected_angle_id;
+  const selectedAngle = sprint.angles!.angles.find((angle) => angle.id === selectedAngleId) ?? sprint.angles!.angles[0];
   return {
-    pages: sprint.angles!.angles.map((angle) => ({
-      angle_id: angle.id,
-      utm_base: `utm_campaign=${sprint.sprint_id}&utm_content=${angle.id}`,
+    pages: [{
+      angle_id: selectedAngle.id,
+      utm_base: `utm_campaign=${sprint.sprint_id}&utm_content=${selectedAngle.id}`,
       html: '',
       sections: [
         {
           type: 'hero',
-          headline: angle.copy.meta.headline,
-          subheadline: angle.copy.meta.body,
-          cta_label: angle.cta,
+          headline: selectedAngle.copy.meta.headline,
+          subheadline: selectedAngle.copy.meta.body,
+          cta_label: selectedAngle.cta,
         },
         {
           type: 'proof',
@@ -45,14 +49,14 @@ function buildLanding(sprint: SprintRecord): LandingAgentOutput {
             'Angle isolation shows which message is worth building around',
           ],
         },
-        { type: 'form', headline: 'Join the validation list', cta_label: angle.cta },
+        { type: 'form', headline: 'Join the validation list', cta_label: selectedAngle.cta },
         {
           type: 'trust',
           quote: 'A sprint should produce a decision, not another dashboard.',
           quote_attribution: 'LaunchLense validation report',
         },
       ],
-    })),
+    }],
   };
 }
 
@@ -60,12 +64,15 @@ function buildCampaigns(sprint: SprintRecord): Record<Platform, CampaignAgentOut
   const active: Platform[] = sprint.active_channels.length ? sprint.active_channels : ALL_CHANNELS;
   const budgetPerChannel = Math.floor(sprint.budget_cents / active.length);
   const startedAt = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const sprintId = sprint.sprint_id;
+  const selectedAngleId = (sprint.angles as { selected_angle_id?: string } | undefined)?.selected_angle_id;
+  const selectedAngles = [sprint.angles!.angles.find((angle) => angle.id === selectedAngleId) ?? sprint.angles!.angles[0]];
 
   return Object.fromEntries(
     active.map((channel) => {
       const channelMultiplier = CHANNEL_MULTIPLIER[channel];
-      const angleMetrics = sprint.angles!.angles.map((angle, index): AngleMetrics => {
-        const spend_cents = Math.floor(budgetPerChannel / 3);
+      const angleMetrics = selectedAngles.map((angle, index): AngleMetrics => {
+        const spend_cents = budgetPerChannel;
         const impressions = Math.round((6200 - index * 900) * (channel === 'linkedin' ? 0.28 : 1));
         const ctr = Number(((0.022 - index * 0.004) * channelMultiplier).toFixed(4));
         const clicks = Math.max(1, Math.round(impressions * ctr));
@@ -85,7 +92,7 @@ function buildCampaigns(sprint: SprintRecord): Record<Platform, CampaignAgentOut
         {
           channel,
           status: 'COMPLETE',
-          campaign_id: `demo_${channel}_${sprint.sprint_id.slice(0, 8)}`,
+          campaign_id: `demo_${channel}_${sprintId.slice(0, 8)}`,
           campaign_start_time: startedAt,
           budget_cents: budgetPerChannel,
           spent_cents: angleMetrics.reduce((sum, metric) => sum + metric.spend_cents, 0),
@@ -107,7 +114,13 @@ export async function POST(
   const { data, error } = await db.from('sprints').select('*').eq('id', sprint_id).single();
   if (error || !data) return Response.json({ error: 'Sprint not found' }, { status: 404 });
 
-  const sprint = data as SprintRecord;
+  const rawSprint = data as DbSprintRecord;
+  const sprint: SprintRecord = {
+    ...rawSprint,
+    sprint_id: rawSprint.sprint_id ?? rawSprint.id ?? sprint_id,
+    active_channels: rawSprint.active_channels?.length ? rawSprint.active_channels : ALL_CHANNELS,
+    budget_cents: rawSprint.budget_cents ?? 50000,
+  };
   if (!sprint.angles?.angles?.length) {
     return Response.json({ error: 'Angles must be generated before demo completion' }, { status: 409 });
   }
