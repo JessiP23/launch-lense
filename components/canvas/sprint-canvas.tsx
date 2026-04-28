@@ -337,6 +337,8 @@ function landingDraftFor(sprint: SprintRecord | null, draft?: LandingDraft | nul
     cta: draft?.cta ?? hero?.cta_label ?? selectedAngle?.cta,
     proof: draft?.proof ?? proof?.bullets,
     testimonial: draft?.testimonial ?? trust?.quote,
+    customHtml: draft?.customHtml,
+    customCss: draft?.customCss,
   };
 }
 

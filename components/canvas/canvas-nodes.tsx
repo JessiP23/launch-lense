@@ -272,6 +272,7 @@ function handleFor(brandName?: string) {
 export type LandingNodeData = {
   pageCount?: number;
   stage: NodeStage;
+  mode?: 'builder' | 'code';
   eyebrow?: string;
   headline?: string;
   subheadline?: string;
@@ -279,6 +280,8 @@ export type LandingNodeData = {
   proof?: string[];
   testimonial?: string;
   theme?: string;
+  customHtml?: string;
+  customCss?: string;
   url?: string | null;
 };
 export type LandingNodeType = Node<LandingNodeData, 'landing'>;
@@ -294,6 +297,23 @@ export const LandingNode = memo(({ data, selected }: NodeProps<LandingNodeType>)
 LandingNode.displayName = 'LandingNode';
 
 function LandingNodePreview({ data }: { data: LandingNodeData }) {
+  if (data.mode === 'code') {
+    const srcDoc = `<!doctype html><html><head><style>:root{--canvas:#FAFAF8;--surface:#FFFFFF;--border:#E8E4DC;--ink:#111110;--muted:#8C8880;--faint:#F3F0EB}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,system-ui,sans-serif;overflow:hidden}${data.customCss ?? ''}</style></head><body>${data.customHtml || '<main style="padding:24px"><p style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#8C8880;font-weight:800">Custom HTML/CSS</p><h1 style="font-size:42px;line-height:.95;letter-spacing:-.06em;margin:8px 0">Paste custom page</h1></main>'}</body></html>`;
+    return (
+      <div style={{ marginTop: 10, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', background: C.surface }}>
+        <div style={{ height: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px', borderBottom: `1px solid ${C.border}`, background: C.faint }}>
+          <span style={{ fontSize: '0.5625rem', color: C.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>HTML/CSS</span>
+          <span style={{ fontSize: '0.5625rem', color: C.muted }}>live</span>
+        </div>
+        <iframe
+          title="Landing node custom preview"
+          srcDoc={srcDoc}
+          sandbox=""
+          style={{ width: '100%', height: 238, border: 0, display: 'block', pointerEvents: 'none', transform: 'scale(0.82)', transformOrigin: 'top left', inlineSize: '122%' }}
+        />
+      </div>
+    );
+  }
   const proof = data.proof?.filter(Boolean).slice(0, 3) ?? [];
   const isEditorial = data.theme === 'editorial';
   return (
