@@ -47,12 +47,13 @@ interface CardProps {
   hasRight?: boolean;
   selected?: boolean;
   width?: number;
+  height?: number;
   children?: ReactNode;
 }
 
 function NodeCard({
   label, metric, metricLabel, sublabel,
-  stage, hasLeft = true, hasRight = true, selected = false, width = 168, children,
+  stage, hasLeft = true, hasRight = true, selected = false, width = 168, height, children,
 }: CardProps) {
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
@@ -60,6 +61,8 @@ function NodeCard({
     <div
       style={{
         width,
+        height,
+        boxSizing: 'border-box',
         background: stageBg(stage),
         border: `${isRunning ? 2 : 1.5}px solid ${selected ? C.ink : border}`,
         borderRadius: 14,
@@ -72,6 +75,7 @@ function NodeCard({
         cursor: 'pointer',
         transition: 'box-shadow 0.2s ease, border-color 0.3s ease',
         position: 'relative',
+        overflow: height ? 'hidden' : 'visible',
       }}
     >
       {hasLeft && (
@@ -173,7 +177,7 @@ export type CreativeNodeData = {
 export type CreativeNodeType = Node<CreativeNodeData, 'creative'>;
 export const CreativeNode = memo(({ data, selected }: NodeProps<CreativeNodeType>) => (
   <NodeCard
-    label={`Creative · ${data.channel ?? 'Channel'}`} stage={data.stage} selected={!!selected} width={236}
+    label={`Creative · ${data.channel ?? 'Channel'}`} stage={data.stage} selected={!!selected} width={236} height={340}
     metric={data.selectedAngle?.replace('angle_', '') ?? (data.stage === 'running' ? '…' : '—')}
     metricLabel={data.title ? 'live preview' : 'select angle'}
   >
@@ -195,8 +199,8 @@ function CreativeNodePreview({ data }: { data: CreativeNodeData }) {
     return (
       <div style={{ marginTop: 10, border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: 10 }}>
         <p style={{ margin: '0 0 3px', color: C.muted, fontSize: '0.5625rem' }}>Sponsored · {domainFor(data.brandName)}</p>
-        <p style={{ margin: '0 0 4px', color: C.ink, fontSize: '0.75rem', fontWeight: 800, lineHeight: 1.2 }}>{data.title}</p>
-        <p style={{ margin: 0, color: C.muted, fontSize: '0.625rem', lineHeight: 1.35 }}>{data.body}</p>
+        <p style={{ margin: '0 0 4px', color: C.ink, fontSize: '0.75rem', fontWeight: 800, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.title}</p>
+        <p style={{ margin: 0, color: C.muted, fontSize: '0.625rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.body}</p>
       </div>
     );
   }
@@ -210,7 +214,7 @@ function CreativeNodePreview({ data }: { data: CreativeNodeData }) {
         )}
         <div style={{ position: 'absolute', left: 8, right: 8, bottom: 8 }}>
           <p style={{ margin: '0 0 4px', fontSize: '0.5625rem', color: '#FFFFFFB3' }}>@{handleFor(data.brandName)}</p>
-          <p style={{ margin: '0 0 6px', fontSize: '0.6875rem', fontWeight: 900, lineHeight: 1.15 }}>{data.title}</p>
+          <p style={{ margin: '0 0 6px', fontSize: '0.6875rem', fontWeight: 900, lineHeight: 1.15, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.title}</p>
           <span style={{ display: 'inline-block', border: '1px solid #FFF', borderRadius: 999, padding: '3px 6px', fontSize: '0.5625rem', fontWeight: 800 }}>{data.cta}</span>
         </div>
       </div>
@@ -235,8 +239,8 @@ function CreativeNodePreview({ data }: { data: CreativeNodeData }) {
         <div style={{ width: '100%', aspectRatio: '1.91 / 1', display: 'grid', placeItems: 'center', background: C.faint, color: C.muted, fontSize: '0.625rem' }}>Image preview</div>
       )}
       <div style={{ padding: 8 }}>
-        <p style={{ margin: '0 0 3px', fontSize: '0.75rem', fontWeight: 900, lineHeight: 1.2 }}>{data.title}</p>
-        <p style={{ margin: 0, color: C.muted, fontSize: '0.625rem', lineHeight: 1.35 }}>{data.body}</p>
+        <p style={{ margin: '0 0 3px', fontSize: '0.75rem', fontWeight: 900, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.title}</p>
+        <p style={{ margin: 0, color: C.muted, fontSize: '0.625rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.body}</p>
       </div>
     </div>
   );

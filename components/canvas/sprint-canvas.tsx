@@ -38,10 +38,41 @@ const nodeTypes: NodeTypes = {
 const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
 
 // ── Layout constants ─────────────────────────────────────────────────────────
-const X = { accounts: 80, genome: 300, hg: 520, angles: 750, creative: 980, campaign: 1290, verdict: 1530, landing: 1770, report: 2010 };
-const Y_CENTER = 420;
-const CHANNEL_ROW_GAP = 280;
+// React Flow positions are top-left coordinates. Keep dimensions centralized so
+// the layout can reserve real bounding boxes instead of relying on visual guesses.
+const NODE_SIZE = {
+  standard: { width: 168, height: 96 },
+  creative: { width: 236, height: 340 },
+};
+const LAYOUT = {
+  left: 80,
+  top: 140,
+  columnGap: 88,
+  laneGap: 96,
+  utilityGap: 120,
+};
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
+
+const X = (() => {
+  const columns = [
+    ['accounts', NODE_SIZE.standard.width],
+    ['genome', NODE_SIZE.standard.width],
+    ['hg', NODE_SIZE.standard.width],
+    ['angles', NODE_SIZE.standard.width],
+    ['creative', NODE_SIZE.creative.width],
+    ['campaign', NODE_SIZE.standard.width],
+    ['verdict', NODE_SIZE.standard.width],
+    ['landing', NODE_SIZE.standard.width],
+    ['report', NODE_SIZE.standard.width],
+  ] as const;
+
+  let cursor = LAYOUT.left;
+  return columns.reduce((acc, [key, width]) => {
+    acc[key] = cursor;
+    cursor += width + LAYOUT.columnGap;
+    return acc;
+  }, {} as Record<typeof columns[number][0], number>);
+})();
 
 type CreativeDraft = {
   channel: Platform;
@@ -164,9 +195,55 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
   return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
 }
 
-function stackY(index: number, total: number) {
-  if (total <= 1) return Y_CENTER;
-  return Y_CENTER - ((total - 1) * CHANNEL_ROW_GAP) / 2 + index * CHANNEL_ROW_GAP;
+function buildLayout(channelCount: number) {
+  const laneHeight = NODE_SIZE.creative.height;
+  const lanePitch = laneHeight + LAYOUT.laneGap;
+  const workflowHeight = channelCount * laneHeight + Math.max(0, channelCount - 1) * LAYOUT.laneGap;
+  const workflowCenter = LAYOUT.top + workflowHeight / 2;
+  const standardTop = workflowCenter - NODE_SIZE.standard.height / 2;
+  const utilityTop = LAYOUT.top + workflowHeight + LAYOUT.utilityGap;
+
+  return {
+    standardTop,
+    utilityTop,
+    laneTop(index: number, nodeHeight = NODE_SIZE.standard.height) {
+      const laneCenter = LAYOUT.top + index * lanePitch + laneHeight / 2;
+      return laneCenter - nodeHeight / 2;
+    },
+  };
+}
+
+function nodeSize(node: Node) {
+  return node.type === 'creative' ? NODE_SIZE.creative : NODE_SIZE.standard;
+}
+
+function overlaps(a: Node, b: Node, padding = 32) {
+  const aSize = nodeSize(a);
+  const bSize = nodeSize(b);
+  const ax2 = a.position.x + aSize.width + padding;
+  const ay2 = a.position.y + aSize.height + padding;
+  const bx2 = b.position.x + bSize.width + padding;
+  const by2 = b.position.y + bSize.height + padding;
+
+  return a.position.x < bx2 && ax2 > b.position.x && a.position.y < by2 && ay2 > b.position.y;
+}
+
+function resolveNodeOverlaps(input: Node[]) {
+  const nodes = input
+    .map((node) => ({ ...node, position: { ...node.position } }))
+    .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x);
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = 0; j < i; j += 1) {
+      if (!overlaps(nodes[j], nodes[i])) continue;
+      const previousSize = nodeSize(nodes[j]);
+      nodes[i].position.y = nodes[j].position.y + previousSize.height + LAYOUT.laneGap;
+      j = -1; // Restart because moving against one rectangle can create a new intersection.
+    }
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node.position]));
+  return input.map((node) => ({ ...node, position: byId.get(node.id) ?? node.position }));
 }
 
 function selectedAngleFor(sprint: SprintRecord | null): Angle | undefined {
@@ -231,39 +308,40 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts)
   const v  = sprint?.verdict;
   const activeChannels = activeChannelsFor(sprint);
   const selectedAngle = selectedAngleFor(sprint);
+  const layout = buildLayout(activeChannels.length);
 
-  return [
+  return resolveNodeOverlaps([
     // Accounts
-    { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: Y_CENTER },
+    { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: layout.standardTop },
       data: { connectedCount: 0, stage: sprintStageFor('accounts', s, sprint) } },
 
     // Genome
-    { id: 'genome', type: 'genome', position: { x: X.genome, y: Y_CENTER },
+    { id: 'genome', type: 'genome', position: { x: X.genome, y: layout.standardTop },
       data: { composite: g?.composite, signal: g?.signal, stage: sprintStageFor('genome', s, sprint) } },
 
     // Healthgate per selected channel
     ...activeChannels.map((ch, i) => ({
-      id: `hg-${ch}`, type: 'healthgate', position: { x: X.hg, y: stackY(i, activeChannels.length) },
+      id: `hg-${ch}`, type: 'healthgate', position: { x: X.hg, y: layout.laneTop(i) },
       data: { channel: ch, score: hg?.[ch]?.score, status: hg?.[ch]?.status, stage: sprintStageFor(`hg-${ch}`, s, sprint) },
     })),
 
     // Angles
-    { id: 'angles', type: 'angles', position: { x: X.angles, y: Y_CENTER },
+    { id: 'angles', type: 'angles', position: { x: X.angles, y: layout.standardTop },
       data: { angleCount: selectedAngle ? 1 : a?.angles?.length, archetypes: selectedAngle ? [selectedAngle.archetype] : a?.angles?.map((ang) => ang.archetype), stage: sprintStageFor('angles', s, sprint) } },
 
     // Channel creative previews for the selected angle only
     ...activeChannels.map((ch, i) => ({
-      id: `creative-${ch}`, type: 'creative', position: { x: X.creative, y: stackY(i, activeChannels.length) },
+      id: `creative-${ch}`, type: 'creative', position: { x: X.creative, y: layout.laneTop(i, NODE_SIZE.creative.height) },
       data: creativeDataFor(ch, sprint, creativeDrafts),
     })),
 
     // Landing pages
-    { id: 'landing', type: 'landing', position: { x: X.landing, y: Y_CENTER },
+    { id: 'landing', type: 'landing', position: { x: X.landing, y: layout.standardTop },
       data: { pageCount: l?.pages?.length, stage: sprintStageFor('landing', s, sprint) } },
 
     // Campaign per selected channel
     ...activeChannels.map((ch, i) => ({
-      id: `campaign-${ch}`, type: 'campaign', position: { x: X.campaign, y: stackY(i, activeChannels.length) },
+      id: `campaign-${ch}`, type: 'campaign', position: { x: X.campaign, y: layout.laneTop(i) },
       data: {
         channel: ch,
         ctr: c?.[ch]?.angle_metrics?.length
@@ -276,17 +354,17 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts)
     })),
 
     // Verdict
-    { id: 'verdict', type: 'verdict', position: { x: X.verdict, y: Y_CENTER },
+    { id: 'verdict', type: 'verdict', position: { x: X.verdict, y: layout.standardTop },
       data: { verdict: v?.verdict, confidence: v?.confidence, stage: sprintStageFor('verdict', s, sprint) } },
 
     // Report
-    { id: 'report', type: 'report', position: { x: X.report, y: Y_CENTER },
+    { id: 'report', type: 'report', position: { x: X.report, y: layout.standardTop },
       data: { ready: !!sprint?.report?.pdf_url, stage: sprintStageFor('report', s, sprint) } },
 
     // Utility nodes
-    { id: 'benchmarks', type: 'benchmarks', position: { x: X.accounts, y: 580 }, data: { stage: 'idle' as NodeStage } },
-    { id: 'settings',   type: 'settings',   position: { x: X.genome,   y: 580 }, data: { stage: 'idle' as NodeStage, configured: false } },
-  ];
+    { id: 'benchmarks', type: 'benchmarks', position: { x: X.accounts, y: layout.utilityTop }, data: { stage: 'idle' as NodeStage } },
+    { id: 'settings',   type: 'settings',   position: { x: X.genome,   y: layout.utilityTop }, data: { stage: 'idle' as NodeStage, configured: false } },
+  ]);
 }
 
 function buildEdges(sprint: SprintRecord | null): Edge[] {
@@ -814,6 +892,22 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (normalized) setSprintData(normalized);
   };
 
+  const handleCreativeDraftChange = useCallback((draft: CreativeDraft) => {
+    setCreativeDrafts((prev) => {
+      const current = prev[draft.channel];
+      if (
+        current?.angleId === draft.angleId &&
+        current.brandName === draft.brandName &&
+        current.image === draft.image &&
+        current.angle === draft.angle
+      ) {
+        return prev;
+      }
+
+      return { ...prev, [draft.channel]: draft };
+    });
+  }, []);
+
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#FAFAF8', position: 'relative', fontFamily: 'inherit' }}>
       <ReactFlow
@@ -857,9 +951,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
                 setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
               }}
               creativeDraft={panelChannel ? creativeDrafts[panelChannel as Platform] : undefined}
-              onCreativeDraftChange={(draft) => {
-                setCreativeDrafts((prev) => ({ ...prev, [draft.channel]: draft }));
-              }}
+              onCreativeDraftChange={handleCreativeDraftChange}
               onSprintPatched={handleSprintPatched}
               workflowRunning={pipelineRunning}
               embedded
