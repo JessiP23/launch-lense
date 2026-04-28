@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ReactFlow, useNodesState, useEdgesState, Background, BackgroundVariant,
+  ReactFlow, Background, BackgroundVariant,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler,
   ReactFlowProvider, Panel,
 } from '@xyflow/react';
@@ -295,6 +295,17 @@ function creativeDataFor(channel: Platform, sprint: SprintRecord | null, drafts:
     body: angle.copy.tiktok.overlay,
     stage: sprintStageFor(`creative-${channel}`, sprint?.state, sprint),
   };
+}
+
+function draftFingerprint(draft: CreativeDraft) {
+  return JSON.stringify({
+    channel: draft.channel,
+    angleId: draft.angleId,
+    brandName: draft.brandName,
+    image: draft.image,
+    cta: draft.angle.cta,
+    copy: draft.angle.copy,
+  });
 }
 
 // ── Build static node list ───────────────────────────────────────────────────
@@ -679,8 +690,14 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [creativeDrafts, setCreativeDrafts] = useState<CreativeDrafts>({});
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const nodes = useMemo(() => {
+    const built = buildNodes(sprintData, creativeDrafts);
+    if (!built[0]) return built;
+    built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
+    return built;
+  }, [sprintData, creativeDrafts, connectedPlatforms.length]);
+
+  const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
 
   // ── Load sprint list ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -754,15 +771,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     const interval = setInterval(() => loadSprintDetail(activeSprint), 8000);
     return () => clearInterval(interval);
   }, [activeSprint, sprintData?.state, loadSprintDetail]);
-
-  // ── Sync nodes / edges ───────────────────────────────────────────────────
-  useEffect(() => {
-    const n = buildNodes(sprintData, creativeDrafts);
-    // Inject connected platforms count into accounts node
-    n[0] = { ...n[0], data: { ...n[0].data, connectedCount: connectedPlatforms.length } };
-    setNodes(n);
-    setEdges(buildEdges(sprintData));
-  }, [sprintData, creativeDrafts, connectedPlatforms.length, setEdges, setNodes]);
 
   // ── Node click handler ───────────────────────────────────────────────────
   const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
@@ -896,10 +904,8 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     setCreativeDrafts((prev) => {
       const current = prev[draft.channel];
       if (
-        current?.angleId === draft.angleId &&
-        current.brandName === draft.brandName &&
-        current.image === draft.image &&
-        current.angle === draft.angle
+        current &&
+        draftFingerprint(current) === draftFingerprint(draft)
       ) {
         return prev;
       }
@@ -913,8 +919,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={onNodeClick}
@@ -923,6 +927,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
         minZoom={0.3}
         maxZoom={1.7}
+        nodesDraggable={false}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#E8E4DC" />
