@@ -880,6 +880,28 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     }
   }, [loadSprintDetail]);
 
+  const runDemoAfterCreatives = useCallback(async (id: string) => {
+    setPipelineError(null);
+    setPipelineRunning(true);
+    try {
+      setActivePanel('campaign');
+      setPanelChannel(undefined);
+      setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'CAMPAIGN_RUNNING' } : prev);
+      await wait(450);
+      const res = await fetch(`/api/sprint/${id}/demo-complete`, { method: 'POST' });
+      if (!res.ok) throw new Error(await readApiError(res, 'Demo workflow failed'));
+      const json = await res.json() as { sprint?: RawSprintRecord };
+      const updated = normalizeSprint(json.sprint ?? null);
+      if (updated) setSprintData(updated);
+      setActivePanel('campaign');
+    } catch (err) {
+      setPipelineError(err instanceof Error ? err.message : 'Demo workflow failed');
+      await loadSprintDetail(id);
+    } finally {
+      setPipelineRunning(false);
+    }
+  }, [loadSprintDetail]);
+
   const handleCreated = (sprint: SprintRecord) => {
     setSprints((prev) => [{ id: sprint.sprint_id, name: sprint.idea, status: 'idle' }, ...prev]);
     setActiveSprint(sprint.sprint_id);
@@ -955,6 +977,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
                 setActivePanel('creative');
                 setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
               }}
+              onContinueAfterCreatives={(id) => void runDemoAfterCreatives(id)}
               creativeDraft={panelChannel ? creativeDrafts[panelChannel as Platform] : undefined}
               onCreativeDraftChange={handleCreativeDraftChange}
               onSprintPatched={handleSprintPatched}

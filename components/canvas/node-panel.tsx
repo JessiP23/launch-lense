@@ -33,6 +33,7 @@ interface Props {
   onEditSetup: (sprintId: string) => void;
   onRunWorkflow?: (sprintId: string) => void;
   onContinueAfterAngles?: (sprintId: string) => void;
+  onContinueAfterCreatives?: (sprintId: string) => void;
   creativeDraft?: CreativeDraft;
   onCreativeDraftChange?: (draft: CreativeDraft) => void;
   onSprintPatched?: (rawSprint: unknown) => void;
@@ -558,12 +559,16 @@ function CreativePreviewPanel({
   creativeDraft,
   onCreativeDraftChange,
   onSprintPatched,
+  onContinue,
+  workflowRunning,
 }: {
   sprint?: SprintRecord | null;
   channel?: string;
   creativeDraft?: CreativeDraft;
   onCreativeDraftChange?: (draft: CreativeDraft) => void;
   onSprintPatched?: (rawSprint: unknown) => void;
+  onContinue?: (sprintId: string) => void;
+  workflowRunning?: boolean;
 }) {
   const angles = sprint?.angles?.angles ?? [];
   const [selectedId, setSelectedId] = useState<Angle['id']>('angle_A');
@@ -589,6 +594,8 @@ function CreativePreviewPanel({
   const activeChannel = lockedChannel ?? (channels.includes(channel) ? channel : channels[0]);
   const copy = selected?.copy[activeChannel];
   const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> } | undefined)?.creative_assets;
+  const savedChannels = channels.filter((item) => Boolean(creativeAssets?.[item]));
+  const allChannelsSaved = channels.length > 0 && savedChannels.length === channels.length;
 
   useEffect(() => {
     const saved = creativeAssets?.[activeChannel];
@@ -732,6 +739,29 @@ function CreativePreviewPanel({
           {saving ? 'Saving Creative' : `Save ${activeChannel} Creative`}
         </button>
         {message && <p style={{ margin: 0, color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>{message}</p>}
+      </div>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+        <Label>Creative Gate</Label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 12px' }}>
+          {channels.map((item) => {
+            const saved = Boolean(creativeAssets?.[item]);
+            return (
+              <span key={item} style={{ border: `1px solid ${saved ? C.ink : C.border}`, borderRadius: 999, padding: '4px 8px', background: saved ? C.ink : C.faint, color: saved ? '#FFF' : C.muted, fontSize: '0.6875rem', fontWeight: 800, textTransform: 'capitalize' }}>
+                {item} {saved ? 'saved' : 'pending'}
+              </span>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => sprint && onContinue?.(sprint.sprint_id)}
+          disabled={!allChannelsSaved || workflowRunning}
+          style={{ width: '100%', height: 38, border: `1px solid ${allChannelsSaved ? C.ink : C.border}`, borderRadius: 10, background: allChannelsSaved ? C.ink : C.faint, color: allChannelsSaved ? '#FFF' : C.muted, cursor: allChannelsSaved && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
+        >
+          {workflowRunning ? 'Running Demo Workflow' : allChannelsSaved ? 'Run Demo Workflow' : `Save ${channels.length - savedChannels.length} More Creative${channels.length - savedChannels.length === 1 ? '' : 's'}`}
+        </button>
+        <p style={{ margin: '8px 0 0', color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
+          Demo mode will generate campaign results, verdict, landing page, and report from the selected angle.
+        </p>
       </div>
     </div>
   );
@@ -1156,6 +1186,7 @@ export function NodePanel({
   onEditSetup,
   onRunWorkflow,
   onContinueAfterAngles,
+  onContinueAfterCreatives,
   creativeDraft,
   onCreativeDraftChange,
   onSprintPatched,
@@ -1170,7 +1201,7 @@ export function NodePanel({
       case 'genome':     return <GenomePanel sprint={sprint} />;
       case 'healthgate': return <HealthgatePanel sprint={sprint} channel={channel} />;
       case 'angles':     return <AnglesPanel sprint={sprint} onContinue={onContinueAfterAngles} onSprintPatched={onSprintPatched} workflowRunning={workflowRunning} />;
-      case 'creative':   return <CreativePreviewPanel sprint={sprint} channel={channel} creativeDraft={creativeDraft} onCreativeDraftChange={onCreativeDraftChange} onSprintPatched={onSprintPatched} />;
+      case 'creative':   return <CreativePreviewPanel sprint={sprint} channel={channel} creativeDraft={creativeDraft} onCreativeDraftChange={onCreativeDraftChange} onSprintPatched={onSprintPatched} onContinue={onContinueAfterCreatives} workflowRunning={workflowRunning} />;
       case 'landing':    return <LandingPanel sprint={sprint} />;
       case 'campaign':   return <CampaignPanel sprint={sprint} channel={channel} onEditSetup={onEditSetup} onSprintPatched={onSprintPatched} />;
       case 'verdict':    return <VerdictPanel sprint={sprint} />;
