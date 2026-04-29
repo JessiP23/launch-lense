@@ -12,7 +12,7 @@ import type {
   SpreadsheetContactRow,
   SpreadsheetAgentOutput,
 } from '@/lib/agents/types';
-import { personalizeCopyBody } from '@/lib/agents/outreach-agent';
+import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -1623,6 +1623,18 @@ function persistReviewedContacts(sprintId: string, rows: ReviewedContact[]) {
   window.sessionStorage.setItem(contactsSessionKey(sprintId), JSON.stringify(selectedContacts(rows)));
 }
 
+function personalizeTemplate(template: string, contact: SpreadsheetContactRow): string {
+  const first = contact.firstName?.trim() || 'there';
+  const company = contact.company?.trim() || 'your team';
+  return template
+    .replace(/\[firstName\]|\{firstName\}/gi, first)
+    .replace(/\[company\]|\{company\}/gi, company);
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, '').trim();
+}
+
 async function readJsonOrError(res: Response): Promise<Record<string, unknown>> {
   const text = await res.text().catch(() => '');
   if (!text.trim()) return {};
@@ -1813,6 +1825,9 @@ function IntegrationsPanel({
   const [liveGoogleSheet, setLiveGoogleSheet] = useState(false);
   const [contactRows, setContactRows] = useState<ReviewedContact[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [emailSubjectDraft, setEmailSubjectDraft] = useState('');
+  const [emailBodyDraft, setEmailBodyDraft] = useState('');
+  const [emailDraftDirty, setEmailDraftDirty] = useState(false);
   const [googleOAuth, setGoogleOAuth] = useState<{
     connected: boolean;
     google_email?: string | null;
@@ -1869,6 +1884,18 @@ function IntegrationsPanel({
       setContactRows([]);
     }
   }, [sprint?.sprint_id, sprint?.post_sprint?.spreadsheet?.validContacts, lastSpreadsheetPrep?.validContacts]);
+
+  useEffect(() => {
+    if (!sprint || emailDraftDirty) return;
+    const copy = buildOutreachCopy(sprint);
+    if (!copy) return;
+    setEmailSubjectDraft(copy.subjectLine);
+    setEmailBodyDraft(copy.baseBody);
+  }, [emailDraftDirty, sprint]);
+
+  useEffect(() => {
+    setEmailDraftDirty(false);
+  }, [sprint?.sprint_id]);
 
   useEffect(() => {
     if (!sprint?.sprint_id) {
@@ -2075,6 +2102,8 @@ function IntegrationsPanel({
       const payload = {
         contacts,
         confirm_large_batch: contacts.length > 2000,
+        subject_line: emailSubjectDraft,
+        body_template: emailBodyDraft,
       };
       let res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/send-outreach`, {
         method: 'POST',
@@ -2123,10 +2152,20 @@ function IntegrationsPanel({
     lastSpreadsheetPrep ?? sprint?.post_sprint?.spreadsheet ?? undefined;
 
   const activeContacts = selectedContacts(contactRows);
-  const previewContact = activeContacts[Math.min(previewIndex, Math.max(0, activeContacts.length - 1))] ?? activeContacts[0] ?? null;
+  const fallbackPreviewContact = contactRows.find((row) => row.email.trim()) ?? null;
+  const previewContact =
+    activeContacts[Math.min(previewIndex, Math.max(0, activeContacts.length - 1))] ??
+    activeContacts[0] ??
+    fallbackPreviewContact;
+  const generatedOutreachCopy = sprint ? buildOutreachCopy(sprint) : null;
+  const previewSubject = stripHtml(emailSubjectDraft || generatedOutreachCopy?.subjectLine || '');
+  const previewBodyTemplate = stripHtml(emailBodyDraft || generatedOutreachCopy?.baseBody || '');
   const emailPreview =
-    sprint && previewContact
-      ? personalizeCopyBody(sprint, previewContact)
+    previewContact && previewSubject && previewBodyTemplate
+      ? {
+          subjectLine: previewSubject,
+          body: personalizeTemplate(previewBodyTemplate, previewContact),
+        }
       : null;
   const selectedContactCount = activeContacts.length;
 
@@ -2354,14 +2393,16 @@ function IntegrationsPanel({
         <>
           <SectionTitle>SpreadsheetAgent</SectionTitle>
           
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 1fr) 300px', gap: 14, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(420px, 1fr)', gap: 14, alignItems: 'start' }}>
           <div
             style={{
+              order: 2,
               borderRadius: 16,
               padding: 18,
               marginBottom: 12,
-              background: C.ink,
-              border: `1px solid ${C.border}`,
+              background: '#151513',
+              border: '1px solid rgba(250,250,248,0.14)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
             }}
           >
             <div ref={spreadsheetDarkRef}>
@@ -2493,7 +2534,7 @@ function IntegrationsPanel({
                   <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 2 }}>
                     {contactRows.map((contact, index) => (
                       <div
-                        key={`${contact.email}-${index}`}
+                        key={`contact-${index}`}
                         style={{
                           display: 'grid',
                           gridTemplateColumns: '18px minmax(145px,1fr) minmax(82px,.7fr)',
@@ -2544,21 +2585,6 @@ function IntegrationsPanel({
                     ))}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => void sendOutreach()}
-                    disabled={loading !== null || !canSendOutreach}
-                    style={{
-                      ...btnPrimary(),
-                      width: '100%',
-                      background: '#FAFAF8',
-                      color: C.ink,
-                      opacity: loading !== null || !canSendOutreach ? 0.5 : 1,
-                      cursor: loading !== null || !canSendOutreach ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {loading === 'outreach' ? 'Sending…' : `Send ${selectedContactCount} Email${selectedContactCount === 1 ? '' : 's'} via Gmail`}
-                  </button>
                 </div>
               )}
               <IntegrationAgentLog events={sprint?.events} variant="sheet" />
@@ -2566,30 +2592,85 @@ function IntegrationsPanel({
           </div>
           <aside
             style={{
+              order: 1,
               position: 'sticky',
               top: 0,
               borderRadius: 16,
-              padding: 14,
-              background: C.surface,
+              padding: 0,
+              background: '#F8F6F1',
               border: `1px solid ${C.border}`,
               color: C.ink,
+              overflow: 'hidden',
+              boxShadow: '0 8px 24px rgba(17,17,16,0.08)',
             }}
           >
-            <div style={{ fontWeight: 800, fontSize: '0.8125rem', marginBottom: 4 }}>Live email preview</div>
-            <p style={{ margin: '0 0 12px', fontSize: '0.72rem', color: C.muted, lineHeight: 1.45 }}>
-              Updates as you edit selected contacts. This is the message Gmail sends after confirmation.
-            </p>
+            <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+              <div style={{ fontWeight: 900, fontSize: '0.8125rem', letterSpacing: '-0.02em' }}>Live email preview</div>
+              <p style={{ margin: '3px 0 0', fontSize: '0.7rem', color: C.muted, lineHeight: 1.35 }}>
+                Real-time preview from selected contacts.
+              </p>
+            </div>
             {emailPreview ? (
-              <>
-                <p style={{ margin: '0 0 4px', fontSize: '0.75rem', color: C.muted }}>
-                  To: {previewContact?.email} · Personalized with {previewContact?.firstName || 'there'}
-                </p>
-                <p style={{ margin: '0 0 10px', fontSize: '0.875rem', fontWeight: 800 }}>
-                  Subject: {emailPreview.subjectLine}
-                </p>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.75rem', lineHeight: 1.55, color: C.ink }}>
-                  {emailPreview.body}
-                </pre>
+              <div style={{ padding: 14 }}>
+                <div style={{ borderRadius: 14, background: C.surface, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.border}`, background: C.faint }}>
+                    <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      Gmail draft
+                    </p>
+                  </div>
+                  <div style={{ padding: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: C.ink, color: '#FFF', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: '0.875rem', flexShrink: 0 }}>
+                        {(previewContact?.firstName || previewContact?.email || 'C')[0]?.toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: C.ink }}>
+                          {previewContact?.firstName || 'there'}{previewContact?.company ? ` · ${previewContact.company}` : ''}
+                        </p>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.6875rem', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          To: {previewContact?.email}
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, padding: '9px 0', marginBottom: 10 }}>
+                      <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>Subject</p>
+                      <input
+                        value={emailSubjectDraft || generatedOutreachCopy?.subjectLine || ''}
+                        onChange={(e) => {
+                          setEmailDraftDirty(true);
+                          setEmailSubjectDraft(stripHtml(e.target.value));
+                        }}
+                        style={{ ...inpStyle(), marginTop: 5, fontSize: '0.8125rem', fontWeight: 800, background: '#FFF' }}
+                      />
+                    </div>
+                    <textarea
+                      value={emailBodyDraft || generatedOutreachCopy?.baseBody || ''}
+                      onChange={(e) => {
+                        setEmailDraftDirty(true);
+                        setEmailBodyDraft(stripHtml(e.target.value));
+                      }}
+                      rows={10}
+                      style={{
+                        ...taStyle(),
+                        minHeight: 190,
+                        resize: 'vertical',
+                        background: '#FFF',
+                        color: C.ink,
+                        fontFamily: 'inherit',
+                        fontSize: '0.8125rem',
+                        lineHeight: 1.6,
+                      }}
+                    />
+                    <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: C.faint, border: `1px solid ${C.border}` }}>
+                      <p style={{ margin: '0 0 6px', fontSize: '0.6875rem', color: C.muted, fontWeight: 800 }}>
+                        Personalized preview
+                      </p>
+                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.75rem', lineHeight: 1.5, color: C.ink }}>
+                        {emailPreview.body}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
                 {activeContacts.length > 1 && (
                   <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
                     {activeContacts.slice(0, 8).map((contact, index) => (
@@ -2613,10 +2694,30 @@ function IntegrationsPanel({
                     ))}
                   </div>
                 )}
-              </>
+                <button
+                  type="button"
+                  onClick={() => void sendOutreach()}
+                  disabled={loading !== null || !canSendOutreach}
+                  style={{
+                    ...btnPrimary(),
+                    width: '100%',
+                    height: 38,
+                    marginTop: 12,
+                    background: C.ink,
+                    color: '#FFF',
+                    opacity: loading !== null || !canSendOutreach ? 0.5 : 1,
+                    cursor: loading !== null || !canSendOutreach ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {loading === 'outreach' ? 'Sending…' : `Send ${selectedContactCount} Email${selectedContactCount === 1 ? '' : 's'}`}
+                </button>
+                <p style={{ margin: '8px 0 0', fontSize: '0.6875rem', color: C.muted, lineHeight: 1.4 }}>
+                  Rate limited server-side through Gmail. Sends plain text for deliverability.
+                </p>
+              </div>
             ) : (
-              <div style={{ padding: 12, borderRadius: 10, background: C.faint, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
-                Prepare a sheet and keep at least one contact selected to see the personalized email preview here.
+              <div style={{ margin: 14, padding: 12, borderRadius: 10, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
+                Prepare a sheet and keep at least one contact selected to see the personalized Gmail preview here.
               </div>
             )}
           </aside>

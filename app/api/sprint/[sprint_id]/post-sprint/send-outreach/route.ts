@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import type { OutreachAgentOutput, SpreadsheetContactRow, SprintRecord } from '@/lib/agents/types';
 import {
+  buildOutreachCopy,
   maskEmail,
   personalizeCopyBody,
 } from '@/lib/agents/outreach-agent';
@@ -32,6 +33,18 @@ function sendGapMs(): number {
   return Math.ceil(3_600_000 / 50);
 }
 
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, '').trim();
+}
+
+function personalizeTemplate(template: string, contact: SpreadsheetContactRow): string {
+  const first = contact.firstName?.trim() || 'there';
+  const company = contact.company?.trim() || 'your team';
+  return template
+    .replace(/\[firstName\]|\{firstName\}/gi, first)
+    .replace(/\[company\]|\{company\}/gi, company);
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ sprint_id: string }> },
@@ -42,6 +55,8 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     contacts?: SpreadsheetContactRow[];
     confirm_large_batch?: boolean;
+    subject_line?: string;
+    body_template?: string;
   };
 
   const { data: raw, error } = await db.from('sprints').select('*').eq('id', sprint_id).single();
@@ -116,6 +131,10 @@ export async function POST(
       let failed = 0;
       let angleUsed: OutreachAgentOutput['angleUsed'] = 'angle_A';
       let subjectLine = '';
+      const customSubject = typeof body.subject_line === 'string' ? stripHtml(body.subject_line).slice(0, 200) : '';
+      const customTemplate = typeof body.body_template === 'string' ? stripHtml(body.body_template) : '';
+      const baseCopy = buildOutreachCopy(sprint);
+      if (baseCopy) angleUsed = baseCopy.angleUsed;
 
       const refreshAccess = async () => {
         const t = await refreshAccessToken({ refreshToken: rt, clientId, clientSecret });
@@ -125,7 +144,14 @@ export async function POST(
       for (let i = 0; i < maxSend; i++) {
         const c = contacts[i];
         const ts = new Date().toISOString();
-        const pc = personalizeCopyBody(sprint, c);
+        const generated = personalizeCopyBody(sprint, c);
+        const pc = customSubject && customTemplate
+          ? {
+              subjectLine: customSubject,
+              body: personalizeTemplate(customTemplate, c),
+              angleUsed,
+            }
+          : generated;
         if (!pc) {
           failed++;
           sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
@@ -177,16 +203,19 @@ export async function POST(
       }
 
       const sample = personalizeCopyBody(sprint, contacts[0]);
+      const sampleBody = customTemplate
+        ? personalizeTemplate(customTemplate, contacts[0])
+        : sample?.body;
 
       outreach = {
         totalSent: ok,
         failed,
         bounced: 0,
-        subjectLine: subjectLine || sample?.subjectLine || '',
+        subjectLine: subjectLine || customSubject || sample?.subjectLine || '',
         angleUsed,
         sendLog,
         sprintId: sprint.sprint_id,
-        bodyPreview: sample?.body.slice(0, 480),
+        bodyPreview: sampleBody?.slice(0, 480),
       };
     }
   }
