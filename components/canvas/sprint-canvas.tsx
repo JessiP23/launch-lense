@@ -46,20 +46,36 @@ const EDGE_TYPES: EdgeTypes = { pipeline: PipelineEdge };
 // React Flow positions are top-left coordinates. Keep dimensions centralized so
 // the layout can reserve real bounding boxes instead of relying on visual guesses.
 const NODE_SIZE = {
-  standard: { width: 168, height: 96 },
-  creative: { width: 236, height: 340 },
-  landing: { width: 236, height: 340 },
+  /** Matches default NodeCard width — wider than legacy 168 so lanes feel proportional */
+  standard: { width: 192, height: 108 },
+  creative: { width: 248, height: 352 },
+  landing: { width: 248, height: 352 },
 };
+/** Vertical rhythm between stacked channel rows (creative / campaign / hg) */
+const LANE_GAP_MIN = 56;
+const LANE_GAP_MAX = 96;
+/** Space below the main workflow stack before utility row (benchmarks / settings) */
 const LAYOUT = {
-  left: 80,
-  top: 140,
-  columnGap: 88,
-  laneGap: 96,
-  utilityGap: 120,
+  left: 72,
+  top: 128,
+  utilityGapMin: 96,
+  utilityGapMax: 140,
 };
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
 
-const X = (() => {
+/** Horizontal gap after column `leftW` before column `rightW` — tight for uniform cards, wider next to tall previews */
+function horizontalGapBetween(leftW: number, rightW: number): number {
+  const wideThreshold = Math.min(NODE_SIZE.creative.width, NODE_SIZE.landing.width) - 12;
+  const std = NODE_SIZE.standard.width;
+  const l = leftW >= wideThreshold || rightW >= wideThreshold;
+  const bothStd = leftW <= std + 8 && rightW <= std + 8;
+  if (bothStd) return 40;
+  if (l) return 68;
+  return 52;
+}
+
+/** X positions derived from actual column widths so spacing scales with card size (dynamic packing) */
+function computeColumnLeftEdges(): Record<string, number> {
   const columns = [
     ['accounts', NODE_SIZE.standard.width],
     ['genome', NODE_SIZE.standard.width],
@@ -76,12 +92,18 @@ const X = (() => {
   ] as const;
 
   let cursor = LAYOUT.left;
-  return columns.reduce((acc, [key, width]) => {
+  const acc: Record<string, number> = {};
+  for (let i = 0; i < columns.length; i++) {
+    const [key, width] = columns[i];
     acc[key] = cursor;
-    cursor += width + LAYOUT.columnGap;
-    return acc;
-  }, {} as Record<typeof columns[number][0], number>);
-})();
+    const next = columns[i + 1];
+    if (!next) break;
+    cursor += width + horizontalGapBetween(width, next[1]);
+  }
+  return acc;
+}
+
+const X = computeColumnLeftEdges();
 
 type CreativeDraft = {
   channel: Platform;
@@ -302,11 +324,18 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
 
 function buildLayout(channelCount: number) {
   const laneHeight = NODE_SIZE.creative.height;
-  const lanePitch = laneHeight + LAYOUT.laneGap;
-  const workflowHeight = channelCount * laneHeight + Math.max(0, channelCount - 1) * LAYOUT.laneGap;
+  /** Scale lane spacing from channel count — busier canvases pack slightly tighter */
+  const laneGap = Math.round(
+    LANE_GAP_MIN + ((LANE_GAP_MAX - LANE_GAP_MIN) * Math.max(0, 4 - channelCount)) / 4,
+  );
+  const lanePitch = laneHeight + laneGap;
+  const workflowHeight = channelCount * laneHeight + Math.max(0, channelCount - 1) * laneGap;
   const workflowCenter = LAYOUT.top + workflowHeight / 2;
   const standardTop = workflowCenter - NODE_SIZE.standard.height / 2;
-  const utilityTop = LAYOUT.top + workflowHeight + LAYOUT.utilityGap;
+  const utilityGap = Math.round(
+    LAYOUT.utilityGapMin + ((LAYOUT.utilityGapMax - LAYOUT.utilityGapMin) * Math.max(0, 4 - channelCount)) / 4,
+  );
+  const utilityTop = LAYOUT.top + workflowHeight + utilityGap;
 
   return {
     standardTop,
@@ -323,7 +352,7 @@ function nodeSize(node: Node) {
   return node.type === 'creative' ? NODE_SIZE.creative : NODE_SIZE.standard;
 }
 
-function overlaps(a: Node, b: Node, padding = 32) {
+function overlaps(a: Node, b: Node, padding = 28) {
   const aSize = nodeSize(a);
   const bSize = nodeSize(b);
   const ax2 = a.position.x + aSize.width + padding;
@@ -334,6 +363,9 @@ function overlaps(a: Node, b: Node, padding = 32) {
   return a.position.x < bx2 && ax2 > b.position.x && a.position.y < by2 && ay2 > b.position.y;
 }
 
+/** Vertical nudge when two nodes overlap — aligned with typical lane rhythm */
+const OVERLAP_RESOLVE_GAP = 72;
+
 function resolveNodeOverlaps(input: Node[]) {
   const nodes = input
     .map((node) => ({ ...node, position: { ...node.position } }))
@@ -343,7 +375,7 @@ function resolveNodeOverlaps(input: Node[]) {
     for (let j = 0; j < i; j += 1) {
       if (!overlaps(nodes[j], nodes[i])) continue;
       const previousSize = nodeSize(nodes[j]);
-      nodes[i].position.y = nodes[j].position.y + previousSize.height + LAYOUT.laneGap;
+      nodes[i].position.y = nodes[j].position.y + previousSize.height + OVERLAP_RESOLVE_GAP;
       j = -1; // Restart because moving against one rectangle can create a new intersection.
     }
   }
@@ -362,7 +394,8 @@ function selectedAngleFor(sprint: SprintRecord | null): Angle | undefined {
 function creativeDataFor(channel: Platform, sprint: SprintRecord | null, drafts: CreativeDrafts) {
   const selectedAngle = selectedAngleFor(sprint);
   const draft = drafts[channel];
-  const angle = draft && draft.angleId === selectedAngle?.id ? draft.angle : selectedAngle;
+  /** Prefer in-memory draft angle whenever present — panel may switch angles before PATCH saves `selected_angle_id`. */
+  const angle = draft?.angle ?? selectedAngle;
   const assets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> } | undefined)?.creative_assets?.[channel];
   const brandName = draft?.brandName ?? assets?.brand_name ?? 'Your Brand';
   const image = draft?.image ?? assets?.image ?? null;
@@ -513,8 +546,10 @@ function meaningfulNodeChanges(changes: NodeChange[], currentNodes: Node[]) {
     if (change.type === 'dimensions') {
       const dimensions = change.dimensions;
       if (!dimensions) return true;
-      return current.measured?.width !== dimensions.width ||
-        current.measured?.height !== dimensions.height;
+      const currentWidth = current.measured?.width ?? current.width;
+      const currentHeight = current.measured?.height ?? current.height;
+      return currentWidth !== dimensions.width ||
+        currentHeight !== dimensions.height;
     }
 
     if (change.type === 'select') return current.selected !== change.selected;
@@ -1096,7 +1131,8 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   }, [activeSprint, sprintData?.state, loadSprintDetail]);
 
   // ── Node click handler ───────────────────────────────────────────────────
-  const onNodeClick: NodeMouseHandler = useCallback((_, node) => {
+  const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
+    event.stopPropagation();
     const id = node.id;
     if (id === 'accounts')   { setActivePanel('accounts');   setPanelChannel(undefined); return; }
     if (id === 'genome')     { setActivePanel('genome');     setPanelChannel(undefined); return; }
@@ -1119,9 +1155,21 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     }
     if (id === 'verdict')    { setActivePanel('verdict');    setPanelChannel(undefined); return; }
     if (id === 'report')     { setActivePanel('report');     setPanelChannel(undefined); return; }
-    if (id === 'spreadsheet') { setActivePanel('integrations'); setPanelChannel('spreadsheet'); return; }
-    if (id === 'outreach')    { setActivePanel('integrations'); setPanelChannel('outreach'); return; }
-    if (id === 'slack')       { setActivePanel('integrations'); setPanelChannel('slack'); return; }
+    if (id === 'spreadsheet') {
+      setActivePanel('integrations_sheet');
+      setPanelChannel(undefined);
+      return;
+    }
+    if (id === 'outreach') {
+      setActivePanel('integrations_outreach');
+      setPanelChannel(undefined);
+      return;
+    }
+    if (id === 'slack') {
+      setActivePanel('integrations_slack');
+      setPanelChannel(undefined);
+      return;
+    }
     if (id === 'benchmarks') { setActivePanel('benchmarks'); setPanelChannel(undefined); return; }
     if (id === 'settings')   { setActivePanel('settings');   setPanelChannel(undefined); return; }
   }, []);
@@ -1278,7 +1326,9 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
-        onPaneClick={() => setActivePanel(null)}
+        onPaneClick={() => {
+          setActivePanel(null);
+        }}
         fitView
         fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
         minZoom={0.3}
@@ -1298,7 +1348,10 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
             activeSprint={activeSprint}
             onSelect={(id) => { setActiveSprint(id); setActivePanel(null); }}
             onNew={() => setShowNew(true)}
-            onOpenPanel={(panel) => { setActivePanel(panel as PanelId); setPanelChannel(undefined); }}
+            onOpenPanel={(panel) => {
+              setActivePanel(panel as PanelId);
+              setPanelChannel(undefined);
+            }}
           />
         </Panel>
 
@@ -1308,7 +1361,9 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
               panel={activePanel}
               channel={panelChannel}
               sprint={sprintData}
-              onClose={() => setActivePanel(null)}
+              onClose={() => {
+                setActivePanel(null);
+              }}
               onEditSetup={handleEditSetup}
               onRunWorkflow={(id) => void runSprintPipeline(id, { overrideStop: true })}
               onContinueAfterAngles={() => {
@@ -1316,7 +1371,11 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
                 setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
               }}
               onContinueAfterCreatives={(id) => void runDemoAfterCreatives(id)}
-              creativeDraft={panelChannel ? creativeDrafts[panelChannel as Platform] : undefined}
+              creativeDraft={
+                activePanel === 'creative' && panelChannel
+                  ? creativeDrafts[panelChannel as Platform]
+                  : undefined
+              }
               onCreativeDraftChange={handleCreativeDraftChange}
               landingDraft={landingDraft}
               onLandingDraftChange={handleLandingDraftChange}

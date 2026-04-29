@@ -160,7 +160,11 @@ export function runSpreadsheetAgent(input: PrepareSheetInput): SpreadsheetAgentO
   const validContacts = contacts.length;
 
   if (validContacts > 0 && validContacts < 5) {
-    warnings.push(`Only ${validContacts} valid contacts — consider adding more rows before outreach.`);
+    warnings.push(
+      validContacts === 1
+        ? 'Only one valid contact row — add more rows or paste a larger CSV export before outreach.'
+        : `Only ${validContacts} valid contacts — consider adding more rows before outreach.`,
+    );
   }
   if (validContacts > 2000) {
     warnings.push(`List has ${validContacts} contacts — confirm batch send before proceeding.`);

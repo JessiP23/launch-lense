@@ -62,7 +62,7 @@ interface CardProps {
 
 function NodeCard({
   label, metric, metricLabel, sublabel,
-  stage, hasLeft = true, hasRight = true, selected = false, width = 168, height, children,
+  stage, hasLeft = true, hasRight = true, selected = false, width = 192, height, children,
 }: CardProps) {
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
@@ -246,7 +246,7 @@ export type CreativeNodeData = {
 export type CreativeNodeType = Node<CreativeNodeData, 'creative'>;
 export const CreativeNode = memo(({ data, selected }: NodeProps<CreativeNodeType>) => (
   <NodeCard
-    label={`Creative · ${data.channel ?? 'Channel'}`} stage={data.stage} selected={!!selected} width={236} height={340}
+    label={`Creative · ${data.channel ?? 'Channel'}`} stage={data.stage} selected={!!selected} width={248} height={352}
     metric={data.selectedAngle?.replace('angle_', '') ?? (data.stage === 'running' ? '…' : '—')}
     metricLabel={data.title ? 'live preview' : 'select angle'}
   >
@@ -341,7 +341,7 @@ export type LandingNodeData = {
 export type LandingNodeType = Node<LandingNodeData, 'landing'>;
 export const LandingNode = memo(({ data, selected }: NodeProps<LandingNodeType>) => (
   <NodeCard
-    label="Landing Page" stage={data.stage} selected={!!selected} width={236} height={340}
+    label="Landing Page" stage={data.stage} selected={!!selected} width={248} height={352}
     metric={data.pageCount != null ? `${data.pageCount}` : data.stage === 'running' ? '…' : '—'}
     metricLabel={data.url ? 'deployed page' : 'live page draft'}
   >

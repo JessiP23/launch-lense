@@ -1,10 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, Table2, Mail } from 'lucide-react';
 import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
-import type { Angle, Platform, SprintRecord, SpreadsheetAgentOutput } from '@/lib/agents/types';
+import type {
+  Angle,
+  Platform,
+  SprintEventLogEntry,
+  SprintRecord,
+  SpreadsheetAgentOutput,
+} from '@/lib/agents/types';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -16,7 +22,19 @@ export type PanelId =
   | 'accounts' | 'genome' | 'healthgate' | 'angles'
   | 'creative' | 'landing' | 'campaign' | 'verdict' | 'report'
   | 'integrations'
+  /** Dedicated containers opened from canvas nodes — not the toolbar integrations overview */
+  | 'integrations_sheet'
+  | 'integrations_outreach'
+  | 'integrations_slack'
   | 'benchmarks' | 'settings' | null;
+
+/** Scroll nested panel body explicitly (`scrollIntoView` misses inner overflow containers under motion wrappers). */
+function scrollIntoScrollParent(scrollParent: HTMLElement, target: HTMLElement, paddingTop = 14) {
+  const pRect = scrollParent.getBoundingClientRect();
+  const tRect = target.getBoundingClientRect();
+  const nextTop = tRect.top - pRect.top + scrollParent.scrollTop - paddingTop;
+  scrollParent.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+}
 
 export type CreativeDraft = {
   channel: Platform;
@@ -45,7 +63,7 @@ export type LandingDraft = {
 
 interface Props {
   panel:       PanelId;
-  /** Used by integrations panel to scroll/highlight Sheets vs Gmail vs Slack */
+  /** Ads/creative channel key (meta, google, …) */
   channel?:    string;
   sprint?:     SprintRecord | null;
   onClose:     () => void;
@@ -203,9 +221,104 @@ function AccountsPanel() {
 // ════════════════════════════════════════════════════════════════════════════
 // Genome Panel
 // ════════════════════════════════════════════════════════════════════════════
+
+function describeGenomeLogEntry(entry: SprintEventLogEntry): string {
+  const p = entry.payload ?? {};
+  if (entry.event_type === 'started') {
+    const idea = typeof p.idea === 'string' ? p.idea : '';
+    const short = idea.length > 96 ? `${idea.slice(0, 96)}…` : idea;
+    return short ? `Queued · ${short}` : 'Queued';
+  }
+  if (entry.event_type === 'completed') {
+    const sig = p.signal != null ? String(p.signal) : '?';
+    const comp = typeof p.composite === 'number' ? p.composite : '?';
+    const ds =
+      p.data_source === 'real' ? ' · live signals' : p.data_source === 'llm_estimate' ? ' · LLM estimate' : '';
+    return `Finished · signal ${sig}, composite ${comp}/100${ds}`;
+  }
+  if (entry.event_type === 'blocked') {
+    const br = typeof p.blocked_reason === 'string' ? p.blocked_reason : '';
+    const short = br.length > 140 ? `${br.slice(0, 140)}…` : br;
+    return short ? `Blocked · ${short}` : 'Blocked';
+  }
+  return `${entry.event_type}`;
+}
+
+function GenomeAgentActivityLog({ events }: { events?: SprintEventLogEntry[] | null }) {
+  const lines = (events ?? [])
+    .filter((e) => e.agent === 'genome')
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  if (lines.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: '0.6875rem',
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+          color: C.muted,
+          marginBottom: 8,
+        }}
+      >
+        GenomeAgent activity
+      </div>
+      <div
+        role="log"
+        style={{
+          maxHeight: 220,
+          overflowY: 'auto',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontSize: '0.6875rem',
+          lineHeight: 1.55,
+          color: C.ink,
+        }}
+      >
+        {lines.map((e, idx) => (
+          <div key={`${e.created_at}-${e.event_type}-${idx}`} style={{ marginBottom: 6 }}>
+            <span style={{ color: C.muted }}>[{formatGenomeLogTime(e.created_at)}]</span>{' '}
+            <span style={{ fontWeight: 600 }}>{e.event_type}</span> · {describeGenomeLogEntry(e)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatGenomeLogTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {
+    return iso;
+  }
+}
+
+function genomeNarrativeBlock(title: string, body: string) {
+  if (!body.trim()) return null;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Label>{title}</Label>
+      <p style={{ fontSize: '0.8125rem', color: C.ink, margin: '6px 0 0', lineHeight: 1.5 }}>{body}</p>
+    </div>
+  );
+}
+
 function GenomePanel({ sprint }: { sprint?: SprintRecord | null }) {
   const g = sprint?.genome;
-  if (!g) return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Genome has not run yet for this sprint.</p>;
+  const genomeEventsEmpty = !(sprint?.events ?? []).some((e) => e.agent === 'genome');
+
+  if (!g) {
+    return (
+      <div>
+        <p style={{ color: C.muted, fontSize: '0.875rem', marginBottom: 12 }}>Genome has not run yet for this sprint.</p>
+        {!genomeEventsEmpty && <GenomeAgentActivityLog events={sprint?.events} />}
+      </div>
+    );
+  }
 
   const axes = [
     { key: 'demand' as const, label: 'Demand', w: '30%' },
@@ -215,14 +328,37 @@ function GenomePanel({ sprint }: { sprint?: SprintRecord | null }) {
     { key: 'moat' as const, label: 'Moat', w: '10%' },
   ];
 
+  const sg = g.source_google;
+  const sm = g.source_meta;
+  const realSignals = g.data_source === 'real';
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <SectionTitle>Genome Analysis</SectionTitle>
         <Pill value={g.signal} />
+        <span
+          style={{
+            fontSize: '0.6875rem',
+            fontWeight: 600,
+            padding: '4px 8px',
+            borderRadius: 6,
+            background: realSignals ? '#ECFDF5' : '#FFFBEB',
+            color: realSignals ? C.go : '#B45309',
+            border: `1px solid ${realSignals ? `${C.go}35` : '#FDE68A'}`,
+          }}
+        >
+          {realSignals ? 'Live search signals' : 'LLM estimate (APIs unavailable)'}
+        </span>
+        <span style={{ fontSize: '0.6875rem', color: C.muted }}>{(g.elapsed_ms / 1000).toFixed(1)}s run</span>
       </div>
 
-      <div style={{ background: C.ink, borderRadius: 12, padding: '16px 18px', marginBottom: 16 }}>
+      <p style={{ fontSize: '0.75rem', color: C.muted, lineHeight: 1.45, marginBottom: 14 }}>
+        GenomeAgent runs a quick market pass: Google results (via SerpAPI when <code style={{ fontSize: '0.7rem' }}>SERPER_API_KEY</code> is set)
+        and Meta Ad Library (when Meta app credentials exist). Those snippets feed the model; scores below interpret them.
+      </p>
+
+      <div style={{ background: C.ink, borderRadius: 12, padding: '16px 18px', marginBottom: 14 }}>
         <Label><span style={{ color: '#FFFFFF80' }}>Composite Score</span></Label>
         <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '2.5rem', color: '#FFF', lineHeight: 1, margin: 0 }}>{g.composite}</p>
         <p style={{ fontSize: '0.75rem', color: '#FFFFFF60', marginTop: 4 }}>/100 weighted</p>
@@ -248,6 +384,73 @@ function GenomePanel({ sprint }: { sprint?: SprintRecord | null }) {
         </div>
       </div>
 
+      {(sg || sm || !realSignals) && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 12 }}>
+          <Label>Observed signals (inputs to the model)</Label>
+          {!realSignals && (
+            <p style={{ fontSize: '0.75rem', color: '#B45309', margin: '8px 0 10px', lineHeight: 1.45 }}>
+              No live SERP/Meta payloads — configure <code style={{ fontSize: '0.7rem' }}>SERPER_API_KEY</code> and Meta app env vars on the server for Google + Ad Library snapshots.
+            </p>
+          )}
+          {sg ? (
+            <div style={{ marginTop: 10, padding: '10px 12px', background: C.faint, borderRadius: 8, marginBottom: sm ? 10 : 0 }}>
+              <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: C.muted, marginBottom: 6 }}>Google (SerpAPI)</p>
+              <p style={{ fontSize: '0.75rem', color: C.ink, margin: '0 0 6px', lineHeight: 1.45 }}>
+                ~{sg.organic_result_count.toLocaleString()} indexed hits · {sg.google_ads_count} paid spots on SERP · Related:{' '}
+                {sg.related_searches.length ? sg.related_searches.join(' · ') : '—'}
+              </p>
+              {sg.top_titles.length > 0 && (
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: '0.72rem', color: C.muted, lineHeight: 1.45 }}>
+                  {sg.top_titles.slice(0, 5).map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              )}
+              {sg.top_snippet ? (
+                <p style={{ fontSize: '0.72rem', color: C.ink, margin: '8px 0 0', fontStyle: 'italic', lineHeight: 1.45 }}>
+                  Top snippet: {sg.top_snippet}
+                </p>
+              ) : null}
+            </div>
+          ) : realSignals ? (
+            <p style={{ fontSize: '0.75rem', color: C.muted, marginTop: 8 }}>Google snapshot unavailable for this run.</p>
+          ) : null}
+          {sm ? (
+            <div style={{ padding: '10px 12px', background: C.faint, borderRadius: 8 }}>
+              <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: C.muted, marginBottom: 6 }}>Meta Ad Library</p>
+              {sm.error ? (
+                <p style={{ fontSize: '0.75rem', color: C.stop, margin: 0 }}>{sm.error}</p>
+              ) : (
+                <>
+                  <p style={{ fontSize: '0.75rem', color: C.ink, margin: '0 0 6px', lineHeight: 1.45 }}>
+                    ~{sm.active_ads_count} active ads (sample){sm.active_ads_count >= 25 ? ' — cap reached (crowded niche)' : ''}
+                  </p>
+                  {sm.advertiser_names.length > 0 ? (
+                    <p style={{ fontSize: '0.72rem', color: C.muted, margin: 0 }}>
+                      Advertisers: {sm.advertiser_names.slice(0, 12).join(', ')}
+                      {sm.advertiser_names.length > 12 ? '…' : ''}
+                    </p>
+                  ) : (
+                    <p style={{ fontSize: '0.72rem', color: C.muted, margin: 0 }}>No named advertisers in sample (possible blue-ocean signal).</p>
+                  )}
+                </>
+              )}
+            </div>
+          ) : realSignals ? (
+            <p style={{ fontSize: '0.75rem', color: C.muted, marginTop: 8 }}>Meta Ad Library snapshot unavailable for this run.</p>
+          ) : null}
+        </div>
+      )}
+
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 12 }}>
+        <Label>Analysis</Label>
+        {genomeNarrativeBlock('Ideal customer', g.icp)}
+        {genomeNarrativeBlock('Problem', g.problem_statement)}
+        {genomeNarrativeBlock('Solution wedge', g.solution_wedge)}
+        {genomeNarrativeBlock('Market category', g.market_category)}
+        {genomeNarrativeBlock('Unique mechanism', g.unique_mechanism)}
+      </div>
+
       {g.risks.length > 0 && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 12 }}>
           <Label>Risks</Label>
@@ -262,18 +465,39 @@ function GenomePanel({ sprint }: { sprint?: SprintRecord | null }) {
         </div>
       )}
 
+      {g.research_sources.length > 0 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 12 }}>
+          <Label>Cited sources</Label>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: '0.75rem', color: C.muted, lineHeight: 1.5 }}>
+            {g.research_sources.map((src, i) => (
+              <li key={i} style={{ wordBreak: 'break-word' }}>
+                {/^https?:\/\//i.test(src.trim()) ? (
+                  <a href={src.trim()} target="_blank" rel="noopener noreferrer" style={{ color: C.ink }}>
+                    {src}
+                  </a>
+                ) : (
+                  src
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {g.proceed_note && (
-        <div style={{ background: '#ECFDF5', border: `1px solid ${C.go}30`, borderRadius: 12, padding: '14px 16px' }}>
+        <div style={{ background: '#ECFDF5', border: `1px solid ${C.go}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
           <Label><span style={{ color: C.go }}>Proceed Note</span></Label>
           <p style={{ fontSize: '0.875rem', color: C.ink, margin: '4px 0 0' }}>{g.proceed_note}</p>
         </div>
       )}
       {g.pivot_brief && (
-        <div style={{ background: '#FEF2F2', border: `1px solid ${C.stop}30`, borderRadius: 12, padding: '14px 16px' }}>
+        <div style={{ background: '#FEF2F2', border: `1px solid ${C.stop}30`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
           <Label><span style={{ color: C.stop }}>Pivot Brief</span></Label>
           <p style={{ fontSize: '0.875rem', color: C.ink, margin: '4px 0 0' }}>{g.pivot_brief}</p>
         </div>
       )}
+
+      <GenomeAgentActivityLog events={sprint?.events} />
     </div>
   );
 }
@@ -574,6 +798,41 @@ function AnglesPanel({
 // ════════════════════════════════════════════════════════════════════════════
 // Creative Preview Panel
 // ════════════════════════════════════════════════════════════════════════════
+
+const MAX_INLINE_CREATIVE_IMAGE_CHARS = 250_000;
+
+function compactCreativeImage(image: string | null | undefined): string | null {
+  if (!image) return null;
+  if (/^https?:\/\//i.test(image)) return image;
+  if (image.startsWith('data:') && image.length <= MAX_INLINE_CREATIVE_IMAGE_CHARS) return image;
+  return null;
+}
+
+function compactCreativeAssets(
+  assets: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> | undefined,
+  channel: Platform,
+  asset: { brand_name: string; image: string | null },
+): Partial<Record<Platform, { brand_name?: string; image?: string | null }>> {
+  const next: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> = {};
+
+  for (const [key, value] of Object.entries(assets ?? {}) as Array<[
+    Platform,
+    { brand_name?: string; image?: string | null },
+  ]>) {
+    next[key] = {
+      brand_name: value.brand_name,
+      image: compactCreativeImage(value.image),
+    };
+  }
+
+  next[channel] = {
+    brand_name: asset.brand_name,
+    image: compactCreativeImage(asset.image),
+  };
+
+  return next;
+}
+
 function CreativePreviewPanel({
   sprint,
   channel: panelChannel,
@@ -609,7 +868,11 @@ function CreativePreviewPanel({
     if (panelChannel) setChannel(panelChannel as Platform);
   }, [panelChannel]);
 
-  const selected = drafts[selectedId] ?? creativeDraft?.angle ?? angles.find((angle) => angle.id === selectedId) ?? angles[0];
+  const selected =
+    drafts[selectedId] ??
+    angles.find((angle) => angle.id === selectedId) ??
+    creativeDraft?.angle ??
+    angles[0];
   const channels = (sprint?.active_channels?.length ? sprint.active_channels : ['meta', 'google', 'linkedin', 'tiktok']) as Platform[];
   const lockedChannel = (panelChannel && channels.includes(panelChannel as Platform)) ? panelChannel as Platform : undefined;
   const activeChannel = lockedChannel ?? (channels.includes(channel) ? channel : channels[0]);
@@ -664,6 +927,10 @@ function CreativePreviewPanel({
     setMessage(null);
     try {
       const editedAngles = sprint.angles.angles.map((angle) => drafts[angle.id] ?? angle);
+      const nextCreativeAssets = compactCreativeAssets(creativeAssets, activeChannel, {
+        brand_name: brandName,
+        image,
+      });
       const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -671,10 +938,7 @@ function CreativePreviewPanel({
           angles: {
             ...sprint.angles,
             selected_angle_id: selected.id,
-            creative_assets: {
-              ...creativeAssets,
-              [activeChannel]: { brand_name: brandName, image },
-            },
+            creative_assets: nextCreativeAssets,
             angles: editedAngles,
           },
         }),
@@ -682,7 +946,11 @@ function CreativePreviewPanel({
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json().catch(() => null) as { sprint?: unknown } | null;
       if (data?.sprint) onSprintPatched?.(data.sprint);
-      setMessage(`${activeChannel} creative saved.`);
+      setMessage(
+        image && !compactCreativeImage(image)
+          ? `${activeChannel} creative saved. Large image preview is kept local only.`
+          : `${activeChannel} creative saved.`,
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -778,7 +1046,7 @@ function CreativePreviewPanel({
           disabled={!allChannelsSaved || workflowRunning}
           style={{ width: '100%', height: 38, border: `1px solid ${allChannelsSaved ? C.ink : C.border}`, borderRadius: 10, background: allChannelsSaved ? C.ink : C.faint, color: allChannelsSaved ? '#FFF' : C.muted, cursor: allChannelsSaved && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
         >
-          {workflowRunning ? 'Running Demo Workflow' : allChannelsSaved ? 'Run Demo Workflow' : `Save ${channels.length - savedChannels.length} More Creative${channels.length - savedChannels.length === 1 ? '' : 's'}`}
+          {workflowRunning ? 'Running Demo Workflow' : allChannelsSaved ? 'Run' : `Save ${channels.length - savedChannels.length} More Creative${channels.length - savedChannels.length === 1 ? '' : 's'}`}
         </button>
         <p style={{ margin: '8px 0 0', color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
           Demo mode will generate campaign results, verdict, landing page, and report from the selected angle.
@@ -1330,23 +1598,183 @@ function parseCsvToRows(text: string): Record<string, string>[] {
   });
 }
 
+const INTEGRATION_LOG_AGENTS = new Set(['spreadsheet', 'outreach', 'slack']);
+
+function describeIntegrationLogEntry(entry: SprintEventLogEntry): string {
+  const p = entry.payload ?? {};
+  if (entry.agent === 'spreadsheet' && entry.event_type === 'completed') {
+    const vc = typeof p.validContacts === 'number' ? p.validContacts : 0;
+    const tr = typeof p.totalRows === 'number' ? p.totalRows : 0;
+    const mode = p.live_sheet === true ? 'Live Sheet' : 'CSV';
+    const icp = p.icpFilterApplied === true ? ' · ICP filter' : '';
+    return `${mode}: ${vc} contacts ready (${tr} rows parsed)${icp}`;
+  }
+  if (entry.agent === 'outreach' && entry.event_type === 'completed') {
+    const ts = typeof p.totalSent === 'number' ? p.totalSent : 0;
+    const fail = typeof p.failed === 'number' ? p.failed : 0;
+    return fail ? `Outreach sent ${ts} (${fail} failed)` : `Outreach sent ${ts}`;
+  }
+  if (entry.agent === 'slack') {
+    if (entry.event_type === 'skipped') return 'Slack: skipped';
+    return p.posted === true ? 'Slack: posted summary' : 'Slack: recorded';
+  }
+  return `${entry.agent} · ${entry.event_type}`;
+}
+
+function formatLogTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function SpreadsheetPrepSummaryCard({
+  output,
+}: {
+  output: SpreadsheetAgentOutput | null | undefined;
+}) {
+  if (!output || typeof output.totalRows !== 'number') return null;
+  const warn = output.warnings?.filter(Boolean) ?? [];
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 12,
+        borderRadius: 10,
+        background: 'rgba(250,250,248,0.08)',
+        border: '1px solid rgba(250,250,248,0.14)',
+      }}
+    >
+      <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#FAFAF8', marginBottom: 10, letterSpacing: '0.02em' }}>
+        SpreadsheetAgent result
+      </div>
+      <dl
+        style={{
+          margin: 0,
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr',
+          gap: '6px 14px',
+          fontSize: '0.75rem',
+          color: 'rgba(250,250,248,0.88)',
+          lineHeight: 1.45,
+        }}
+      >
+        <dt style={{ color: 'rgba(250,250,248,0.55)', margin: 0 }}>Source</dt>
+        <dd style={{ margin: 0 }}>{output.source}</dd>
+        <dt style={{ color: 'rgba(250,250,248,0.55)', margin: 0 }}>Rows parsed</dt>
+        <dd style={{ margin: 0 }}>{output.totalRows}</dd>
+        <dt style={{ color: 'rgba(250,250,248,0.55)', margin: 0 }}>Valid contacts</dt>
+        <dd style={{ margin: 0 }}>{output.validContacts}</dd>
+        <dt style={{ color: 'rgba(250,250,248,0.55)', margin: 0 }}>Invalid email</dt>
+        <dd style={{ margin: 0 }}>{output.skippedInvalidEmail}</dd>
+        <dt style={{ color: 'rgba(250,250,248,0.55)', margin: 0 }}>Missing email cell</dt>
+        <dd style={{ margin: 0 }}>{output.skippedNoEmail}</dd>
+        {output.icpFilterApplied ? (
+          <>
+            <dt style={{ color: 'rgba(250,250,248,0.55)', margin: 0 }}>Filtered by ICP</dt>
+            <dd style={{ margin: 0 }}>{output.filteredCount}</dd>
+          </>
+        ) : null}
+      </dl>
+      {warn.length > 0 ? (
+        <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: '0.72rem', color: '#FBBF24', lineHeight: 1.45 }}>
+          {warn.map((w, i) => (
+            <li key={`w-${i}`}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function IntegrationAgentLog({
+  events,
+  variant,
+}: {
+  events?: SprintEventLogEntry[] | null;
+  variant: 'sheet' | 'outreach';
+}) {
+  const lines = (events ?? [])
+    .filter((e) => INTEGRATION_LOG_AGENTS.has(e.agent))
+    .slice()
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  if (lines.length === 0) return null;
+
+  const border =
+    variant === 'sheet'
+      ? '1px solid rgba(250,250,248,0.14)'
+      : `1px solid ${C.border}`;
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        paddingTop: 14,
+        borderTop: border,
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: '0.6875rem',
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+          color: variant === 'sheet' ? 'rgba(250,250,248,0.55)' : C.muted,
+          marginBottom: 8,
+        }}
+      >
+        Integration activity
+      </div>
+      <div
+        role="log"
+        style={{
+          maxHeight: 200,
+          overflowY: 'auto',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontSize: '0.6875rem',
+          lineHeight: 1.55,
+          color: variant === 'sheet' ? 'rgba(250,250,248,0.82)' : C.ink,
+        }}
+      >
+        {lines.map((e, idx) => (
+          <div key={`${e.agent}-${e.created_at}-${e.event_type}-${idx}`} style={{ marginBottom: 6 }}>
+            <span style={{ color: variant === 'sheet' ? 'rgba(250,250,248,0.45)' : C.muted }}>
+              [{formatLogTime(e.created_at)}]
+            </span>{' '}
+            <span style={{ fontWeight: 600 }}>{e.agent}</span> · {describeIntegrationLogEntry(e)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function IntegrationsPanel({
   sprint,
-  focus,
+  variant,
+  scrollParentRef,
   onSprintPatched,
 }: {
   sprint?: SprintRecord | null;
-  /** Highlight sheet / gmail / slack card when opened from canvas nodes */
-  focus?: string;
+  scrollParentRef?: React.RefObject<HTMLElement | null>;
+  variant: 'overview' | 'sheet' | 'outreach' | 'slack';
   onSprintPatched?: (raw: unknown) => void;
 }) {
   const [csvText, setCsvText] = useState(
-    'email,first_name,company,role\nalex@company.com,Alex,Acme Inc,Founder\n',
+    'email,first_name,company,role\nalice@example.com,Alice,Acme Inc,CEO\nbob@example.com,Bob,Beta Labs,Head of Growth\n',
   );
   const [icpFilter, setIcpFilter] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [prepSummary, setPrepSummary] = useState<string | null>(null);
+  const [lastSpreadsheetPrep, setLastSpreadsheetPrep] = useState<SpreadsheetAgentOutput | null>(null);
   const [liveGoogleSheet, setLiveGoogleSheet] = useState(false);
   const [googleOAuth, setGoogleOAuth] = useState<{
     connected: boolean;
@@ -1358,6 +1786,9 @@ function IntegrationsPanel({
   const sheetLinkRef = useRef<HTMLInputElement>(null);
   const [slackDraft, setSlackDraft] = useState('');
   const slackChannelRef = useRef<HTMLInputElement>(null);
+  const spreadsheetDarkRef = useRef<HTMLDivElement>(null);
+  const outreachDarkRef = useRef<HTMLDivElement>(null);
+  const slackDeliveryRef = useRef<HTMLDivElement>(null);
 
   const integration = sprint?.integrations ?? {};
   const aggregateVerdict = sprint?.verdict?.verdict;
@@ -1369,6 +1800,10 @@ function IntegrationsPanel({
     const sid = integration.google_sheet_id?.trim();
     setSheetDraft(url || sid || '');
   }, [integration.google_sheet_url, integration.google_sheet_id, sprint?.sprint_id]);
+
+  useEffect(() => {
+    setLastSpreadsheetPrep(null);
+  }, [sprint?.sprint_id]);
 
   useEffect(() => {
     if (typeof document !== 'undefined' && slackChannelRef.current === document.activeElement) return;
@@ -1391,40 +1826,67 @@ function IntegrationsPanel({
     } catch {
       setContactsReady(false);
     }
-  }, [sprint?.sprint_id, sprint?.post_sprint?.spreadsheet?.validContacts, prepSummary]);
+  }, [sprint?.sprint_id, sprint?.post_sprint?.spreadsheet?.validContacts, lastSpreadsheetPrep?.validContacts]);
 
   useEffect(() => {
     if (!sprint?.sprint_id) {
       setGoogleOAuth(null);
       return;
     }
-    let cancelled = false;
-    void fetch(`/api/integrations/google/status?sprint_id=${encodeURIComponent(sprint.sprint_id)}`)
+    const ac = new AbortController();
+    void fetch(`/api/integrations/google/status?sprint_id=${encodeURIComponent(sprint.sprint_id)}`, {
+      signal: ac.signal,
+    })
       .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled)
-          setGoogleOAuth(
-            data as {
-              connected: boolean;
-              google_email?: string | null;
-              oauth_configured?: boolean;
-              encryption_configured?: boolean;
-            },
-          );
-      })
-      .catch(() => {
-        if (!cancelled)
-          setGoogleOAuth({
-            connected: false,
-            google_email: null,
-            oauth_configured: false,
-            encryption_configured: false,
-          });
+      .then((data) =>
+        setGoogleOAuth(
+          data as {
+            connected: boolean;
+            google_email?: string | null;
+            oauth_configured?: boolean;
+            encryption_configured?: boolean;
+          },
+        ),
+      )
+      .catch((err: unknown) => {
+        if ((err as Error)?.name === 'AbortError') return;
+        setGoogleOAuth({
+          connected: false,
+          google_email: null,
+          oauth_configured: false,
+          encryption_configured: false,
+        });
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => ac.abort();
   }, [sprint?.sprint_id]);
+
+  /** Scroll detail panels to top target after mount */
+  useLayoutEffect(() => {
+    const container = scrollParentRef?.current;
+    if (variant === 'overview' || !container) return;
+    const target =
+      variant === 'sheet'
+        ? spreadsheetDarkRef.current
+        : variant === 'outreach'
+          ? outreachDarkRef.current
+          : variant === 'slack'
+            ? slackDeliveryRef.current
+            : null;
+    if (!target) return;
+
+    const scroll = () => scrollIntoScrollParent(container, target, 12);
+    scroll();
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(scroll);
+    });
+    const t1 = window.setTimeout(scroll, 120);
+    const t2 = window.setTimeout(scroll, 320);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [variant, scrollParentRef, sprint?.sprint_id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1477,6 +1939,14 @@ function IntegrationsPanel({
     }
   };
 
+  const refreshSprintFromServer = async () => {
+    if (!sprint?.sprint_id || !onSprintPatched) return;
+    const res = await fetch(`/api/sprint/${encodeURIComponent(sprint.sprint_id)}`);
+    if (!res.ok) return;
+    const json = (await res.json()) as Record<string, unknown>;
+    onSprintPatched(json);
+  };
+
   const disconnectGoogle = async () => {
     if (!sprint?.sprint_id) return;
     setLoading('integrations');
@@ -1506,7 +1976,6 @@ function IntegrationsPanel({
     if (!sprint?.sprint_id) return;
     setLoading('prepare');
     setError(null);
-    setPrepSummary(null);
     try {
       const rows = liveGoogleSheet ? [] : parseCsvToRows(csvText);
       const res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/prepare-sheet`, {
@@ -1523,14 +1992,12 @@ function IntegrationsPanel({
       const data = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Prepare failed');
       const spreadsheet = (data as { spreadsheet?: SpreadsheetAgentOutput }).spreadsheet;
+      if (spreadsheet) setLastSpreadsheetPrep(spreadsheet);
       onSprintPatched?.((data as { sprint: unknown }).sprint);
-      const w = spreadsheet?.warnings?.length ? spreadsheet.warnings.join(' ') : '';
-      setPrepSummary(
-        `Prepared ${spreadsheet?.validContacts ?? 0} contacts. ${w}`,
-      );
       if (typeof window !== 'undefined' && spreadsheet?.contacts?.length) {
         window.sessionStorage.setItem(`ll_contacts_${sprint.sprint_id}`, JSON.stringify(spreadsheet.contacts));
       }
+      await refreshSprintFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
     } finally {
@@ -1568,6 +2035,7 @@ function IntegrationsPanel({
       }
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Send failed');
       onSprintPatched?.((data as { sprint: unknown }).sprint);
+      await refreshSprintFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
     } finally {
@@ -1586,6 +2054,7 @@ function IntegrationsPanel({
       const data = await res.json();
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Slack failed');
       onSprintPatched?.((data as { sprint: unknown }).sprint);
+      await refreshSprintFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
     } finally {
@@ -1593,7 +2062,8 @@ function IntegrationsPanel({
     }
   };
 
-  const focusRef = (id: string) => (focus === id ? { outline: `2px solid ${C.ink}` } : {});
+  const spreadsheetPrepDisplay =
+    lastSpreadsheetPrep ?? sprint?.post_sprint?.spreadsheet ?? undefined;
 
   const lostContactSession =
     !!sprint?.post_sprint?.spreadsheet?.validContacts &&
@@ -1616,23 +2086,84 @@ function IntegrationsPanel({
     color: C.ink,
   };
 
-  const googleWorkspaceOutline =
-    focus === 'spreadsheet' || focus === 'outreach'
-      ? { outline: '2px solid #FAFAF8', outlineOffset: 2 }
-      : {};
+  const oauthEl = (
+    <div style={{ marginBottom: 14 }}>
+      {googleOAuth === null && (
+        <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)' }}>Checking Google configuration…</p>
+      )}
+      {googleOAuth !== null && googleOAuth.oauth_configured && googleOAuth.encryption_configured ? (
+        <>
+          {googleOAuth.connected ? (
+            <p style={{ fontSize: '0.8125rem', color: '#FAFAF8' }}>
+              Connected{googleOAuth.google_email ? ` · ${googleOAuth.google_email}` : ''}.
+            </p>
+          ) : (
+            <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.75)' }}>
+              Authorize Google — Sheets (read) + Gmail (send); refresh token encrypted on the server.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            {!googleOAuth.connected ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!sprint?.sprint_id) return;
+                  window.location.href = `/api/integrations/google/start?sprint_id=${encodeURIComponent(sprint.sprint_id)}`;
+                }}
+                disabled={loading !== null || !sprint?.sprint_id}
+                style={{
+                  ...btnPrimary(),
+                  background: '#FAFAF8',
+                  color: C.ink,
+                }}
+              >
+                Connect Google
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void disconnectGoogle()}
+                disabled={loading !== null}
+                style={{
+                  height: 34,
+                  padding: '0 14px',
+                  background: 'transparent',
+                  color: '#FAFAF8',
+                  border: '1px solid rgba(250,250,248,0.35)',
+                  borderRadius: 8,
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  cursor: loading !== null ? 'default' : 'pointer',
+                }}
+              >
+                Disconnect Google
+              </button>
+            )}
+          </div>
+        </>
+      ) : googleOAuth !== null ? (
+        <p style={{ fontSize: '0.75rem', color: '#FBBF24' }}>
+          Add Google OAuth + GOOGLE_OAUTH_SECRET in server env for live APIs.
+        </p>
+      ) : null}
+    </div>
+  );
 
   return (
     <div>
+      {variant === 'overview' && (
+      <>
       <SectionTitle>Integrations</SectionTitle>
+
       <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
-        Connect delivery tools here. Post-sprint agents are optional on the canvas — enable only what you need. Contact rows stay off the server except aggregates and masked logs.
+        Enable agents here to show their canvas nodes. Click a node after implementation to open its own panel — not this overview.
       </p>
 
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(248px, 1fr))',
-          gap: 12,
+          gap: 14,
           marginBottom: 12,
         }}
       >
@@ -1744,246 +2275,251 @@ function IntegrationsPanel({
           </div>
         </div>
       </div>
+      </>
+      )}
 
-      <p style={{ fontSize: '0.75rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
-        Canvas toggles only show the workflow nodes — you can still run SpreadsheetAgent, OutreachAgent, and SlackAgent below when the sprint is complete.
-      </p>
-
-      <div style={{ height: 1, background: C.border, margin: '14px 0 16px' }} />
-
-      <div
-        style={{
-          borderRadius: 16,
-          padding: 18,
-          marginBottom: 12,
-          background: C.ink,
-          border: `1px solid ${C.border}`,
-          ...googleWorkspaceOutline,
-        }}
-      >
-        <div style={{ fontWeight: 700, fontSize: '1rem', color: '#FAFAF8', letterSpacing: '-0.02em', marginBottom: 8 }}>
-          Google Workspace — list & Gmail
-        </div>
-        <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.86)', lineHeight: 1.45, marginBottom: 14 }}>
-          One sign-in covers read-only Sheets and sending through your Google account (rate-limited). After you connect, set the workbook, prepare rows, then confirm batch send — credentials, token refresh, and send pacing are handled server-side from this sprint.
-        </p>
-
-        <div style={{ marginBottom: 14 }}>
-          {googleOAuth === null && (
-            <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)' }}>Checking Google configuration…</p>
-          )}
-          {googleOAuth !== null && googleOAuth.oauth_configured && googleOAuth.encryption_configured ? (
-            <>
-              {googleOAuth.connected ? (
-                <p style={{ fontSize: '0.8125rem', color: '#FAFAF8' }}>
-                  Connected{googleOAuth.google_email ? ` · ${googleOAuth.google_email}` : ''}.
-                </p>
-              ) : (
-                <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.75)' }}>
-                  Authorize Google — Sheets (read) + Gmail (send); refresh token encrypted on the server.
-                </p>
-              )}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                {!googleOAuth.connected ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!sprint?.sprint_id) return;
-                      window.location.href = `/api/integrations/google/start?sprint_id=${encodeURIComponent(sprint.sprint_id)}`;
-                    }}
-                    disabled={loading !== null || !sprint?.sprint_id}
-                    style={{
-                      ...btnPrimary(),
-                      background: '#FAFAF8',
-                      color: C.ink,
-                    }}
-                  >
-                    Connect Google
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void disconnectGoogle()}
-                    disabled={loading !== null}
-                    style={{
-                      height: 34,
-                      padding: '0 14px',
-                      background: 'transparent',
-                      color: '#FAFAF8',
-                      border: '1px solid rgba(250,250,248,0.35)',
-                      borderRadius: 8,
-                      fontSize: '0.8125rem',
-                      fontWeight: 600,
-                      cursor: loading !== null ? 'default' : 'pointer',
-                    }}
-                  >
-                    Disconnect Google
-                  </button>
-                )}
-              </div>
-            </>
-          ) : googleOAuth !== null ? (
-            <p style={{ fontSize: '0.75rem', color: '#FBBF24' }}>
-              Add Google OAuth + GOOGLE_OAUTH_SECRET in server env for live APIs.
-            </p>
-          ) : null}
-        </div>
-
-        <Label>
-          <span style={{ color: 'rgba(250,250,248,0.75)' }}>Spreadsheet URL or ID</span>
-        </Label>
-        <input
-          ref={sheetLinkRef}
-          value={sheetDraft}
-          onChange={(e) => setSheetDraft(e.target.value)}
-          onBlur={() => persistSheetLinkFromDraft()}
-          placeholder="https://docs.google.com/spreadsheets/d/… or ID"
-          style={{ ...inpOnDark, marginBottom: 12, marginTop: 6 }}
-        />
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10, color: 'rgba(250,250,248,0.9)' }}>
-          <input
-            type="checkbox"
-            checked={liveGoogleSheet}
-            onChange={(e) => setLiveGoogleSheet(e.target.checked)}
-          />
-          Pull first tab live (Sheets API)
-        </label>
-
-        {!liveGoogleSheet && (
-          <textarea
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-            rows={5}
-            style={{
-              ...taStyle(),
-              fontFamily: 'monospace',
-              fontSize: '0.75rem',
-              background: '#FFFFFF',
-              color: C.ink,
-              marginBottom: 10,
-            }}
-          />
-        )}
-        {liveGoogleSheet && (
-          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.7)', marginBottom: 10 }}>
-            Header row maps columns. Requires Connect Google above.
+      {variant === 'sheet' && (
+        <>
+          <SectionTitle>SpreadsheetAgent</SectionTitle>
+          <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.55 }}>
+            Prepare contacts after verdict <strong style={{ fontWeight: 600 }}>GO</strong> or{' '}
+            <strong style={{ fontWeight: 600 }}>ITERATE</strong>.{' '}
+            <strong style={{ fontWeight: 600 }}>CSV paste</strong> works without Google — row&nbsp;1 names columns (export from Sheets as CSV
+            or copy the grid).{' '}
+            <strong style={{ fontWeight: 600 }}>Live Sheet</strong> reads the workbook URL via Google after you connect — same columns as CSV,
+            no duplicate paste.
           </p>
-        )}
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10, color: 'rgba(250,250,248,0.9)' }}>
-          <input type="checkbox" checked={icpFilter} onChange={(e) => setIcpFilter(e.target.checked)} />
-          Optional ICP keyword filter (Genome)
-        </label>
-
-        <button
-          type="button"
-          onClick={() => void prepareSheet()}
-          disabled={loading !== null || !canRunPrepareSheet}
-          style={{
-            ...btnPrimary(),
-            background: '#FAFAF8',
-            color: C.ink,
-          }}
-        >
-          {loading === 'prepare' ? 'Preparing…' : 'Run SpreadsheetAgent'}
-        </button>
-        {!canPrepareSpreadsheet && sprint?.state === 'COMPLETE' && (
-          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
-            Runs when verdict is GO or ITERATE.
-          </p>
-        )}
-        {liveGoogleSheet && !googleOAuth?.connected && sprint?.state === 'COMPLETE' && canPrepareSpreadsheet && (
-          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
-            Connect Google before a live pull.
-          </p>
-        )}
-        {prepSummary && (
-          <p style={{ fontSize: '0.8125rem', color: '#FAFAF8', marginTop: 10 }}>{prepSummary}</p>
-        )}
-
-        <div style={{ height: 1, background: 'rgba(250,250,248,0.12)', margin: '18px 0' }} />
-
-        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#FAFAF8', marginBottom: 6 }}>Confirm outreach</div>
-        <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.75)', marginBottom: 10, lineHeight: 1.45 }}>
-          Uses the same Google connection for plain-text sends (winning angle subject + body). Simulation if OAuth is unavailable.
-        </p>
-        <button
-          type="button"
-          onClick={() => void sendOutreach()}
-          disabled={loading !== null || !canSendOutreach}
-          style={{
-            ...btnPrimary(),
-            background: '#FAFAF8',
-            color: C.ink,
-          }}
-        >
-          {loading === 'outreach' ? 'Sending…' : 'Confirm & run OutreachAgent'}
-        </button>
-        {lostContactSession && (
-          <p style={{ fontSize: '0.75rem', color: '#FBBF24', marginTop: 8 }}>
-            Contacts live in this browser session — run SpreadsheetAgent again to reload.
-          </p>
-        )}
-        {!contactsReady && canPrepareSpreadsheet && (
-          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
-            Prepare contacts first.
-          </p>
-        )}
-      </div>
-
-      <div style={{ ...cardStyle(), ...focusRef('slack') }}>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
           <div
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 12,
+              borderRadius: 16,
+              padding: 18,
+              marginBottom: 12,
+              background: C.ink,
               border: `1px solid ${C.border}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              background: C.faint,
             }}
           >
-            <SlackGlyph size={22} color={C.muted} />
+            <div ref={spreadsheetDarkRef}>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#FAFAF8', letterSpacing: '-0.02em', marginBottom: 8 }}>
+                Contacts source
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.86)', lineHeight: 1.55, marginBottom: 14 }}>
+                Connect Google once so we can pull Sheets and send Gmail from Outreach. Without OAuth, paste CSV below — the agent maps headers
+                automatically (email required; first name, company, role/title optional — labels like “Email”, “Company”, “Job title” all work).
+              </p>
+              {oauthEl}
+              {(sheetDraft.trim() || integration.google_sheet_url?.trim()) && !liveGoogleSheet ? (
+                <p
+                  style={{
+                    fontSize: '0.75rem',
+                    color: 'rgba(250,250,248,0.72)',
+                    lineHeight: 1.45,
+                    marginBottom: 12,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'rgba(250,250,248,0.06)',
+                    border: '1px solid rgba(250,250,248,0.12)',
+                  }}
+                >
+                  A spreadsheet URL is saved — turn on <strong style={{ fontWeight: 600 }}>Pull first tab live</strong> after connecting Google to
+                  fetch it server-side. Until then, paste an exported CSV (same columns as your sheet) in the box below.
+                </p>
+              ) : null}
+              <Label>
+                <span style={{ color: 'rgba(250,250,248,0.75)' }}>Spreadsheet URL or ID</span>
+              </Label>
+              <input
+                ref={sheetLinkRef}
+                value={sheetDraft}
+                onChange={(e) => setSheetDraft(e.target.value)}
+                onBlur={() => persistSheetLinkFromDraft()}
+                placeholder="https://docs.google.com/spreadsheets/d/… or spreadsheet ID"
+                style={{ ...inpOnDark, marginBottom: 12, marginTop: 6 }}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10, color: 'rgba(250,250,248,0.9)' }}>
+                <input
+                  type="checkbox"
+                  checked={liveGoogleSheet}
+                  onChange={(e) => setLiveGoogleSheet(e.target.checked)}
+                />
+                Pull first tab live (requires Connect Google)
+              </label>
+              {!liveGoogleSheet && (
+                <>
+                  <Label>
+                    <span style={{ color: 'rgba(250,250,248,0.75)' }}>Paste CSV (comma-separated)</span>
+                  </Label>
+                  <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.68)', lineHeight: 1.45, marginBottom: 8 }}>
+                    First line = headers. Include one column whose name contains “email”. Other columns can be first name, company, role — we match
+                    common header names from Sheets exports.
+                  </p>
+                  <textarea
+                    value={csvText}
+                    onChange={(e) => setCsvText(e.target.value)}
+                    rows={6}
+                    style={{
+                      ...taStyle(),
+                      fontFamily: 'monospace',
+                      fontSize: '0.75rem',
+                      background: '#FFFFFF',
+                      color: C.ink,
+                      marginBottom: 10,
+                    }}
+                  />
+                </>
+              )}
+              {liveGoogleSheet && (
+                <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.7)', marginBottom: 10 }}>
+                  Uses the spreadsheet URL or ID above as the workbook to read (first worksheet tab).
+                </p>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10, color: 'rgba(250,250,248,0.9)' }}>
+                <input type="checkbox" checked={icpFilter} onChange={(e) => setIcpFilter(e.target.checked)} />
+                Optional ICP keyword filter (Genome)
+              </label>
+              <button
+                type="button"
+                onClick={() => void prepareSheet()}
+                disabled={loading !== null || !canRunPrepareSheet}
+                style={{
+                  ...btnPrimary(),
+                  background: '#FAFAF8',
+                  color: C.ink,
+                }}
+              >
+                {loading === 'prepare' ? 'Preparing…' : 'Run SpreadsheetAgent'}
+              </button>
+              {!canPrepareSpreadsheet && sprint?.state === 'COMPLETE' && (
+                <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
+                  Runs when verdict is GO or ITERATE.
+                </p>
+              )}
+              {liveGoogleSheet && !googleOAuth?.connected && sprint?.state === 'COMPLETE' && canPrepareSpreadsheet && (
+                <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
+                  Connect Google before a live pull.
+                </p>
+              )}
+              <SpreadsheetPrepSummaryCard output={spreadsheetPrepDisplay} />
+              <IntegrationAgentLog events={sprint?.events} variant="sheet" />
+            </div>
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink }}>Slack delivery</div>
-            <p style={{ fontSize: '0.8125rem', color: C.muted, marginTop: 4, lineHeight: 1.45 }}>
-              Bot posts an aggregate sprint summary to the channel you choose. Requires{' '}
-              <code style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>SLACK_BOT_TOKEN</code> on the server and scopes to chat:write.
-              Slack OAuth for installs can replace the bot token later — today this panel stores channel preference only.
-            </p>
+        </>
+      )}
+
+      {variant === 'outreach' && (
+        <>
+          <SectionTitle>OutreachAgent · Gmail</SectionTitle>
+          <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
+            Batch plain-text sends using prepared contacts (session storage until send).
+          </p>
+          <div
+            style={{
+              borderRadius: 16,
+              padding: 18,
+              marginBottom: 12,
+              background: C.ink,
+              border: `1px solid ${C.border}`,
+            }}
+          >
+            <div ref={outreachDarkRef}>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#FAFAF8', letterSpacing: '-0.02em', marginBottom: 8 }}>
+                Gmail batch send
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.86)', lineHeight: 1.45, marginBottom: 14 }}>
+                Uses your Google connection for plain-text sends (winning angle subject + body).
+              </p>
+              {oauthEl}
+              <div style={{ height: 1, background: 'rgba(250,250,248,0.12)', margin: '18px 0' }} />
+              <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#FAFAF8', marginBottom: 6 }}>Confirm outreach</div>
+              <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.75)', marginBottom: 10, lineHeight: 1.45 }}>
+                Sends through your connected Google account (rate-limited server-side).
+              </p>
+              <button
+                type="button"
+                onClick={() => void sendOutreach()}
+                disabled={loading !== null || !canSendOutreach}
+                style={{
+                  ...btnPrimary(),
+                  background: '#FAFAF8',
+                  color: C.ink,
+                }}
+              >
+                {loading === 'outreach' ? 'Sending…' : 'Confirm & run OutreachAgent'}
+              </button>
+              {lostContactSession && (
+                <p style={{ fontSize: '0.75rem', color: '#FBBF24', marginTop: 8 }}>
+                  Contacts live in this browser session — run SpreadsheetAgent again to reload.
+                </p>
+              )}
+              {!contactsReady && canPrepareSpreadsheet && (
+                <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
+                  Prepare contacts first (Spreadsheet node).
+                </p>
+              )}
+              <IntegrationAgentLog events={sprint?.events} variant="outreach" />
+            </div>
           </div>
-        </div>
-        <Label>Channel</Label>
-        <input
-          ref={slackChannelRef}
-          value={slackDraft}
-          onChange={(e) => setSlackDraft(e.target.value)}
-          onBlur={() => persistSlackChannelFromDraft()}
-          placeholder="#general"
-          style={{ ...inpStyle(), marginBottom: 10 }}
-        />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10 }}>
-          <input
-            type="checkbox"
-            checked={!!integration.slack_connected}
-            onChange={(e) => void patchIntegrations({ slack_connected: e.target.checked })}
-          />
-          Mark Slack path ready (demo / server configured)
-        </label>
-        <button
-          type="button"
-          onClick={() => void postSlack()}
-          disabled={loading !== null || sprint?.state !== 'COMPLETE'}
-          style={btnPrimary()}
-        >
-          {loading === 'slack' ? 'Posting…' : 'Run SlackAgent'}
-        </button>
-      </div>
+        </>
+      )}
+
+      {variant === 'slack' && (
+        <>
+          <SectionTitle>SlackAgent</SectionTitle>
+          <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
+            Post an aggregate sprint summary to your workspace channel (no recipient PII).
+          </p>
+          <div ref={slackDeliveryRef} style={{ ...cardStyle() }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  border: `1px solid ${C.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  background: C.faint,
+                }}
+              >
+                <SlackGlyph size={22} color={C.muted} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink }}>Slack delivery</div>
+                <p style={{ fontSize: '0.8125rem', color: C.muted, marginTop: 4, lineHeight: 1.45 }}>
+                  Bot posts an aggregate sprint summary to the channel you choose. Requires{' '}
+                  <code style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>SLACK_BOT_TOKEN</code> on the server and scopes to chat:write.
+                </p>
+              </div>
+            </div>
+            <Label>Channel</Label>
+            <input
+              ref={slackChannelRef}
+              value={slackDraft}
+              onChange={(e) => setSlackDraft(e.target.value)}
+              onBlur={() => persistSlackChannelFromDraft()}
+              placeholder="#general"
+              style={{ ...inpStyle(), marginBottom: 10 }}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                checked={!!integration.slack_connected}
+                onChange={(e) => void patchIntegrations({ slack_connected: e.target.checked })}
+              />
+              Mark Slack path ready (demo / server configured)
+            </label>
+            <button
+              type="button"
+              onClick={() => void postSlack()}
+              disabled={loading !== null || sprint?.state !== 'COMPLETE'}
+              style={btnPrimary()}
+            >
+              {loading === 'slack' ? 'Posting…' : 'Run SlackAgent'}
+            </button>
+          </div>
+        </>
+      )}
 
       {error && <p style={{ fontSize: '0.8125rem', color: C.stop }}>{error}</p>}
     </div>
@@ -2053,8 +2589,19 @@ export function NodePanel({
   workflowRunning = false,
   embedded = false,
 }: Props) {
+  const panelBodyRef = useRef<HTMLDivElement>(null);
   if (!panel) return null;
-  const panelWidth = panel === 'landing' ? 820 : panel === 'integrations' ? 480 : 380;
+  const isIntegrationSurface =
+    panel === 'integrations' ||
+    panel === 'integrations_sheet' ||
+    panel === 'integrations_outreach' ||
+    panel === 'integrations_slack';
+  const panelWidth =
+    panel === 'landing'
+      ? 820
+      : isIntegrationSurface
+        ? 440
+        : 380;
 
   const content = () => {
     switch (panel) {
@@ -2068,7 +2615,41 @@ export function NodePanel({
       case 'verdict':    return <VerdictPanel sprint={sprint} />;
       case 'report':     return <ReportPanel sprint={sprint} />;
       case 'integrations':
-        return <IntegrationsPanel sprint={sprint} focus={channel} onSprintPatched={onSprintPatched} />;
+        return (
+          <IntegrationsPanel
+            sprint={sprint}
+            variant="overview"
+            scrollParentRef={panelBodyRef}
+            onSprintPatched={onSprintPatched}
+          />
+        );
+      case 'integrations_sheet':
+        return (
+          <IntegrationsPanel
+            sprint={sprint}
+            variant="sheet"
+            scrollParentRef={panelBodyRef}
+            onSprintPatched={onSprintPatched}
+          />
+        );
+      case 'integrations_outreach':
+        return (
+          <IntegrationsPanel
+            sprint={sprint}
+            variant="outreach"
+            scrollParentRef={panelBodyRef}
+            onSprintPatched={onSprintPatched}
+          />
+        );
+      case 'integrations_slack':
+        return (
+          <IntegrationsPanel
+            sprint={sprint}
+            variant="slack"
+            scrollParentRef={panelBodyRef}
+            onSprintPatched={onSprintPatched}
+          />
+        );
       case 'benchmarks': return <BenchmarksPanel />;
       case 'settings':   return <SettingsPanel />;
       default: return null;
@@ -2079,6 +2660,7 @@ export function NodePanel({
     <AnimatePresence>
       <motion.div
         key={panel + (channel ?? '')}
+        className="nodrag nopan"
         initial={{ x: 360, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: 360, opacity: 0 }}
@@ -2109,7 +2691,7 @@ export function NodePanel({
               </span>
             )}
           </div>
-          {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && (
+          {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && !isIntegrationSurface && (
             <button
               onClick={() => onRunWorkflow(sprint.sprint_id)}
               disabled={workflowRunning}
@@ -2128,7 +2710,7 @@ export function NodePanel({
         </div>
 
         {/* Panel content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '18px' }}>
+        <div ref={panelBodyRef} style={{ flex: 1, overflowY: 'auto', padding: '18px' }}>
           {content()}
         </div>
       </motion.div>

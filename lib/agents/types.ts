@@ -29,6 +29,15 @@ export type SprintState =
   | 'COMPLETE'
   | 'BLOCKED';
 
+/** Audit rows returned with GET /api/sprint/[id] for integration agent runs */
+export interface SprintEventLogEntry {
+  agent: string;
+  event_type: string;
+  channel?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface SprintRecord {
   sprint_id: string;
   idea: string;
@@ -43,6 +52,8 @@ export interface SprintRecord {
   integrations?: SprintIntegrations;
   /** Post-report orchestration — Spreadsheet → Outreach → Slack. */
   post_sprint?: PostSprintLayer;
+  /** Present on GET /api/sprint/[id] — newest-first query server-side; UI may re-sort */
+  events?: SprintEventLogEntry[];
   // Agent outputs (written as they complete)
   genome?: GenomeAgentOutput;
   healthgate?: Record<Platform, HealthgateAgentOutput>;

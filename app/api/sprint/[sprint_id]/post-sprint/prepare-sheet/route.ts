@@ -149,7 +149,13 @@ export async function POST(
     payload: {
       validContacts: result.validContacts,
       totalRows: result.totalRows,
+      skippedInvalidEmail: result.skippedInvalidEmail,
+      skippedNoEmail: result.skippedNoEmail,
+      filteredCount: result.filteredCount,
+      icpFilterApplied: result.icpFilterApplied,
       live_sheet: Boolean(body.live_google_sheet),
+      sheetTitle: resolvedSheetName,
+      warnings: result.warnings ?? [],
     },
   });
 
