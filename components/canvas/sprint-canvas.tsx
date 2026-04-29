@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 
 import { CanvasToolbar } from './canvas-toolbar';
 import { NodePanel, type PanelId } from './node-panel';
-import { PipelineEdge, PipelineEdgeMarkers, type EdgeState } from './pipeline-edge';
+import { PipelineEdge, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode,
@@ -63,15 +63,15 @@ const LAYOUT = {
 };
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
 
-/** Horizontal gap after column `leftW` before column `rightW` — tight for uniform cards, wider next to tall previews */
+/** Horizontal gap after column `leftW` before column `rightW` — separated enough that each edge reads as its own step. */
 function horizontalGapBetween(leftW: number, rightW: number): number {
   const wideThreshold = Math.min(NODE_SIZE.creative.width, NODE_SIZE.landing.width) - 12;
   const std = NODE_SIZE.standard.width;
   const l = leftW >= wideThreshold || rightW >= wideThreshold;
   const bothStd = leftW <= std + 8 && rightW <= std + 8;
-  if (bothStd) return 72;
-  if (l) return 204;
-  return 88;
+  if (bothStd) return 128;
+  if (l) return 164;
+  return 144;
 }
 
 /** X positions derived from actual column widths so spacing scales with card size (dynamic packing) */
@@ -1363,7 +1363,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         selectionOnDrag
         proOptions={{ hideAttribution: true }}
       >
-        <PipelineEdgeMarkers />
         <Background id="lane-grid" variant={BackgroundVariant.Lines} gap={120} size={0.8} color="#F3F0EB" />
         <Background id="dot-grid" variant={BackgroundVariant.Dots} gap={20} size={1.25} color="#D8D2C7" />
 

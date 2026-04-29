@@ -378,6 +378,230 @@ Recommended next improvements:
 - Move repeated inline styles into shared primitives only where it reduces code.
 - Keep edge animations minimal.
 
+## Deep Canvas Efficiency and Optimization Audit
+
+### Current Interaction Symptoms
+
+The canvas can feel laggy for several reasons that compound:
+
+- React Flow emits frequent position and dimension updates.
+- Node data is rebuilt whenever `sprintData`, drafts, connected platforms, or stored positions change.
+- The side panel contains large forms, textareas, iframe previews, and contact lists.
+- Edge animations and SVG marker definitions add extra DOM and paint work.
+- Full sprint reloads happen after agent actions and while polling active workflow states.
+
+The most important optimization principle is to reduce work on every interaction. Dragging a node, clicking another node, or typing into a panel should not cause expensive node rebuilds, heavy preview rendering, or unnecessary network refreshes.
+
+### Canvas Layout and Graph Rendering
+
+Current behavior:
+
+- `buildNodes()` rebuilds all nodes from sprint state.
+- `buildEdges()` rebuilds all edges from sprint state.
+- `mergeCanvasNodes()` attempts to preserve existing React Flow state while replacing generated data.
+- `meaningfulNodeChanges()` filters dimension and position changes to prevent infinite update loops.
+
+Efficiency strengths:
+
+- Node sizes are centralized in `NODE_SIZE`, which keeps layout computation predictable.
+- The layout uses a single pass over columns, so horizontal positioning is `O(columns)`.
+- Active channel lane layout is `O(activeChannels)`, which is small and bounded by four channels.
+- Node overlap resolution is acceptable for this graph because node count is low.
+
+Efficiency risks:
+
+- `resolveNodeOverlaps()` is `O(n^2)`. This is fine for the current graph size, but should not be used for hundreds of nodes.
+- `nodeDataLooselyEqual()` uses `JSON.stringify()`. This is acceptable for small node data but can become expensive if node payloads grow.
+- `baseNodes` depends on `nodePositions`, so position cache changes can rebuild node objects.
+- `fitView` can make spacing changes feel inconsistent because widening the graph may cause the viewport to zoom out.
+
+Recommended improvements:
+
+1. Replace `JSON.stringify()` node comparison with small per-node signatures.
+   - Example: compare only `stage`, `metric`, `selectedAngle`, `validCount`, `sent`, and relevant visible fields.
+   - Benefit: avoids serializing full creative or landing data.
+
+2. Keep auto-layout nodes free from persisted position cache.
+   - Workflow nodes should remain generated from layout.
+   - Only utility nodes should preserve manual movement.
+
+3. Consider a dedicated layout object with explicit gaps.
+   - Use named gaps like `standardColumnGap`, `wideColumnGap`, `utilityGap`.
+   - This makes visual tuning predictable and avoids changing only one edge class by accident.
+
+4. Avoid automatic `fitView` on every graph update.
+   - Fit once on sprint load or new sprint creation.
+   - Do not refit while agents update states, because this can make the canvas feel like it jumps or lags.
+
+### Edge Rendering
+
+Current behavior:
+
+- Edges use `getBezierPath()` and `BaseEdge`.
+- Running edges previously used SVG marker definitions and moving circles.
+
+Efficiency risks:
+
+- SVG markers add definitions and marker painting.
+- Animated circles on paths cause continuous animation work.
+- Per-edge injected `@keyframes` can create extra style tags and recalculation.
+
+Current improvement:
+
+- Remove marker arrowheads.
+- Remove moving edge dots.
+- Keep lightweight dashed line animation only if needed for running state.
+
+Recommended improvements:
+
+1. Prefer static edges for most states.
+2. Use a single global animation class instead of injecting per-edge keyframes.
+3. Keep edge state encoded through stroke, opacity, and dash style only.
+
+### Node Components
+
+Current behavior:
+
+- Nodes are memoized exports.
+- The shared `NodeCard` handles status labels, badges, handles, selection, and hover animation.
+
+Efficiency strengths:
+
+- Memoized node components reduce unnecessary re-rendering when props are stable.
+- Shared card shell keeps rendering consistent.
+
+Efficiency risks:
+
+- Inline style objects are recreated on every render.
+- Framer Motion hover and entry animations exist on every node.
+- Hidden handles still exist for React Flow connectivity, but visible handle circles are removed.
+
+Recommended improvements:
+
+1. Move stable style objects outside render where practical.
+2. Keep only subtle node animations.
+3. Avoid animating every node when only one node changes state.
+4. Keep handles invisible but mounted, because React Flow needs them for edge geometry.
+
+### Side Panel
+
+Current behavior:
+
+- The panel conditionally renders a large switch of node-specific content.
+- Spreadsheet and Outreach panels include contact editing, email preview, Google OAuth state, send controls, and logs.
+- HTML email preview can use an iframe.
+
+Efficiency strengths:
+
+- The panel is outside the main node graph.
+- Sent email preview is stored as lightweight text.
+- Panel animation was simplified to avoid dramatic remount behavior.
+
+Efficiency risks:
+
+- Contact rows render as full DOM. A large list can create input lag.
+- Email body personalization can recompute while typing.
+- HTML iframe preview is expensive if updated on every keystroke.
+- Large inline styles make extraction and memoization harder.
+
+Recommended improvements:
+
+1. Virtualize contact rows above 100 contacts.
+   - Render only visible rows.
+   - Keep selected contact state in an indexed map or array.
+
+2. Debounce HTML preview updates.
+   - Update plain text immediately.
+   - Update iframe `srcDoc` after 150-250ms of inactivity.
+
+3. Memoize personalized preview.
+   - Key by `previewContact.email`, `subject`, `body`, and `format`.
+
+4. Split Spreadsheet panel into focused subcomponents.
+   - `ContactsSourceCard`
+   - `ContactReviewList`
+   - `EmailDraftPreview`
+   - `SentEmailPreview`
+
+5. Keep sent previews text-only in persisted sprint data.
+   - Do not store full HTML or per-recipient bodies in sprint JSON.
+
+### Network and State Updates
+
+Current behavior:
+
+- The client triggers sequential API routes for the workflow.
+- Each step refreshes sprint detail from the server.
+- Polling runs while sprint state is active.
+
+Efficiency strengths:
+
+- Server remains source of truth.
+- Polling interval is moderate.
+- Client can show optimistic running state before server completion.
+
+Efficiency risks:
+
+- Sequential client-driven orchestration can stop if the browser tab refreshes or route changes.
+- Multiple `GET /api/sprint/[id]` calls can happen during workflow transitions.
+- Loading sprint list should not re-run just because active sprint changes.
+
+Recommended improvements:
+
+1. Move full workflow orchestration to a server route or job.
+   - Client calls `POST /api/sprint/[id]/run`.
+   - Server advances Genome, Healthgate, Angles, and later stages.
+   - Client only observes state.
+
+2. Reduce duplicate detail refreshes.
+   - Use API responses directly when they include updated sprint state.
+   - Only call `loadSprintDetail()` when the response does not include a full record.
+
+3. Use SWR or a small sprint cache.
+   - Cache sprint detail by `sprint_id`.
+   - Revalidate after actions.
+
+4. Stop polling after terminal states.
+   - Terminal states include `ANGLES_DONE`, `LANDING_DONE`, `COMPLETE`, and `BLOCKED` unless the user explicitly continues.
+
+### Data Structures and Algorithms
+
+Recommended data structure changes:
+
+- Use `Map<string, Node>` for current node lookup, already used in merge logic.
+- Use stable node signatures instead of full JSON string comparison.
+- Store contacts in arrays for order, but keep selected/edited state indexed by row id for large lists.
+- Use bounded queues for event logs if rendering logs directly in UI.
+- Keep channel layout as compact indexed lanes based on active channels.
+
+Recommended complexity targets:
+
+- Layout: `O(columns + activeChannels)`.
+- Node merge: `O(nodes)`.
+- Edge build: `O(activeChannels + postSprintNodes)`.
+- Contact rendering: `O(visibleRows)`, not `O(allContacts)`.
+- Log rendering: `O(recentEvents)`, not `O(allEvents)`.
+
+### Highest Impact Optimization Plan
+
+1. Remove edge markers and moving dots.
+   - Immediate visual and paint simplification.
+
+2. Stop remounting/reanimating the panel when switching nodes.
+   - Improves click-to-click responsiveness.
+
+3. Replace `JSON.stringify()` node comparisons with signatures.
+   - Reduces render overhead as data grows.
+
+4. Virtualize contact lists.
+   - Prevents SpreadsheetAgent UI from slowing down with large lists.
+
+5. Move orchestration server-side.
+   - Makes new sprint workflows reliable even if the client route changes.
+
+6. Debounce HTML preview.
+   - Prevents iframe churn while typing.
+
 ## UX Priorities
 
 Highest-priority UX improvements:
