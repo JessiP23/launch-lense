@@ -62,7 +62,7 @@ interface CardProps {
 
 function NodeCard({
   label, metric, metricLabel, sublabel,
-  stage, hasLeft = true, hasRight = true, selected = false, width = 168, height, children,
+  stage, hasLeft = true, hasRight = true, selected = false, width = 192, height, children,
 }: CardProps) {
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
@@ -246,7 +246,7 @@ export type CreativeNodeData = {
 export type CreativeNodeType = Node<CreativeNodeData, 'creative'>;
 export const CreativeNode = memo(({ data, selected }: NodeProps<CreativeNodeType>) => (
   <NodeCard
-    label={`Creative · ${data.channel ?? 'Channel'}`} stage={data.stage} selected={!!selected} width={236} height={340}
+    label={`Creative · ${data.channel ?? 'Channel'}`} stage={data.stage} selected={!!selected} width={248} height={352}
     metric={data.selectedAngle?.replace('angle_', '') ?? (data.stage === 'running' ? '…' : '—')}
     metricLabel={data.title ? 'live preview' : 'select angle'}
   >
@@ -341,7 +341,7 @@ export type LandingNodeData = {
 export type LandingNodeType = Node<LandingNodeData, 'landing'>;
 export const LandingNode = memo(({ data, selected }: NodeProps<LandingNodeType>) => (
   <NodeCard
-    label="Landing Page" stage={data.stage} selected={!!selected} width={236} height={340}
+    label="Landing Page" stage={data.stage} selected={!!selected} width={248} height={352}
     metric={data.pageCount != null ? `${data.pageCount}` : data.stage === 'running' ? '…' : '—'}
     metricLabel={data.url ? 'deployed page' : 'live page draft'}
   >
@@ -429,11 +429,51 @@ export type ReportNodeData  = { stage: NodeStage; ready?: boolean };
 export type ReportNodeType  = Node<ReportNodeData, 'report'>;
 export const ReportNode = memo(({ data, selected }: NodeProps<ReportNodeType>) => (
   <NodeCard
-    label="Report" stage={data.stage} selected={!!selected} hasRight={false}
+    label="Report" stage={data.stage} selected={!!selected}
     sublabel={data.ready ? 'Ready' : data.stage === 'running' ? 'Generating…' : 'Waiting'}
   />
 ));
 ReportNode.displayName = 'ReportNode';
+
+export type SpreadsheetNodeData = { validCount?: number; stage: NodeStage };
+export type SpreadsheetNodeType = Node<SpreadsheetNodeData, 'spreadsheet'>;
+export const SpreadsheetNode = memo(({ data, selected }: NodeProps<SpreadsheetNodeType>) => (
+  <NodeCard
+    label="Spreadsheet"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.validCount != null ? `${data.validCount}` : '—'}
+    metricLabel="valid contacts"
+  />
+));
+SpreadsheetNode.displayName = 'SpreadsheetNode';
+
+export type OutreachNodeData = { sent?: number; stage: NodeStage };
+export type OutreachNodeType = Node<OutreachNodeData, 'outreach'>;
+export const OutreachNode = memo(({ data, selected }: NodeProps<OutreachNodeType>) => (
+  <NodeCard
+    label="Outreach · Gmail"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.sent != null ? `${data.sent}` : '—'}
+    metricLabel="emails sent"
+  />
+));
+OutreachNode.displayName = 'OutreachNode';
+
+export type SlackNodeData = { posted?: boolean; stage: NodeStage };
+export type SlackNodeType = Node<SlackNodeData, 'slack'>;
+export const SlackNode = memo(({ data, selected }: NodeProps<SlackNodeType>) => (
+  <NodeCard
+    label="Slack"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.posted ? 'Live' : '—'}
+    metricLabel={data.posted ? 'posted' : 'summary'}
+    hasRight={false}
+  />
+));
+SlackNode.displayName = 'SlackNode';
 
 export type BenchmarksNodeData  = { stage: NodeStage };
 export type BenchmarksNodeType  = Node<BenchmarksNodeData, 'benchmarks'>;

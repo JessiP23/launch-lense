@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // LaunchLense — Agent Type Definitions
-// Full 7-agent orchestration: Genome → Healthgate → Angle → Landing →
-//   Campaign → Verdict → Report
+// Full orchestration: Genome → Healthgate → Angle → Landing →
+//   Campaign → Verdict → Report → (optional) Spreadsheet → Outreach → Slack
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Platform = 'meta' | 'google' | 'linkedin' | 'tiktok';
@@ -29,6 +29,15 @@ export type SprintState =
   | 'COMPLETE'
   | 'BLOCKED';
 
+/** Audit rows returned with GET /api/sprint/[id] for integration agent runs */
+export interface SprintEventLogEntry {
+  agent: string;
+  event_type: string;
+  channel?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+}
+
 export interface SprintRecord {
   sprint_id: string;
   idea: string;
@@ -39,6 +48,12 @@ export interface SprintRecord {
   blocked_reason?: string;
   created_at: string;
   updated_at: string;
+  /** Connection flags + references for Google Sheet, Gmail, Slack (no secrets). */
+  integrations?: SprintIntegrations;
+  /** Post-report orchestration — Spreadsheet → Outreach → Slack. */
+  post_sprint?: PostSprintLayer;
+  /** Present on GET /api/sprint/[id] — newest-first query server-side; UI may re-sort */
+  events?: SprintEventLogEntry[];
   // Agent outputs (written as they complete)
   genome?: GenomeAgentOutput;
   healthgate?: Record<Platform, HealthgateAgentOutput>;
@@ -47,6 +62,45 @@ export interface SprintRecord {
   campaign?: Record<Platform, CampaignAgentOutput>;
   verdict?: VerdictAgentOutput;
   report?: ReportAgentOutput;
+}
+
+// ── Integrations (workspace / sprint level) ─────────────────────────────────
+
+export interface SprintIntegrations {
+  google_sheet_id?: string | null;
+  google_sheet_url?: string | null;
+  google_sheet_name?: string | null;
+  /** OAuth callback writes resolved Gmail address — never refresh tokens */
+  google_connected_email?: string | null;
+  sheets_connected?: boolean;
+  gmail_connected?: boolean;
+  slack_connected?: boolean;
+  slack_channel?: string | null;
+  /** When true, show post-sprint nodes on the sprint canvas (default off — opt in per sprint). */
+  canvas_sheet?: boolean;
+  canvas_outreach?: boolean;
+  canvas_slack?: boolean;
+}
+
+export type PostSprintPhase =
+  | 'idle'
+  | 'spreadsheet_running'
+  | 'spreadsheet_done'
+  | 'outreach_confirm'
+  | 'outreach_running'
+  | 'outreach_done'
+  | 'slack_running'
+  | 'slack_done'
+  | 'complete';
+
+export interface PostSprintLayer {
+  phase: PostSprintPhase;
+  /** Server stores aggregate stats only — not raw rows. Client resends contacts to confirm send. */
+  spreadsheet?: SpreadsheetAgentOutput | null;
+  outreach?: OutreachAgentOutput | null;
+  slack?: SlackAgentOutput | null;
+  warnings?: string[];
+  updated_at?: string;
 }
 
 // ── Agent 1: GenomeAgent ──────────────────────────────────────────────────
@@ -251,4 +305,56 @@ export interface ReportAgentOutput {
   pdf_url: string | null;     // hosted PDF URL (null if generation failed)
   html: string;               // full report HTML
   generated_at: string;
+}
+
+// ── Agent 8: SpreadsheetAgent ─────────────────────────────────────────────
+
+export interface SpreadsheetContactRow {
+  email: string;
+  firstName: string | null;
+  company: string | null;
+  role: string | null;
+}
+
+export interface SpreadsheetAgentOutput {
+  source: string;
+  totalRows: number;
+  validContacts: number;
+  skippedInvalidEmail: number;
+  skippedNoEmail: number;
+  icpFilterApplied: boolean;
+  filteredCount: number;
+  contacts: SpreadsheetContactRow[];
+  /** Present when SpreadsheetAgent surfaces threshold notices (<5 rows, large lists). */
+  warnings?: string[];
+}
+
+// ── Agent 9: OutreachAgent ─────────────────────────────────────────────────
+
+export interface OutreachSendLogEntry {
+  email: string;
+  status: 'sent' | 'failed' | 'bounced';
+  timestamp: string;
+}
+
+export interface OutreachAgentOutput {
+  totalSent: number;
+  failed: number;
+  bounced: number;
+  subjectLine: string;
+  angleUsed: 'angle_A' | 'angle_B' | 'angle_C';
+  sendLog: OutreachSendLogEntry[];
+  sprintId: string;
+  /** Plain-text preview only — never HTML */
+  bodyPreview?: string;
+}
+
+// ── Agent 10: SlackAgent ───────────────────────────────────────────────────
+
+export interface SlackAgentOutput {
+  posted: boolean;
+  skippedReason?: string;
+  channel?: string | null;
+  messagePreview: string;
+  postedAt?: string | null;
 }

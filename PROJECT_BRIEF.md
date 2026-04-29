@@ -98,7 +98,20 @@ META_PAGE_ID=1104494692741860
 GROQ_API_KEY=gsk_...
 NEXT_PUBLIC_APP_URL=https://launch-lense.vercel.app
 CRON_SECRET=...
+
+# Genome — live market signals (Google via SerpAPI; Meta Ad Library uses META_APP_ID / META_APP_SECRET above)
+SERPER_API_KEY=...              # serpapi.com — enables organic counts, ads, related searches in GenomeAgent
+
+# Google OAuth — Sheets (read) + Gmail (send) for post-sprint SpreadsheetAgent / OutreachAgent
+# Create OAuth client: Google Cloud Console → APIs & Services → Credentials → Web application
+# Authorized redirect URI: {NEXT_PUBLIC_APP_URL}/api/integrations/google/callback
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_OAUTH_STATE_SECRET=...   # long random string — signs OAuth state cookie/param
+GOOGLE_OAUTH_SECRET=...         # openssl rand -base64 32 — AES key for encrypting refresh tokens at rest
 ```
+
+**Google “Sign in with Google” for Sheets + Gmail (end users):** You register **one** OAuth client in Google Cloud (this app). **End users never** create their own Google Cloud project. They click **Connect Google** in LaunchLense, approve the consent screen once, and the server stores an **encrypted refresh token** keyed by **`org_id`** (or sprint when no org) — see `lib/google/sprint-scope.ts` and `google_oauth_tokens`. For production, add the deployed origin to **Authorized JavaScript origins** and the callback URL to **Authorized redirect URIs**, and ensure the OAuth consent screen is **Published** (or test users added) if using sensitive scopes. To give **each user** their own Gmail instead of one mailbox per org, extend the scope key to include **`user_id`** (and store tokens per user) — the current schema is org/sprint–scoped.
 
 ---
 

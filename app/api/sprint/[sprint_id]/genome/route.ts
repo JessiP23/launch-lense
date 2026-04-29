@@ -44,6 +44,8 @@ export async function POST(
       composite: updated.genome?.composite,
       scores: updated.genome?.scores,
       blocked_reason: updated.blocked_reason,
+      data_source: updated.genome?.data_source,
+      elapsed_ms: updated.genome?.elapsed_ms,
     },
   });
 
