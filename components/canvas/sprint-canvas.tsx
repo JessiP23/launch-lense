@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ReactFlow, Background, BackgroundVariant,
+  ReactFlow, Background, BackgroundVariant, applyNodeChanges,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
   ReactFlowProvider, Panel,
 } from '@xyflow/react';
@@ -355,6 +355,42 @@ function draftFingerprint(draft: CreativeDraft) {
 
 function landingFingerprint(draft: LandingDraft) {
   return JSON.stringify(draft);
+}
+
+function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
+  if (!current.length) return nextBase;
+
+  const currentById = new Map(current.map((node) => [node.id, node]));
+  let changed = current.length !== nextBase.length;
+
+  const next = nextBase.map((baseNode) => {
+    const currentNode = currentById.get(baseNode.id);
+    if (!currentNode) {
+      changed = true;
+      return baseNode;
+    }
+
+    const merged = {
+      ...currentNode,
+      ...baseNode,
+      position: currentNode.position,
+      selected: currentNode.selected,
+      dragging: currentNode.dragging,
+    };
+
+    if (
+      currentNode.type !== baseNode.type ||
+      currentNode.data !== baseNode.data ||
+      currentNode.position.x !== merged.position.x ||
+      currentNode.position.y !== merged.position.y
+    ) {
+      changed = true;
+    }
+
+    return merged;
+  });
+
+  return changed ? next : current;
 }
 
 // ── Build static node list ───────────────────────────────────────────────────
@@ -740,7 +776,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [landingDraft, setLandingDraft] = useState<LandingDraft | null>(null);
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
 
-  const nodes = useMemo(() => {
+  const baseNodes = useMemo(() => {
     const built = buildNodes(sprintData, creativeDrafts, landingDraft);
     if (!built[0]) return built;
     built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
@@ -749,15 +785,21 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       return position ? { ...node, position } : node;
     });
   }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
+  const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
 
   const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
 
+  useEffect(() => {
+    setNodes((current) => mergeCanvasNodes(current, baseNodes));
+  }, [baseNodes]);
+
   const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((current) => applyNodeChanges(changes, current));
     setNodePositions((current) => {
       let next = current;
 
       for (const change of changes) {
-        if (change.type !== 'position' || !change.position) continue;
+        if (change.type !== 'position' || !change.position || change.dragging) continue;
         const previous = current[change.id];
         if (previous?.x === change.position.x && previous?.y === change.position.y) continue;
 

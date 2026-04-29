@@ -9,7 +9,7 @@ export interface PipelineEdgeData extends Record<string, unknown> {
 }
 
 const COLORS: Record<EdgeState, string> = {
-  pending: '#E8E4DC',
+  pending: '#C9C1B4',
   running: '#111110',
   done:    '#111110',
   warn:    '#8C8880',
@@ -17,7 +17,7 @@ const COLORS: Record<EdgeState, string> = {
 };
 
 const OPACITY: Record<EdgeState, number> = {
-  pending: 0.42,
+  pending: 0.58,
   running: 1,
   done: 0.9,
   warn: 0.76,
@@ -54,7 +54,7 @@ export function PipelineEdge({
             strokeWidth="1.6"
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity={state === 'pending' ? 0.35 : 1}
+            opacity={state === 'pending' ? 0.58 : 1}
           />
         </marker>
       </defs>
@@ -65,16 +65,6 @@ export function PipelineEdge({
           }
         `}</style>
       )}
-      <BaseEdge
-        id={`${id}-halo`}
-        path={path}
-        style={{
-          stroke: '#FFFFFF',
-          strokeWidth: state === 'running' ? 9 : 7,
-          opacity: 0.84,
-          strokeLinecap: 'round',
-        }}
-      />
       <BaseEdge
         id={id}
         path={path}
@@ -92,14 +82,9 @@ export function PipelineEdge({
         }}
       />
       {state === 'running' && (
-        <>
-          <circle r="3.2" fill={color}>
-            <animateMotion dur="1.3s" repeatCount="indefinite" path={path} />
-          </circle>
-          <circle r="1.55" fill="#FFFFFF">
-            <animateMotion dur="1.3s" repeatCount="indefinite" path={path} />
-          </circle>
-        </>
+        <circle r="3.2" fill={color}>
+          <animateMotion dur="1.3s" repeatCount="indefinite" path={path} />
+        </circle>
       )}
     </>
   );
