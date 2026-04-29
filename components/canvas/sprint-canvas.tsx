@@ -13,7 +13,9 @@ import { NodePanel, type PanelId } from './node-panel';
 import { PipelineEdge, PipelineEdgeMarkers, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
-  CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
+  CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode,
+  SpreadsheetNode, OutreachNode, SlackNode,
+  BenchmarksNode, SettingsNode,
 } from './canvas-nodes';
 import { useAppStore } from '@/lib/store';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
@@ -31,6 +33,9 @@ const NODE_TYPES: NodeTypes = {
   campaign:   CampaignNode,
   verdict:    VerdictNode,
   report:     ReportNode,
+  spreadsheet: SpreadsheetNode,
+  outreach:   OutreachNode,
+  slack:      SlackNode,
   benchmarks: BenchmarksNode,
   settings:   SettingsNode,
 };
@@ -65,6 +70,9 @@ const X = (() => {
     ['verdict', NODE_SIZE.standard.width],
     ['landing', NODE_SIZE.landing.width],
     ['report', NODE_SIZE.standard.width],
+    ['spreadsheet', NODE_SIZE.standard.width],
+    ['outreach', NODE_SIZE.standard.width],
+    ['slack', NODE_SIZE.standard.width],
   ] as const;
 
   let cursor = LAYOUT.left;
@@ -156,10 +164,32 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState, sprint?: Spri
     if (s === 'COMPLETE') return 'done';
     return 'idle';
   }
+  if (nodeId === 'spreadsheet') {
+    if (s !== 'COMPLETE') return 'idle';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'spreadsheet_running') return 'running';
+    if (phase && phase !== 'idle') return 'done';
+    return 'idle';
+  }
+  if (nodeId === 'outreach') {
+    if (s !== 'COMPLETE') return 'idle';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'outreach_running') return 'running';
+    if (phase === 'outreach_confirm') return 'warn';
+    if (phase && ['outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)) return 'done';
+    return 'idle';
+  }
+  if (nodeId === 'slack') {
+    if (s !== 'COMPLETE') return 'idle';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'slack_running') return 'running';
+    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
+    return 'idle';
+  }
   return 'idle';
 }
 
-function edgeStageFor(edgeId: string, sprintState?: SprintState): EdgeState {
+function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: SprintRecord | null): EdgeState {
   if (!sprintState || sprintState === 'IDLE') return 'pending';
   const s = sprintState;
 
@@ -199,13 +229,71 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState): EdgeState {
     if (s === 'LANDING_DONE') return 'done';
     if (s === 'COMPLETE') return 'warn';
   }
+  if (edgeId === 'e-report-spreadsheet') {
+    if (s !== 'COMPLETE') return 'pending';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'spreadsheet_running') return 'running';
+    if (phase && phase !== 'idle') return 'done';
+    return 'pending';
+  }
+  if (edgeId === 'e-spreadsheet-outreach') {
+    if (s !== 'COMPLETE') return 'pending';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'outreach_running') return 'running';
+    if (
+      phase &&
+      ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
+    ) {
+      return 'done';
+    }
+    return 'pending';
+  }
+  if (edgeId === 'e-outreach-slack') {
+    if (s !== 'COMPLETE') return 'pending';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'slack_running') return 'running';
+    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
+    return 'pending';
+  }
+
+  /** Report links directly to outreach when Spreadsheet node is hidden */
+  if (edgeId === 'e-report-outreach') {
+    if (s !== 'COMPLETE') return 'pending';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'outreach_running') return 'running';
+    if (
+      phase &&
+      ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
+    ) {
+      return 'done';
+    }
+    return 'pending';
+  }
+
+  /** Report → Slack when intermediate nodes are hidden */
+  if (edgeId === 'e-report-slack') {
+    if (s !== 'COMPLETE') return 'pending';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'slack_running') return 'running';
+    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
+    return 'pending';
+  }
+
+  /** Spreadsheet → Slack when outreach node is hidden */
+  if (edgeId === 'e-spreadsheet-slack') {
+    if (s !== 'COMPLETE') return 'pending';
+    const phase = sprint?.post_sprint?.phase;
+    if (phase === 'slack_running') return 'running';
+    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
+    return 'pending';
+  }
 
   return 'pending';
 }
 
 function channelEdgeState(edgeId: string, channel: Platform, sprint: SprintRecord | null, fallback: EdgeState): EdgeState {
   if (sprint && !sprint.active_channels.includes(channel)) return 'pending';
-  return edgeStageFor(edgeId, sprint?.state) ?? fallback;
+  return edgeStageFor(edgeId, sprint?.state, sprint) ?? fallback;
 }
 
 function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
@@ -357,6 +445,15 @@ function landingFingerprint(draft: LandingDraft) {
   return JSON.stringify(draft);
 }
 
+function nodeDataLooselyEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
   if (!current.length) return nextBase;
 
@@ -383,7 +480,7 @@ function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
 
     if (
       currentNode.type !== baseNode.type ||
-      currentNode.data !== baseNode.data ||
+      !nodeDataLooselyEqual(currentNode.data, baseNode.data) ||
       currentNode.position.x !== merged.position.x ||
       currentNode.position.y !== merged.position.y ||
       currentNode.measured?.width !== merged.measured?.width ||
@@ -489,6 +586,49 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
     { id: 'report', type: 'report', position: { x: X.report, y: layout.standardTop },
       data: { ready: !!sprint?.report?.pdf_url, stage: sprintStageFor('report', s, sprint) } },
 
+    // Post-sprint chain — opt-in via integrations.canvas_* (hidden until enabled)
+    ...((): Node[] => {
+      const i = sprint?.integrations ?? {};
+      const showSheet = i.canvas_sheet === true;
+      const showOutreach = i.canvas_outreach === true;
+      const showSlack = i.canvas_slack === true;
+      const nodes: Node[] = [];
+      if (showSheet) {
+        nodes.push({
+          id: 'spreadsheet',
+          type: 'spreadsheet',
+          position: { x: X.spreadsheet, y: layout.standardTop },
+          data: {
+            validCount: sprint?.post_sprint?.spreadsheet?.validContacts,
+            stage: sprintStageFor('spreadsheet', s, sprint),
+          },
+        });
+      }
+      if (showOutreach) {
+        nodes.push({
+          id: 'outreach',
+          type: 'outreach',
+          position: { x: X.outreach, y: layout.standardTop },
+          data: {
+            sent: sprint?.post_sprint?.outreach?.totalSent,
+            stage: sprintStageFor('outreach', s, sprint),
+          },
+        });
+      }
+      if (showSlack) {
+        nodes.push({
+          id: 'slack',
+          type: 'slack',
+          position: { x: X.slack, y: layout.standardTop },
+          data: {
+            posted: sprint?.post_sprint?.slack?.posted,
+            stage: sprintStageFor('slack', s, sprint),
+          },
+        });
+      }
+      return nodes;
+    })(),
+
     // Utility nodes
     { id: 'benchmarks', type: 'benchmarks', position: { x: X.accounts, y: layout.utilityTop }, data: { stage: 'idle' as NodeStage } },
     { id: 'settings',   type: 'settings',   position: { x: X.genome,   y: layout.utilityTop }, data: { stage: 'idle' as NodeStage, configured: false } },
@@ -500,7 +640,7 @@ function buildEdges(sprint: SprintRecord | null): Edge[] {
   const activeChannels = activeChannelsFor(sprint);
 
   const edges: Edge[] = [
-    { id: 'e-accounts-genome', type: 'pipeline', source: 'accounts', target: 'genome', data: { state: edgeStageFor('e-accounts-genome', s) } },
+    { id: 'e-accounts-genome', type: 'pipeline', source: 'accounts', target: 'genome', data: { state: edgeStageFor('e-accounts-genome', s, sprint) } },
     ...activeChannels.map((ch) => ({
       id: `e-genome-hg-${ch}`, type: 'pipeline', source: 'genome', target: `hg-${ch}`,
       data: { state: channelEdgeState(`e-genome-hg-${ch}`, ch, sprint, 'pending') },
@@ -521,9 +661,38 @@ function buildEdges(sprint: SprintRecord | null): Edge[] {
       id: `e-campaign-${ch}-verdict`, type: 'pipeline', source: `campaign-${ch}`, target: 'verdict',
       data: { state: channelEdgeState(`e-campaign-${ch}-verdict`, ch, sprint, 'pending') },
     })),
-    { id: 'e-verdict-landing', type: 'pipeline', source: 'verdict', target: 'landing', data: { state: edgeStageFor('e-verdict-landing', s) } },
-    { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s) } },
+    { id: 'e-verdict-landing', type: 'pipeline', source: 'verdict', target: 'landing', data: { state: edgeStageFor('e-verdict-landing', s, sprint) } },
+    { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s, sprint) } },
+    ...buildPostSprintEdges(s, sprint),
   ];
+  return edges;
+}
+
+/** Links enabled post-sprint nodes in order (report → sheet → outreach → slack), skipping disabled segments */
+function buildPostSprintEdges(s: SprintState | undefined, sprint: SprintRecord | null): Edge[] {
+  const i = sprint?.integrations ?? {};
+  const showSheet = i.canvas_sheet === true;
+  const showOutreach = i.canvas_outreach === true;
+  const showSlack = i.canvas_slack === true;
+
+  const seq: string[] = ['report'];
+  if (showSheet) seq.push('spreadsheet');
+  if (showOutreach) seq.push('outreach');
+  if (showSlack) seq.push('slack');
+
+  const edges: Edge[] = [];
+  for (let k = 0; k < seq.length - 1; k++) {
+    const src = seq[k];
+    const tgt = seq[k + 1];
+    const id = `e-${src}-${tgt}`;
+    edges.push({
+      id,
+      type: 'pipeline',
+      source: src,
+      target: tgt,
+      data: { state: edgeStageFor(id, s, sprint) },
+    });
+  }
   return edges;
 }
 
@@ -546,6 +715,8 @@ function normalizeSprint(raw: RawSprintRecord | null): SprintRecord | null {
     state: raw.state ?? (raw.status === 'completed' ? 'COMPLETE' : 'IDLE'),
     active_channels: raw.active_channels ?? [...CHANNELS],
     budget_cents: raw.budget_cents ?? 50000,
+    integrations: raw.integrations ?? undefined,
+    post_sprint: raw.post_sprint ?? undefined,
     created_at: raw.created_at ?? new Date().toISOString(),
     updated_at: raw.updated_at ?? raw.created_at ?? new Date().toISOString(),
   } as SprintRecord;
@@ -948,6 +1119,9 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     }
     if (id === 'verdict')    { setActivePanel('verdict');    setPanelChannel(undefined); return; }
     if (id === 'report')     { setActivePanel('report');     setPanelChannel(undefined); return; }
+    if (id === 'spreadsheet') { setActivePanel('integrations'); setPanelChannel('spreadsheet'); return; }
+    if (id === 'outreach')    { setActivePanel('integrations'); setPanelChannel('outreach'); return; }
+    if (id === 'slack')       { setActivePanel('integrations'); setPanelChannel('slack'); return; }
     if (id === 'benchmarks') { setActivePanel('benchmarks'); setPanelChannel(undefined); return; }
     if (id === 'settings')   { setActivePanel('settings');   setPanelChannel(undefined); return; }
   }, []);

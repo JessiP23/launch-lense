@@ -429,11 +429,51 @@ export type ReportNodeData  = { stage: NodeStage; ready?: boolean };
 export type ReportNodeType  = Node<ReportNodeData, 'report'>;
 export const ReportNode = memo(({ data, selected }: NodeProps<ReportNodeType>) => (
   <NodeCard
-    label="Report" stage={data.stage} selected={!!selected} hasRight={false}
+    label="Report" stage={data.stage} selected={!!selected}
     sublabel={data.ready ? 'Ready' : data.stage === 'running' ? 'Generating…' : 'Waiting'}
   />
 ));
 ReportNode.displayName = 'ReportNode';
+
+export type SpreadsheetNodeData = { validCount?: number; stage: NodeStage };
+export type SpreadsheetNodeType = Node<SpreadsheetNodeData, 'spreadsheet'>;
+export const SpreadsheetNode = memo(({ data, selected }: NodeProps<SpreadsheetNodeType>) => (
+  <NodeCard
+    label="Spreadsheet"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.validCount != null ? `${data.validCount}` : '—'}
+    metricLabel="valid contacts"
+  />
+));
+SpreadsheetNode.displayName = 'SpreadsheetNode';
+
+export type OutreachNodeData = { sent?: number; stage: NodeStage };
+export type OutreachNodeType = Node<OutreachNodeData, 'outreach'>;
+export const OutreachNode = memo(({ data, selected }: NodeProps<OutreachNodeType>) => (
+  <NodeCard
+    label="Outreach · Gmail"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.sent != null ? `${data.sent}` : '—'}
+    metricLabel="emails sent"
+  />
+));
+OutreachNode.displayName = 'OutreachNode';
+
+export type SlackNodeData = { posted?: boolean; stage: NodeStage };
+export type SlackNodeType = Node<SlackNodeData, 'slack'>;
+export const SlackNode = memo(({ data, selected }: NodeProps<SlackNodeType>) => (
+  <NodeCard
+    label="Slack"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.posted ? 'Live' : '—'}
+    metricLabel={data.posted ? 'posted' : 'summary'}
+    hasRight={false}
+  />
+));
+SlackNode.displayName = 'SlackNode';
 
 export type BenchmarksNodeData  = { stage: NodeStage };
 export type BenchmarksNodeType  = Node<BenchmarksNodeData, 'benchmarks'>;

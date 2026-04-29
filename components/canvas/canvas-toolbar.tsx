@@ -118,6 +118,7 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
       {/* Nav shortcuts */}
       {[
         { label: 'Accounts', panel: 'accounts' },
+        { label: 'Integrations', panel: 'integrations' },
         { label: 'Report', panel: 'report' },
         { label: 'Benchmarks', panel: 'benchmarks' },
         { label: 'Settings', panel: 'settings' },

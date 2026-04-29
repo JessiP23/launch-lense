@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Shield, Zap, BarChart3, FileText, Settings, X } from 'lucide-react';
+import { Search, Shield, Zap, BarChart3, FileText, Settings, Link2, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 
 const commands = [
@@ -13,6 +13,7 @@ const commands = [
   { id: 'new-test', label: 'Create New Sprint', icon: Zap, href: '/canvas?new=1' },
   { id: 'reports', label: 'Open Report Node', icon: BarChart3, href: '/canvas?panel=report' },
   { id: 'benchmarks', label: 'Open Benchmarks Node', icon: FileText, href: '/canvas?panel=benchmarks' },
+  { id: 'integrations', label: 'Open Integrations', icon: Link2, href: '/canvas?panel=integrations' },
   { id: 'settings', label: 'Open Settings Node', icon: Settings, href: '/canvas?panel=settings' },
 ];
 

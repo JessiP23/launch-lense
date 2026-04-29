@@ -204,82 +204,179 @@ function SprintVerdictPDF({ sprint }: { sprint: SprintRecord }) {
   const verdictColor =
     verdictLabel === 'GO' ? colors.success : verdictLabel === 'NO-GO' ? colors.danger : colors.warning;
 
-  return React.createElement(
-    Document,
-    null,
+  const waId = verdict?.cross_channel_winning_angle;
+  let winningAngleStr = '—';
+  if (waId && sprint.angles?.angles) {
+    const ang = sprint.angles.angles.find((a) => a.id === waId);
+    const letter = waId === 'angle_A' ? 'A' : waId === 'angle_B' ? 'B' : 'C';
+    const arche = ang?.archetype.replace(/_/g, ' ') ?? '';
+    winningAngleStr = ang ? `Angle ${letter} — ${arche}` : `Angle ${letter}`;
+  }
+
+  const scores = sprint.genome?.scores;
+  const axisRows = scores
+    ? ([
+        ['Demand', scores.demand],
+        ['Competition', scores.competition],
+        ['ICP clarity', scores.icp],
+        ['Timing', scores.timing],
+        ['Moat', scores.moat],
+      ] as const)
+    : [];
+
+  const ps = sprint.post_sprint;
+  const spreadsheetSummary = ps?.spreadsheet
+    ? `${ps.spreadsheet.validContacts} validated contacts · ${ps.spreadsheet.totalRows} rows scanned · ICP filter ${ps.spreadsheet.icpFilterApplied ? 'on' : 'off'}`
+    : 'SpreadsheetAgent not run';
+  const outreachSummary = ps?.outreach
+    ? `${ps.outreach.totalSent} sends logged · ${ps.outreach.angleUsed} · ${ps.outreach.subjectLine}`
+    : 'OutreachAgent not run';
+  const slackSummary = ps?.slack?.posted
+    ? 'Slack summary delivered'
+    : ps?.slack?.skippedReason ?? 'SlackAgent not run or skipped';
+
+  const page1 = React.createElement(
+    Page,
+    { size: 'A4', style: styles.page },
     React.createElement(
-      Page,
-      { size: 'A4', style: styles.page },
+      View,
+      { style: styles.header },
       React.createElement(
         View,
-        { style: styles.header },
-        React.createElement(
-          View,
-          null,
-          React.createElement(Text, { style: styles.logo }, 'LaunchLense'),
-          React.createElement(Text, { style: styles.logoSub }, `Sprint ${sprint.sprint_id.slice(0, 8)}`)
-        ),
-        React.createElement(
-          Text,
-          { style: [styles.verdictBadge, { backgroundColor: verdictColor, color: colors.bg }] },
-          verdictLabel
-        )
+        null,
+        React.createElement(Text, { style: styles.logo }, 'LaunchLense'),
+        React.createElement(Text, { style: styles.logoSub }, `Sprint ${sprint.sprint_id.slice(0, 8)}`)
       ),
       React.createElement(
-        View,
-        { style: styles.section },
-        React.createElement(Text, { style: styles.sectionTitle }, 'Executive Summary'),
-        React.createElement(Text, { style: { fontSize: 12, lineHeight: 1.5, marginBottom: 8 } }, sprint.idea),
-        React.createElement(
-          Text,
-          { style: { color: colors.muted, lineHeight: 1.5 } },
-          verdict?.reasoning ?? sprint.blocked_reason ?? 'Sprint is still in progress. Complete the canvas workflow to generate the final verdict.'
-        )
-      ),
-      React.createElement(
-        View,
-        { style: styles.kpiGrid },
-        React.createElement(
-          View,
-          { style: styles.kpiCard },
-          React.createElement(Text, { style: styles.kpiLabel }, 'Spend'),
-          React.createElement(Text, { style: styles.kpiValue }, `$${((metrics?.total_spend_cents ?? 0) / 100).toFixed(0)}`)
-        ),
-        React.createElement(
-          View,
-          { style: styles.kpiCard },
-          React.createElement(Text, { style: styles.kpiLabel }, 'Clicks'),
-          React.createElement(Text, { style: styles.kpiValue }, String(metrics?.total_clicks ?? 0))
-        ),
-        React.createElement(
-          View,
-          { style: styles.kpiCard },
-          React.createElement(Text, { style: styles.kpiLabel }, 'Weighted CTR'),
-          React.createElement(Text, { style: styles.kpiValue }, `${(((metrics?.weighted_blended_ctr ?? 0) * 100)).toFixed(2)}%`)
-        )
-      ),
-      React.createElement(
-        View,
-        { style: styles.section },
-        React.createElement(Text, { style: styles.sectionTitle }, 'Channel Verdicts'),
-        ...(verdict?.per_channel ?? []).map((channel) =>
-          React.createElement(
-            View,
-            { key: channel.channel, style: styles.verdictRow },
-            React.createElement(Text, { style: styles.rowLabel }, channel.channel.toUpperCase()),
-            React.createElement(Text, { style: [styles.rowValue, { color: channel.verdict === 'GO' ? colors.success : channel.verdict === 'NO-GO' ? colors.danger : colors.warning }] }, `${channel.verdict} · ${(channel.blended_ctr * 100).toFixed(2)}% CTR`)
-          )
-        )
-      ),
-      React.createElement(
-        View,
-        { style: styles.section },
-        React.createElement(Text, { style: styles.sectionTitle }, 'Genome'),
-        React.createElement(Text, { style: styles.rowLabel }, `Signal: ${sprint.genome?.signal ?? 'Not run'} · Composite: ${sprint.genome?.composite ?? 0}/100`),
-        React.createElement(Text, { style: { color: colors.muted, marginTop: 6, lineHeight: 1.5 } }, sprint.genome?.proceed_note ?? sprint.genome?.pivot_brief ?? 'No Genome notes available.')
+        Text,
+        { style: [styles.verdictBadge, { backgroundColor: verdictColor, color: colors.bg }] },
+        verdictLabel
       )
-    )
+    ),
+    React.createElement(
+      View,
+      { style: styles.section },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Executive Summary'),
+      React.createElement(Text, { style: { fontSize: 12, lineHeight: 1.5, marginBottom: 8 } }, sprint.idea),
+      React.createElement(
+        Text,
+        { style: { color: colors.muted, lineHeight: 1.5 } },
+        verdict?.reasoning ?? sprint.blocked_reason ?? 'Sprint is still in progress. Complete the canvas workflow to generate the final verdict.'
+      )
+    ),
+    React.createElement(
+      View,
+      { style: styles.kpiGrid },
+      React.createElement(
+        View,
+        { style: styles.kpiCard },
+        React.createElement(Text, { style: styles.kpiLabel }, 'Spend'),
+        React.createElement(Text, { style: styles.kpiValue }, `$${((metrics?.total_spend_cents ?? 0) / 100).toFixed(0)}`)
+      ),
+      React.createElement(
+        View,
+        { style: styles.kpiCard },
+        React.createElement(Text, { style: styles.kpiLabel }, 'Clicks'),
+        React.createElement(Text, { style: styles.kpiValue }, String(metrics?.total_clicks ?? 0))
+      ),
+      React.createElement(
+        View,
+        { style: styles.kpiCard },
+        React.createElement(Text, { style: styles.kpiLabel }, 'Weighted CTR'),
+        React.createElement(Text, { style: styles.kpiValue }, `${(((metrics?.weighted_blended_ctr ?? 0) * 100)).toFixed(2)}%`)
+      )
+    ),
+    React.createElement(
+      View,
+      { style: styles.section },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Channel Verdicts'),
+      ...(verdict?.per_channel ?? []).map((channel) =>
+        React.createElement(
+          View,
+          { key: channel.channel, style: styles.verdictRow },
+          React.createElement(Text, { style: styles.rowLabel }, channel.channel.toUpperCase()),
+          React.createElement(
+            Text,
+            {
+              style: [
+                styles.rowValue,
+                {
+                  color:
+                    channel.verdict === 'GO'
+                      ? colors.success
+                      : channel.verdict === 'NO-GO'
+                        ? colors.danger
+                        : colors.warning,
+                },
+              ],
+            },
+            `${channel.verdict} · ${(channel.blended_ctr * 100).toFixed(2)}% CTR · $${((channel.total_spend_cents ?? 0) / 100).toFixed(0)} spent`,
+          ),
+        ),
+      ),
+    ),
+    React.createElement(
+      View,
+      { style: styles.section },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Genome snapshot'),
+      React.createElement(Text, { style: styles.rowLabel }, `Signal: ${sprint.genome?.signal ?? 'Not run'} · Composite: ${sprint.genome?.composite ?? 0}/100`),
+      React.createElement(Text, { style: { color: colors.muted, marginTop: 6, lineHeight: 1.5 } }, sprint.genome?.proceed_note ?? sprint.genome?.pivot_brief ?? 'No Genome notes available.'),
+      React.createElement(Text, { style: { marginTop: 10, fontSize: 9, color: colors.muted } }, 'Axis breakdown continues on page 2.'),
+    ),
+    React.createElement(Text, { style: styles.footer }, 'LaunchLense · Page 1 of 2'),
   );
+
+  const page2 = React.createElement(
+    Page,
+    { size: 'A4', style: styles.page },
+    React.createElement(
+      View,
+      { style: styles.section },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Genome axis scores'),
+      ...(axisRows.length > 0
+        ? axisRows.map(([label, val]) =>
+            React.createElement(
+              View,
+              { key: label, style: styles.verdictRow },
+              React.createElement(Text, { style: styles.rowLabel }, label),
+              React.createElement(Text, { style: styles.rowValue }, `${val}/100`),
+            ),
+          )
+        : [
+            React.createElement(
+              Text,
+              { key: 'na', style: { color: colors.muted, fontSize: 10 } },
+              'Genome axis scores not available for this export.',
+            ),
+          ]),
+    ),
+    React.createElement(
+      View,
+      { style: styles.section },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Message & distribution'),
+      React.createElement(View, { style: styles.verdictRow },
+        React.createElement(Text, { style: styles.rowLabel }, 'Winning angle'),
+        React.createElement(Text, { style: styles.rowValue }, winningAngleStr),
+      ),
+      React.createElement(View, { style: styles.verdictRow },
+        React.createElement(Text, { style: styles.rowLabel }, 'Recommended channel'),
+        React.createElement(Text, { style: styles.rowValue }, verdict?.recommended_channel ? verdict.recommended_channel.toUpperCase() : '—'),
+      ),
+      React.createElement(Text, { style: { color: colors.muted, marginTop: 10, fontSize: 9, lineHeight: 1.45 } }, 'Subject lines and bodies flow directly from the winning angle — no separate copywriting hop between verdict and outreach.'),
+    ),
+    React.createElement(
+      View,
+      { style: styles.section },
+      React.createElement(Text, { style: styles.sectionTitle }, 'Post-sprint orchestration'),
+      React.createElement(Text, { style: { fontSize: 9, color: colors.muted, marginBottom: 8 } }, 'Counts and operational summaries only — recipient identities stay session-scoped.'),
+      React.createElement(Text, { style: { marginBottom: 6, lineHeight: 1.45 } }, `Spreadsheet / list prep: ${spreadsheetSummary}`),
+      React.createElement(Text, { style: { marginBottom: 6, lineHeight: 1.45 } }, `Gmail outreach: ${outreachSummary}`),
+      React.createElement(Text, { style: { lineHeight: 1.45 } }, `Slack: ${slackSummary}`),
+    ),
+    React.createElement(Text, { style: styles.footer }, 'LaunchLense · Page 2 of 2 · Confidential validation memo'),
+  );
+
+  return React.createElement(Document, null, page1, page2);
 }
 
 function VerdictPDF({

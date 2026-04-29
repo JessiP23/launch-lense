@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Table2, Mail } from 'lucide-react';
 import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
-import type { Angle, Platform, SprintRecord } from '@/lib/agents/types';
+import type { Angle, Platform, SprintRecord, SpreadsheetAgentOutput } from '@/lib/agents/types';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -15,6 +15,7 @@ const C = {
 export type PanelId =
   | 'accounts' | 'genome' | 'healthgate' | 'angles'
   | 'creative' | 'landing' | 'campaign' | 'verdict' | 'report'
+  | 'integrations'
   | 'benchmarks' | 'settings' | null;
 
 export type CreativeDraft = {
@@ -44,6 +45,7 @@ export type LandingDraft = {
 
 interface Props {
   panel:       PanelId;
+  /** Used by integrations panel to scroll/highlight Sheets vs Gmail vs Slack */
   channel?:    string;
   sprint?:     SprintRecord | null;
   onClose:     () => void;
@@ -1299,6 +1301,739 @@ function SettingsPanel() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Integrations — Gmail, Google Sheets, Slack (post-sprint orchestration)
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Slack logo mark — lucide-react does not ship a Slack icon in all versions */
+function SlackGlyph({ size = 22, color }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden style={{ color: color ?? 'currentColor', flexShrink: 0 }}>
+      <path
+        fill="currentColor"
+        d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.522A2.527 2.527 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834V5.042zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.527 2.527 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.528 2.528 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.527 2.527 0 0 1 2.52-2.52h6.314A2.528 2.528 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"
+      />
+    </svg>
+  );
+}
+
+function parseCsvToRows(text: string): Record<string, string>[] {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map((line) => {
+    const cells = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      row[h] = cells[i] ?? '';
+    });
+    return row;
+  });
+}
+
+function IntegrationsPanel({
+  sprint,
+  focus,
+  onSprintPatched,
+}: {
+  sprint?: SprintRecord | null;
+  /** Highlight sheet / gmail / slack card when opened from canvas nodes */
+  focus?: string;
+  onSprintPatched?: (raw: unknown) => void;
+}) {
+  const [csvText, setCsvText] = useState(
+    'email,first_name,company,role\nalex@company.com,Alex,Acme Inc,Founder\n',
+  );
+  const [icpFilter, setIcpFilter] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [prepSummary, setPrepSummary] = useState<string | null>(null);
+  const [liveGoogleSheet, setLiveGoogleSheet] = useState(false);
+  const [googleOAuth, setGoogleOAuth] = useState<{
+    connected: boolean;
+    google_email?: string | null;
+    oauth_configured?: boolean;
+    encryption_configured?: boolean;
+  } | null>(null);
+  const [sheetDraft, setSheetDraft] = useState('');
+  const sheetLinkRef = useRef<HTMLInputElement>(null);
+  const [slackDraft, setSlackDraft] = useState('');
+  const slackChannelRef = useRef<HTMLInputElement>(null);
+
+  const integration = sprint?.integrations ?? {};
+  const aggregateVerdict = sprint?.verdict?.verdict;
+  const [contactsReady, setContactsReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined' && sheetLinkRef.current === document.activeElement) return;
+    const url = integration.google_sheet_url?.trim();
+    const sid = integration.google_sheet_id?.trim();
+    setSheetDraft(url || sid || '');
+  }, [integration.google_sheet_url, integration.google_sheet_id, sprint?.sprint_id]);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined' && slackChannelRef.current === document.activeElement) return;
+    setSlackDraft(integration.slack_channel ?? '');
+  }, [integration.slack_channel, sprint?.sprint_id]);
+
+  useEffect(() => {
+    if (!sprint?.sprint_id) {
+      setContactsReady(false);
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(`ll_contacts_${sprint.sprint_id}`);
+      if (!raw) {
+        setContactsReady(false);
+        return;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      setContactsReady(Array.isArray(parsed) && parsed.length > 0);
+    } catch {
+      setContactsReady(false);
+    }
+  }, [sprint?.sprint_id, sprint?.post_sprint?.spreadsheet?.validContacts, prepSummary]);
+
+  useEffect(() => {
+    if (!sprint?.sprint_id) {
+      setGoogleOAuth(null);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/integrations/google/status?sprint_id=${encodeURIComponent(sprint.sprint_id)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled)
+          setGoogleOAuth(
+            data as {
+              connected: boolean;
+              google_email?: string | null;
+              oauth_configured?: boolean;
+              encryption_configured?: boolean;
+            },
+          );
+      })
+      .catch(() => {
+        if (!cancelled)
+          setGoogleOAuth({
+            connected: false,
+            google_email: null,
+            oauth_configured: false,
+            encryption_configured: false,
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sprint?.sprint_id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    const err = q.get('google_error');
+    if (err) setError(decodeURIComponent(err.replace(/\+/g, ' ')));
+  }, []);
+
+  const canPrepareSpreadsheet =
+    sprint?.state === 'COMPLETE' &&
+    (aggregateVerdict === 'GO' || aggregateVerdict === 'ITERATE');
+
+  const canRunPrepareSheet =
+    canPrepareSpreadsheet &&
+    (!liveGoogleSheet || googleOAuth?.connected === true);
+
+  const canSendOutreach = canPrepareSpreadsheet && contactsReady;
+
+  const patchIntegrations = async (partial: Record<string, unknown>) => {
+    if (!sprint?.sprint_id) return;
+    setLoading('integrations');
+    setError(null);
+    try {
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integrations: {
+            gmail_connected: integration.gmail_connected ?? false,
+            sheets_connected: integration.sheets_connected ?? false,
+            slack_connected: integration.slack_connected ?? false,
+            google_sheet_id: integration.google_sheet_id ?? null,
+            google_sheet_url: integration.google_sheet_url ?? '',
+            google_sheet_name: integration.google_sheet_name ?? null,
+            slack_channel: integration.slack_channel ?? '',
+            canvas_sheet: integration.canvas_sheet ?? false,
+            canvas_outreach: integration.canvas_outreach ?? false,
+            canvas_slack: integration.canvas_slack ?? false,
+            ...partial,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Update failed');
+      onSprintPatched?.((data as { sprint: unknown }).sprint ?? data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const disconnectGoogle = async () => {
+    if (!sprint?.sprint_id) return;
+    setLoading('integrations');
+    setError(null);
+    try {
+      const res = await fetch('/api/integrations/google/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sprint_id: sprint.sprint_id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Disconnect failed');
+      onSprintPatched?.((data as { sprint: unknown }).sprint ?? data);
+      setGoogleOAuth((prev) =>
+        prev
+          ? { ...prev, connected: false, google_email: null }
+          : { connected: false, google_email: null },
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const prepareSheet = async () => {
+    if (!sprint?.sprint_id) return;
+    setLoading('prepare');
+    setError(null);
+    setPrepSummary(null);
+    try {
+      const rows = liveGoogleSheet ? [] : parseCsvToRows(csvText);
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/prepare-sheet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows,
+          sheetName: integration.google_sheet_name ?? 'Contacts',
+          icp_filter: icpFilter,
+          live_google_sheet: liveGoogleSheet,
+          google_sheet_input: sheetDraft.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Prepare failed');
+      const spreadsheet = (data as { spreadsheet?: SpreadsheetAgentOutput }).spreadsheet;
+      onSprintPatched?.((data as { sprint: unknown }).sprint);
+      const w = spreadsheet?.warnings?.length ? spreadsheet.warnings.join(' ') : '';
+      setPrepSummary(
+        `Prepared ${spreadsheet?.validContacts ?? 0} contacts. ${w}`,
+      );
+      if (typeof window !== 'undefined' && spreadsheet?.contacts?.length) {
+        window.sessionStorage.setItem(`ll_contacts_${sprint.sprint_id}`, JSON.stringify(spreadsheet.contacts));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const sendOutreach = async () => {
+    if (!sprint?.sprint_id) return;
+    setLoading('outreach');
+    setError(null);
+    try {
+      let contacts: unknown[] = [];
+      if (typeof window !== 'undefined') {
+        const raw = window.sessionStorage.getItem(`ll_contacts_${sprint.sprint_id}`);
+        contacts = raw ? (JSON.parse(raw) as unknown[]) : [];
+      }
+      const payload = {
+        contacts,
+        confirm_large_batch: contacts.length > 2000,
+      };
+      let res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/send-outreach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      let data = await res.json().catch(() => ({}));
+      if (res.status === 409 && (data as { needsConfirm?: boolean }).needsConfirm && contacts.length > 2000) {
+        res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/send-outreach`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, confirm_large_batch: true }),
+        });
+        data = await res.json().catch(() => ({}));
+      }
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Send failed');
+      onSprintPatched?.((data as { sprint: unknown }).sprint);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const postSlack = async () => {
+    if (!sprint?.sprint_id) return;
+    setLoading('slack');
+    setError(null);
+    try {
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/post-slack`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Slack failed');
+      onSprintPatched?.((data as { sprint: unknown }).sprint);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const focusRef = (id: string) => (focus === id ? { outline: `2px solid ${C.ink}` } : {});
+
+  const lostContactSession =
+    !!sprint?.post_sprint?.spreadsheet?.validContacts &&
+    sprint.post_sprint.spreadsheet.validContacts > 0 &&
+    !contactsReady;
+
+  const persistSheetLinkFromDraft = () => {
+    const v = sheetDraft.trim();
+    if (/^https?:\/\//i.test(v)) void patchIntegrations({ google_sheet_url: v, google_sheet_id: null });
+    else void patchIntegrations({ google_sheet_id: v || null, google_sheet_url: null });
+  };
+
+  const persistSlackChannelFromDraft = () => {
+    void patchIntegrations({ slack_channel: slackDraft.trim() || null });
+  };
+
+  const inpOnDark: CSSProperties = {
+    ...inpStyle(),
+    background: '#FFFFFF',
+    color: C.ink,
+  };
+
+  const googleWorkspaceOutline =
+    focus === 'spreadsheet' || focus === 'outreach'
+      ? { outline: '2px solid #FAFAF8', outlineOffset: 2 }
+      : {};
+
+  return (
+    <div>
+      <SectionTitle>Integrations</SectionTitle>
+      <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
+        Connect delivery tools here. Post-sprint agents are optional on the canvas — enable only what you need. Contact rows stay off the server except aggregates and masked logs.
+      </p>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(248px, 1fr))',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <div style={{ ...cardStyle(), padding: 16 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                border: `1px solid ${C.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                background: C.faint,
+              }}
+            >
+              <Table2 size={22} strokeWidth={1.75} color={C.muted} aria-hidden />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, letterSpacing: '-0.02em' }}>
+                SpreadsheetAgent
+              </div>
+              <p style={{ fontSize: '0.75rem', color: C.muted, margin: '6px 0 10px', lineHeight: 1.45 }}>
+                Prepare your contact list from CSV or Google Sheets before outreach runs.
+              </p>
+              <label style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!integration.canvas_sheet}
+                  onChange={(e) => void patchIntegrations({ canvas_sheet: e.target.checked })}
+                />
+                Implement
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ ...cardStyle(), padding: 16 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                border: `1px solid ${C.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                background: C.faint,
+              }}
+            >
+              <Mail size={22} strokeWidth={1.75} color={C.muted} aria-hidden />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, letterSpacing: '-0.02em' }}>
+                OutreachAgent · Gmail
+              </div>
+              <p style={{ fontSize: '0.75rem', color: C.muted, margin: '6px 0 10px', lineHeight: 1.45 }}>
+                Sends plain-text mail via Google after verdict is GO or ITERATE — OAuth handles credentials and limits.
+              </p>
+              <label style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!integration.canvas_outreach}
+                  onChange={(e) => void patchIntegrations({ canvas_outreach: e.target.checked })}
+                />
+                Implement
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ ...cardStyle(), padding: 16 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                border: `1px solid ${C.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                background: C.faint,
+              }}
+            >
+              <SlackGlyph size={22} color={C.muted} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, letterSpacing: '-0.02em' }}>
+                SlackAgent
+              </div>
+              <p style={{ fontSize: '0.75rem', color: C.muted, margin: '6px 0 10px', lineHeight: 1.45 }}>
+                Posts a sprint summary to a channel (server bot token). No recipient PII in Slack.
+              </p>
+              <label style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!integration.canvas_slack}
+                  onChange={(e) => void patchIntegrations({ canvas_slack: e.target.checked })}
+                />
+                Implement
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p style={{ fontSize: '0.75rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
+        Canvas toggles only show the workflow nodes — you can still run SpreadsheetAgent, OutreachAgent, and SlackAgent below when the sprint is complete.
+      </p>
+
+      <div style={{ height: 1, background: C.border, margin: '14px 0 16px' }} />
+
+      <div
+        style={{
+          borderRadius: 16,
+          padding: 18,
+          marginBottom: 12,
+          background: C.ink,
+          border: `1px solid ${C.border}`,
+          ...googleWorkspaceOutline,
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: '1rem', color: '#FAFAF8', letterSpacing: '-0.02em', marginBottom: 8 }}>
+          Google Workspace — list & Gmail
+        </div>
+        <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.86)', lineHeight: 1.45, marginBottom: 14 }}>
+          One sign-in covers read-only Sheets and sending through your Google account (rate-limited). After you connect, set the workbook, prepare rows, then confirm batch send — credentials, token refresh, and send pacing are handled server-side from this sprint.
+        </p>
+
+        <div style={{ marginBottom: 14 }}>
+          {googleOAuth === null && (
+            <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)' }}>Checking Google configuration…</p>
+          )}
+          {googleOAuth !== null && googleOAuth.oauth_configured && googleOAuth.encryption_configured ? (
+            <>
+              {googleOAuth.connected ? (
+                <p style={{ fontSize: '0.8125rem', color: '#FAFAF8' }}>
+                  Connected{googleOAuth.google_email ? ` · ${googleOAuth.google_email}` : ''}.
+                </p>
+              ) : (
+                <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.75)' }}>
+                  Authorize Google — Sheets (read) + Gmail (send); refresh token encrypted on the server.
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                {!googleOAuth.connected ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!sprint?.sprint_id) return;
+                      window.location.href = `/api/integrations/google/start?sprint_id=${encodeURIComponent(sprint.sprint_id)}`;
+                    }}
+                    disabled={loading !== null || !sprint?.sprint_id}
+                    style={{
+                      ...btnPrimary(),
+                      background: '#FAFAF8',
+                      color: C.ink,
+                    }}
+                  >
+                    Connect Google
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void disconnectGoogle()}
+                    disabled={loading !== null}
+                    style={{
+                      height: 34,
+                      padding: '0 14px',
+                      background: 'transparent',
+                      color: '#FAFAF8',
+                      border: '1px solid rgba(250,250,248,0.35)',
+                      borderRadius: 8,
+                      fontSize: '0.8125rem',
+                      fontWeight: 600,
+                      cursor: loading !== null ? 'default' : 'pointer',
+                    }}
+                  >
+                    Disconnect Google
+                  </button>
+                )}
+              </div>
+            </>
+          ) : googleOAuth !== null ? (
+            <p style={{ fontSize: '0.75rem', color: '#FBBF24' }}>
+              Add Google OAuth + GOOGLE_OAUTH_SECRET in server env for live APIs.
+            </p>
+          ) : null}
+        </div>
+
+        <Label>
+          <span style={{ color: 'rgba(250,250,248,0.75)' }}>Spreadsheet URL or ID</span>
+        </Label>
+        <input
+          ref={sheetLinkRef}
+          value={sheetDraft}
+          onChange={(e) => setSheetDraft(e.target.value)}
+          onBlur={() => persistSheetLinkFromDraft()}
+          placeholder="https://docs.google.com/spreadsheets/d/… or ID"
+          style={{ ...inpOnDark, marginBottom: 12, marginTop: 6 }}
+        />
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10, color: 'rgba(250,250,248,0.9)' }}>
+          <input
+            type="checkbox"
+            checked={liveGoogleSheet}
+            onChange={(e) => setLiveGoogleSheet(e.target.checked)}
+          />
+          Pull first tab live (Sheets API)
+        </label>
+
+        {!liveGoogleSheet && (
+          <textarea
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+            rows={5}
+            style={{
+              ...taStyle(),
+              fontFamily: 'monospace',
+              fontSize: '0.75rem',
+              background: '#FFFFFF',
+              color: C.ink,
+              marginBottom: 10,
+            }}
+          />
+        )}
+        {liveGoogleSheet && (
+          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.7)', marginBottom: 10 }}>
+            Header row maps columns. Requires Connect Google above.
+          </p>
+        )}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10, color: 'rgba(250,250,248,0.9)' }}>
+          <input type="checkbox" checked={icpFilter} onChange={(e) => setIcpFilter(e.target.checked)} />
+          Optional ICP keyword filter (Genome)
+        </label>
+
+        <button
+          type="button"
+          onClick={() => void prepareSheet()}
+          disabled={loading !== null || !canRunPrepareSheet}
+          style={{
+            ...btnPrimary(),
+            background: '#FAFAF8',
+            color: C.ink,
+          }}
+        >
+          {loading === 'prepare' ? 'Preparing…' : 'Run SpreadsheetAgent'}
+        </button>
+        {!canPrepareSpreadsheet && sprint?.state === 'COMPLETE' && (
+          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
+            Runs when verdict is GO or ITERATE.
+          </p>
+        )}
+        {liveGoogleSheet && !googleOAuth?.connected && sprint?.state === 'COMPLETE' && canPrepareSpreadsheet && (
+          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
+            Connect Google before a live pull.
+          </p>
+        )}
+        {prepSummary && (
+          <p style={{ fontSize: '0.8125rem', color: '#FAFAF8', marginTop: 10 }}>{prepSummary}</p>
+        )}
+
+        <div style={{ height: 1, background: 'rgba(250,250,248,0.12)', margin: '18px 0' }} />
+
+        <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#FAFAF8', marginBottom: 6 }}>Confirm outreach</div>
+        <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.75)', marginBottom: 10, lineHeight: 1.45 }}>
+          Uses the same Google connection for plain-text sends (winning angle subject + body). Simulation if OAuth is unavailable.
+        </p>
+        <button
+          type="button"
+          onClick={() => void sendOutreach()}
+          disabled={loading !== null || !canSendOutreach}
+          style={{
+            ...btnPrimary(),
+            background: '#FAFAF8',
+            color: C.ink,
+          }}
+        >
+          {loading === 'outreach' ? 'Sending…' : 'Confirm & run OutreachAgent'}
+        </button>
+        {lostContactSession && (
+          <p style={{ fontSize: '0.75rem', color: '#FBBF24', marginTop: 8 }}>
+            Contacts live in this browser session — run SpreadsheetAgent again to reload.
+          </p>
+        )}
+        {!contactsReady && canPrepareSpreadsheet && (
+          <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
+            Prepare contacts first.
+          </p>
+        )}
+      </div>
+
+      <div style={{ ...cardStyle(), ...focusRef('slack') }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              border: `1px solid ${C.border}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              background: C.faint,
+            }}
+          >
+            <SlackGlyph size={22} color={C.muted} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink }}>Slack delivery</div>
+            <p style={{ fontSize: '0.8125rem', color: C.muted, marginTop: 4, lineHeight: 1.45 }}>
+              Bot posts an aggregate sprint summary to the channel you choose. Requires{' '}
+              <code style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>SLACK_BOT_TOKEN</code> on the server and scopes to chat:write.
+              Slack OAuth for installs can replace the bot token later — today this panel stores channel preference only.
+            </p>
+          </div>
+        </div>
+        <Label>Channel</Label>
+        <input
+          ref={slackChannelRef}
+          value={slackDraft}
+          onChange={(e) => setSlackDraft(e.target.value)}
+          onBlur={() => persistSlackChannelFromDraft()}
+          placeholder="#general"
+          style={{ ...inpStyle(), marginBottom: 10 }}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 10 }}>
+          <input
+            type="checkbox"
+            checked={!!integration.slack_connected}
+            onChange={(e) => void patchIntegrations({ slack_connected: e.target.checked })}
+          />
+          Mark Slack path ready (demo / server configured)
+        </label>
+        <button
+          type="button"
+          onClick={() => void postSlack()}
+          disabled={loading !== null || sprint?.state !== 'COMPLETE'}
+          style={btnPrimary()}
+        >
+          {loading === 'slack' ? 'Posting…' : 'Run SlackAgent'}
+        </button>
+      </div>
+
+      {error && <p style={{ fontSize: '0.8125rem', color: C.stop }}>{error}</p>}
+    </div>
+  );
+}
+
+function cardStyle(): CSSProperties {
+  return {
+    background: C.surface,
+    border: `1px solid ${C.border}`,
+    borderRadius: 12,
+    padding: 14,
+  };
+}
+
+function inpStyle(): CSSProperties {
+  return {
+    width: '100%',
+    padding: '8px 10px',
+    borderRadius: 8,
+    border: `1px solid ${C.border}`,
+    fontSize: '0.875rem',
+    boxSizing: 'border-box',
+  };
+}
+
+function taStyle(): CSSProperties {
+  return {
+    ...inpStyle(),
+    resize: 'vertical' as const,
+    minHeight: 100,
+  };
+}
+
+function btnPrimary(): CSSProperties {
+  return {
+    marginTop: 8,
+    height: 34,
+    padding: '0 14px',
+    background: C.ink,
+    color: '#FFF',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: '0.8125rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Panel Shell  
 // ════════════════════════════════════════════════════════════════════════════
 export function NodePanel({
@@ -1319,7 +2054,7 @@ export function NodePanel({
   embedded = false,
 }: Props) {
   if (!panel) return null;
-  const panelWidth = panel === 'landing' ? 820 : 380;
+  const panelWidth = panel === 'landing' ? 820 : panel === 'integrations' ? 480 : 380;
 
   const content = () => {
     switch (panel) {
@@ -1332,6 +2067,8 @@ export function NodePanel({
       case 'campaign':   return <CampaignPanel sprint={sprint} channel={channel} onEditSetup={onEditSetup} onSprintPatched={onSprintPatched} />;
       case 'verdict':    return <VerdictPanel sprint={sprint} />;
       case 'report':     return <ReportPanel sprint={sprint} />;
+      case 'integrations':
+        return <IntegrationsPanel sprint={sprint} focus={channel} onSprintPatched={onSprintPatched} />;
       case 'benchmarks': return <BenchmarksPanel />;
       case 'settings':   return <SettingsPanel />;
       default: return null;

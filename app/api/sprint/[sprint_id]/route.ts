@@ -43,13 +43,17 @@ export async function PATCH(
   const body = await req.json().catch(() => ({})) as {
     angles?: unknown;
     landing?: unknown;
+    integrations?: unknown;
+    post_sprint?: unknown;
   };
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.angles) patch.angles = body.angles;
   if (body.landing) patch.landing = body.landing;
+  if (body.integrations) patch.integrations = body.integrations;
+  if (body.post_sprint) patch.post_sprint = body.post_sprint;
 
-  if (!body.angles && !body.landing) {
+  if (!body.angles && !body.landing && !body.integrations && !body.post_sprint) {
     return Response.json({ error: 'No supported sprint fields provided' }, { status: 400 });
   }
 
