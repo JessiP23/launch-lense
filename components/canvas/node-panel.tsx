@@ -1611,7 +1611,12 @@ function contactsSessionKey(sprintId: string): string {
 function selectedContacts(rows: ReviewedContact[]): SpreadsheetContactRow[] {
   return rows
     .filter((row) => row.selected && row.email.trim())
-    .map(({ selected: _selected, ...contact }) => contact);
+    .map((row) => ({
+      email: row.email,
+      firstName: row.firstName,
+      company: row.company,
+      role: row.role,
+    }));
 }
 
 function toReviewedContacts(contacts: SpreadsheetContactRow[]): ReviewedContact[] {
@@ -1660,9 +1665,11 @@ function describeIntegrationLogEntry(entry: SprintEventLogEntry): string {
     const icp = p.icpFilterApplied === true ? ' · ICP filter' : '';
     return `${mode}: ${vc} contacts ready (${tr} rows parsed)${icp}`;
   }
-  if (entry.agent === 'outreach' && entry.event_type === 'completed') {
+  if (entry.agent === 'outreach' && (entry.event_type === 'completed' || entry.event_type === 'failed')) {
     const ts = typeof p.totalSent === 'number' ? p.totalSent : 0;
     const fail = typeof p.failed === 'number' ? p.failed : 0;
+    const firstFailure = typeof p.firstFailure === 'string' && p.firstFailure.trim() ? ` · ${p.firstFailure}` : '';
+    if (entry.event_type === 'failed') return `Outreach failed: sent ${ts} (${fail} failed)${firstFailure}`;
     return fail ? `Outreach sent ${ts} (${fail} failed)` : `Outreach sent ${ts}`;
   }
   if (entry.agent === 'slack') {
@@ -2102,6 +2109,14 @@ function IntegrationsPanel({
     if (!sprint?.sprint_id) return;
     setLoading('outreach');
     setError(null);
+    onSprintPatched?.({
+      ...sprint,
+      post_sprint: {
+        ...(sprint.post_sprint ?? { phase: 'idle' }),
+        phase: 'outreach_running',
+        updated_at: new Date().toISOString(),
+      },
+    });
     try {
       const contacts = selectedContacts(contactRows);
       const payload = {
@@ -2126,10 +2141,24 @@ function IntegrationsPanel({
         data = await readJsonOrError(res);
       }
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Send failed');
-      onSprintPatched?.((data as { sprint: unknown }).sprint);
+      const updatedSprint = (data as { sprint?: SprintRecord }).sprint;
+      if (updatedSprint) onSprintPatched?.(updatedSprint);
+      const outreach = updatedSprint?.post_sprint?.outreach;
+      const firstFailure = outreach?.sendLog?.find((entry) => entry.status === 'failed')?.error;
+      if (outreach && outreach.totalSent === 0 && outreach.failed > 0) {
+        setError(firstFailure ? `Outreach failed: ${firstFailure}` : `Outreach failed for ${outreach.failed} contact${outreach.failed === 1 ? '' : 's'}.`);
+      }
       await refreshSprintFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
+      onSprintPatched?.({
+        ...sprint,
+        post_sprint: {
+          ...(sprint.post_sprint ?? { phase: 'idle' }),
+          phase: 'outreach_failed',
+          updated_at: new Date().toISOString(),
+        },
+      });
     } finally {
       setLoading(null);
     }

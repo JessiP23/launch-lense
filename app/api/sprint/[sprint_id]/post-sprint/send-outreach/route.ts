@@ -128,6 +128,18 @@ export async function POST(
     if (!fromEmail) {
       return Response.json({ error: 'Gmail sender email unavailable — reconnect Google before sending.' }, { status: 401 });
     } else {
+      await db
+        .from('sprints')
+        .update({
+          post_sprint: {
+            ...(sprint.post_sprint ?? { phase: 'idle' }),
+            phase: 'outreach_running' as const,
+            updated_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', sprint_id);
+
       const envCap = Number.parseInt(process.env.GOOGLE_SEND_MAX ?? '', 10);
       const maxSend = Number.isFinite(envCap) && envCap > 0 ? Math.min(contacts.length, envCap) : contacts.length;
 
@@ -160,7 +172,8 @@ export async function POST(
           : generated;
         if (!pc) {
           failed++;
-          sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
+          const reason = 'Cannot build outreach copy for this contact.';
+          sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts, error: reason });
           continue;
         }
         if (!subjectLine) {
@@ -195,13 +208,14 @@ export async function POST(
               });
               ok++;
               sendLog.push({ email: maskEmail(c.email), status: 'sent', timestamp: ts });
-            } catch {
+            } catch (retryErr) {
+              const retryMsg = retryErr instanceof Error ? retryErr.message : 'Gmail retry failed';
               failed++;
-              sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
+              sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts, error: retryMsg });
             }
           } else {
             failed++;
-            sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
+            sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts, error: msg || 'Gmail send failed' });
           }
         }
 
@@ -234,7 +248,7 @@ export async function POST(
 
   const post_sprint = {
     ...(sprint.post_sprint ?? { phase: 'idle' }),
-    phase: 'outreach_done' as const,
+    phase: outreach.failed > 0 && outreach.totalSent === 0 ? 'outreach_failed' as const : 'outreach_done' as const,
     outreach,
     updated_at: new Date().toISOString(),
   };
@@ -256,8 +270,12 @@ export async function POST(
   await db.from('sprint_events').insert({
     sprint_id,
     agent: 'outreach',
-    event_type: 'completed',
-    payload: { totalSent: outreach.totalSent, failed: outreach.failed },
+    event_type: outreach.failed > 0 && outreach.totalSent === 0 ? 'failed' : 'completed',
+    payload: {
+      totalSent: outreach.totalSent,
+      failed: outreach.failed,
+      firstFailure: outreach.sendLog.find((entry) => entry.status === 'failed')?.error ?? null,
+    },
   });
 
   return Response.json({ outreach, sprint: updated });

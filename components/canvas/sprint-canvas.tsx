@@ -197,6 +197,7 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState, sprint?: Spri
     if (s !== 'COMPLETE') return 'idle';
     const phase = sprint?.post_sprint?.phase;
     if (phase === 'outreach_running') return 'running';
+    if (phase === 'outreach_failed' || ((sprint?.post_sprint?.outreach?.failed ?? 0) > 0 && (sprint?.post_sprint?.outreach?.totalSent ?? 0) === 0)) return 'blocked';
     if (phase === 'outreach_confirm') return 'warn';
     if (phase && ['outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)) return 'done';
     return 'idle';
@@ -262,6 +263,7 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
     if (s !== 'COMPLETE') return 'pending';
     const phase = sprint?.post_sprint?.phase;
     if (phase === 'outreach_running') return 'running';
+    if (phase === 'outreach_failed') return 'blocked';
     if (
       phase &&
       ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
@@ -283,6 +285,7 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
     if (s !== 'COMPLETE') return 'pending';
     const phase = sprint?.post_sprint?.phase;
     if (phase === 'outreach_running') return 'running';
+    if (phase === 'outreach_failed') return 'blocked';
     if (
       phase &&
       ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
@@ -323,25 +326,29 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
 }
 
 function buildLayout(channelCount: number) {
+  const safeChannelCount = Math.max(1, Math.min(CHANNELS.length, channelCount));
   const laneHeight = NODE_SIZE.creative.height;
   /** Scale lane spacing from channel count — busier canvases pack slightly tighter */
   const laneGap = Math.round(
-    LANE_GAP_MIN + ((LANE_GAP_MAX - LANE_GAP_MIN) * Math.max(0, 4 - channelCount)) / 4,
+    LANE_GAP_MIN + ((LANE_GAP_MAX - LANE_GAP_MIN) * Math.max(0, CHANNELS.length - safeChannelCount)) / CHANNELS.length,
   );
   const lanePitch = laneHeight + laneGap;
-  const workflowHeight = channelCount * laneHeight + Math.max(0, channelCount - 1) * laneGap;
-  const workflowCenter = LAYOUT.top + workflowHeight / 2;
+  const workflowHeight = safeChannelCount * laneHeight + Math.max(0, safeChannelCount - 1) * laneGap;
+  const fullWorkflowHeight = CHANNELS.length * laneHeight + Math.max(0, CHANNELS.length - 1) * LANE_GAP_MIN;
+  /** Center sparse channel selections inside the full workflow frame so Meta/Campaign do not float at the top. */
+  const laneTopBase = LAYOUT.top + Math.max(0, fullWorkflowHeight - workflowHeight) / 2;
+  const workflowCenter = laneTopBase + workflowHeight / 2;
   const standardTop = workflowCenter - NODE_SIZE.standard.height / 2;
   const utilityGap = Math.round(
-    LAYOUT.utilityGapMin + ((LAYOUT.utilityGapMax - LAYOUT.utilityGapMin) * Math.max(0, 4 - channelCount)) / 4,
+    LAYOUT.utilityGapMin + ((LAYOUT.utilityGapMax - LAYOUT.utilityGapMin) * Math.max(0, CHANNELS.length - safeChannelCount)) / CHANNELS.length,
   );
-  const utilityTop = LAYOUT.top + workflowHeight + utilityGap;
+  const utilityTop = laneTopBase + workflowHeight + utilityGap;
 
   return {
     standardTop,
     utilityTop,
     laneTop(index: number, nodeHeight = NODE_SIZE.standard.height) {
-      const laneCenter = LAYOUT.top + index * lanePitch + laneHeight / 2;
+      const laneCenter = laneTopBase + index * lanePitch + laneHeight / 2;
       return laneCenter - nodeHeight / 2;
     },
   };
