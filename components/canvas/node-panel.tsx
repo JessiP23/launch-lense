@@ -1448,7 +1448,7 @@ function ReportPanel({ sprint }: { sprint?: SprintRecord | null }) {
         rel="noreferrer"
         style={{ display: 'block', width: '100%', textAlign: 'center', padding: '10px', background: C.ink, color: '#FFF', borderRadius: 10, fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}
       >
-        Download PDF Report
+        PDF Report
       </a>
     </div>
   );
@@ -1596,6 +1596,16 @@ function parseCsvToRows(text: string): Record<string, string>[] {
     });
     return row;
   });
+}
+
+async function readJsonOrError(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { error: text };
+  }
 }
 
 const INTEGRATION_LOG_AGENTS = new Set(['spreadsheet', 'outreach', 'slack']);
@@ -1896,12 +1906,24 @@ function IntegrationsPanel({
   }, []);
 
   const canPrepareSpreadsheet =
-    sprint?.state === 'COMPLETE' &&
-    (aggregateVerdict === 'GO' || aggregateVerdict === 'ITERATE');
+    aggregateVerdict === 'GO' || aggregateVerdict === 'ITERATE';
 
-  const canRunPrepareSheet =
-    canPrepareSpreadsheet &&
-    (!liveGoogleSheet || googleOAuth?.connected === true);
+  const spreadsheetBlockReason =
+    !sprint
+      ? 'Load a sprint before preparing contacts.'
+      : !aggregateVerdict
+        ? 'Run the sprint through VerdictAgent before preparing outreach contacts.'
+        : aggregateVerdict === 'NO-GO'
+          ? 'NO-GO blocks SpreadsheetAgent and OutreachAgent by design.'
+          : !canPrepareSpreadsheet
+            ? 'SpreadsheetAgent activates only when aggregate verdict is GO or ITERATE.'
+            : liveGoogleSheet && googleOAuth === null
+              ? 'Checking Google connection…'
+              : liveGoogleSheet && googleOAuth?.connected !== true
+                ? 'Connect Google before pulling the live sheet.'
+                : null;
+
+  const canRunPrepareSheet = spreadsheetBlockReason === null;
 
   const canSendOutreach = canPrepareSpreadsheet && contactsReady;
 
@@ -1989,7 +2011,7 @@ function IntegrationsPanel({
           google_sheet_input: sheetDraft.trim(),
         }),
       });
-      const data = await res.json();
+      const data = await readJsonOrError(res);
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Prepare failed');
       const spreadsheet = (data as { spreadsheet?: SpreadsheetAgentOutput }).spreadsheet;
       if (spreadsheet) setLastSpreadsheetPrep(spreadsheet);
@@ -2380,22 +2402,20 @@ function IntegrationsPanel({
                 type="button"
                 onClick={() => void prepareSheet()}
                 disabled={loading !== null || !canRunPrepareSheet}
+                title={spreadsheetBlockReason ?? undefined}
                 style={{
                   ...btnPrimary(),
                   background: '#FAFAF8',
                   color: C.ink,
+                  opacity: loading !== null || !canRunPrepareSheet ? 0.5 : 1,
+                  cursor: loading !== null || !canRunPrepareSheet ? 'not-allowed' : 'pointer',
                 }}
               >
                 {loading === 'prepare' ? 'Preparing…' : 'Run SpreadsheetAgent'}
               </button>
-              {!canPrepareSpreadsheet && sprint?.state === 'COMPLETE' && (
+              {spreadsheetBlockReason && (
                 <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
-                  Runs when verdict is GO or ITERATE.
-                </p>
-              )}
-              {liveGoogleSheet && !googleOAuth?.connected && sprint?.state === 'COMPLETE' && canPrepareSpreadsheet && (
-                <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.65)', marginTop: 8 }}>
-                  Connect Google before a live pull.
+                  {spreadsheetBlockReason}
                 </p>
               )}
               <SpreadsheetPrepSummaryCard output={spreadsheetPrepDisplay} />
