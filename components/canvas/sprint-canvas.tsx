@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant,
-  Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler,
+  Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
   ReactFlowProvider, Panel,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -363,7 +363,6 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   const g  = sprint?.genome;
   const hg = sprint?.healthgate;
   const a  = sprint?.angles;
-  const l  = sprint?.landing;
   const c  = sprint?.campaign;
   const v  = sprint?.verdict;
   const activeChannels = activeChannelsFor(sprint);
@@ -739,15 +738,36 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [creativeDrafts, setCreativeDrafts] = useState<CreativeDrafts>({});
   const [landingDraft, setLandingDraft] = useState<LandingDraft | null>(null);
+  const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
 
   const nodes = useMemo(() => {
     const built = buildNodes(sprintData, creativeDrafts, landingDraft);
     if (!built[0]) return built;
     built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
-    return built;
-  }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length]);
+    return built.map((node) => {
+      const position = nodePositions[node.id];
+      return position ? { ...node, position } : node;
+    });
+  }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
 
   const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodePositions((current) => {
+      let next = current;
+
+      for (const change of changes) {
+        if (change.type !== 'position' || !change.position) continue;
+        const previous = current[change.id];
+        if (previous?.x === change.position.x && previous?.y === change.position.y) continue;
+
+        if (next === current) next = { ...current };
+        next[change.id] = change.position;
+      }
+
+      return next;
+    });
+  }, []);
 
   // ── Load sprint list ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -1001,16 +1021,20 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
         onPaneClick={() => setActivePanel(null)}
         fitView
         fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
         minZoom={0.3}
         maxZoom={1.7}
-        nodesDraggable={false}
+        nodesDraggable
+        panOnScroll
+        selectionOnDrag
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#E8E4DC" />
+        <Background id="lane-grid" variant={BackgroundVariant.Lines} gap={120} size={0.8} color="#F3F0EB" />
+        <Background id="dot-grid" variant={BackgroundVariant.Dots} gap={20} size={1.25} color="#D8D2C7" />
 
         <Panel position="top-left" style={{ margin: 14 }}>
           <CanvasToolbar

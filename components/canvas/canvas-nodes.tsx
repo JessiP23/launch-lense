@@ -37,6 +37,14 @@ function stageBorder(s: NodeStage) {
   return C.border;
 }
 
+function stageLabel(s: NodeStage) {
+  if (s === 'running') return 'Live';
+  if (s === 'done') return 'Done';
+  if (s === 'blocked') return 'Blocked';
+  if (s === 'warn') return 'Review';
+  return 'Queued';
+}
+
 // ── Shared card shell ───────────────────────────────────────────────────────
 interface CardProps {
   label: string;
@@ -58,6 +66,7 @@ function NodeCard({
 }: CardProps) {
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
+  const statusColor = stage === 'blocked' ? C.stop : stage === 'idle' ? C.muted : C.ink;
   return (
     <motion.div
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -79,58 +88,105 @@ function NodeCard({
         height,
         boxSizing: 'border-box',
         background: stageBg(stage),
-        border: `${isRunning ? 2 : 1.5}px solid ${selected ? C.ink : border}`,
-        borderRadius: 14,
+        border: `${isRunning || selected ? 2 : 1.25}px solid ${selected ? C.ink : border}`,
+        borderRadius: 16,
         padding: '11px 13px 12px',
         boxShadow: selected
-          ? `0 0 0 3px ${C.ink}20`
+          ? `0 0 0 3px ${C.ink}18, 0 1px 2px rgba(0,0,0,0.06)`
           : isRunning
-          ? `0 0 0 4px ${C.ink}18`
-          : '0 1px 3px rgba(0,0,0,0.05)',
-        cursor: 'pointer',
-        transition: 'box-shadow 0.2s ease, border-color 0.3s ease',
+          ? `0 0 0 5px ${C.ink}10, 0 1px 2px rgba(0,0,0,0.06)`
+          : '0 1px 2px rgba(0,0,0,0.05)',
+        cursor: 'grab',
+        transition: 'box-shadow 0.2s ease, border-color 0.3s ease, transform 0.2s ease',
         position: 'relative',
         overflow: height ? 'hidden' : 'visible',
       }}
     >
+      {isRunning && (
+        <motion.div
+          aria-hidden
+          initial={{ scaleX: 0.2, opacity: 0.55 }}
+          animate={{ scaleX: [0.2, 1, 0.2], opacity: [0.45, 0.95, 0.45] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+          style={{
+            position: 'absolute',
+            left: 14,
+            right: 14,
+            top: -2,
+            height: 2,
+            borderRadius: 999,
+            background: C.ink,
+            transformOrigin: 'center',
+          }}
+        />
+      )}
       {hasLeft && (
         <Handle
           type="target" position={Position.Left}
-          style={{ background: border, width: 7, height: 7, border: '1.5px solid white', left: -4 }}
+          style={{
+            background: stage === 'idle' ? C.surface : statusColor,
+            width: 10,
+            height: 10,
+            border: `2px solid ${C.surface}`,
+            left: -6,
+            boxShadow: `0 0 0 1px ${stage === 'idle' ? C.border : statusColor}`,
+          }}
         />
       )}
       {hasRight && (
         <Handle
           type="source" position={Position.Right}
-          style={{ background: border, width: 7, height: 7, border: '1.5px solid white', right: -4 }}
+          style={{
+            background: stage === 'idle' ? C.surface : statusColor,
+            width: 10,
+            height: 10,
+            border: `2px solid ${C.surface}`,
+            right: -6,
+            boxShadow: `0 0 0 1px ${stage === 'idle' ? C.border : statusColor}`,
+          }}
         />
       )}
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
-        <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, margin: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <p style={{ fontSize: '0.625rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, margin: 0, lineHeight: 1.2 }}>
           {label}
         </p>
-        {isRunning && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.5625rem', fontWeight: 800, letterSpacing: '0.08em', color: C.ink }}>
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          height: 18,
+          padding: '0 6px',
+          border: `1px solid ${stage === 'idle' ? C.border : statusColor}`,
+          borderRadius: 999,
+          background: C.surface,
+          color: statusColor,
+          fontSize: '0.53125rem',
+          fontWeight: 900,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+        }}>
+          {isRunning && (
             <span
-              style={{ width: 6, height: 6, borderRadius: '50%', background: C.ink, flexShrink: 0 }}
+              style={{ width: 5, height: 5, borderRadius: '50%', background: C.ink, flexShrink: 0 }}
               className="animate-pulse"
             />
-            RUNNING
-          </span>
-        )}
+          )}
+          {stageLabel(stage)}
+        </span>
       </div>
 
       {metric != null && (
-        <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.25rem', lineHeight: 1, color: stageColor(stage), margin: '0 0 3px' }}>
+        <p style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '1.3rem', lineHeight: 1, letterSpacing: '-0.04em', color: stageColor(stage), margin: '0 0 3px' }}>
           {metric}
         </p>
       )}
       {metricLabel && (
-        <p style={{ fontSize: '0.625rem', color: C.muted, margin: 0, fontWeight: 500 }}>{metricLabel}</p>
+        <p style={{ fontSize: '0.625rem', color: C.muted, margin: 0, fontWeight: 700 }}>{metricLabel}</p>
       )}
       {sublabel && !metric && (
-        <p style={{ fontSize: '0.8125rem', fontWeight: 500, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
+        <p style={{ fontSize: '0.8125rem', fontWeight: 800, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
       )}
       {children}
     </motion.div>
