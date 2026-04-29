@@ -67,6 +67,13 @@ function NodeCard({
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
   const statusColor = stage === 'blocked' ? C.stop : stage === 'idle' ? C.muted : C.ink;
+  const hiddenHandleStyle = {
+    width: 10,
+    height: 10,
+    opacity: 0,
+    border: 'none',
+    background: 'transparent',
+  };
   return (
     <motion.div
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -122,12 +129,8 @@ function NodeCard({
         <Handle
           type="target" position={Position.Left}
           style={{
-            background: stage === 'idle' ? C.surface : statusColor,
-            width: 10,
-            height: 10,
-            border: `2px solid ${C.surface}`,
+            ...hiddenHandleStyle,
             left: -6,
-            boxShadow: `0 0 0 1px ${stage === 'idle' ? C.border : statusColor}`,
           }}
         />
       )}
@@ -135,12 +138,8 @@ function NodeCard({
         <Handle
           type="source" position={Position.Right}
           style={{
-            background: stage === 'idle' ? C.surface : statusColor,
-            width: 10,
-            height: 10,
-            border: `2px solid ${C.surface}`,
+            ...hiddenHandleStyle,
             right: -6,
-            boxShadow: `0 0 0 1px ${stage === 'idle' ? C.border : statusColor}`,
           }}
         />
       )}

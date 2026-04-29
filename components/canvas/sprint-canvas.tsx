@@ -69,9 +69,9 @@ function horizontalGapBetween(leftW: number, rightW: number): number {
   const std = NODE_SIZE.standard.width;
   const l = leftW >= wideThreshold || rightW >= wideThreshold;
   const bothStd = leftW <= std + 8 && rightW <= std + 8;
-  if (bothStd) return 40;
-  if (l) return 68;
-  return 52;
+  if (bothStd) return 72;
+  if (l) return 204;
+  return 88;
 }
 
 /** X positions derived from actual column widths so spacing scales with card size (dynamic packing) */
