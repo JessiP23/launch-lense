@@ -37,6 +37,10 @@ function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, '').trim();
 }
 
+function sanitizeSubject(value: string): string {
+  return stripHtml(value).replace(/\r?\n/g, ' ').trim();
+}
+
 function personalizeTemplate(template: string, contact: SpreadsheetContactRow): string {
   const first = contact.firstName?.trim() || 'there';
   const company = contact.company?.trim() || 'your team';
@@ -57,6 +61,7 @@ export async function POST(
     confirm_large_batch?: boolean;
     subject_line?: string;
     body_template?: string;
+    body_format?: 'plain' | 'html';
   };
 
   const { data: raw, error } = await db.from('sprints').select('*').eq('id', sprint_id).single();
@@ -131,8 +136,9 @@ export async function POST(
       let failed = 0;
       let angleUsed: OutreachAgentOutput['angleUsed'] = 'angle_A';
       let subjectLine = '';
-      const customSubject = typeof body.subject_line === 'string' ? stripHtml(body.subject_line).slice(0, 200) : '';
-      const customTemplate = typeof body.body_template === 'string' ? stripHtml(body.body_template) : '';
+      const customSubject = typeof body.subject_line === 'string' ? sanitizeSubject(body.subject_line).slice(0, 200) : '';
+      const customTemplate = typeof body.body_template === 'string' ? body.body_template.replace(/\r/g, '').trim() : '';
+      const bodyFormat = body.body_format === 'html' ? 'html' : 'plain';
       const baseCopy = buildOutreachCopy(sprint);
       if (baseCopy) angleUsed = baseCopy.angleUsed;
 
@@ -169,6 +175,7 @@ export async function POST(
             to: c.email,
             subject: pc.subjectLine,
             body: pc.body,
+            bodyFormat,
           });
           ok++;
           sendLog.push({ email: maskEmail(c.email), status: 'sent', timestamp: ts });
@@ -184,6 +191,7 @@ export async function POST(
                 to: c.email,
                 subject: pc.subjectLine,
                 body: pc.body,
+                bodyFormat,
               });
               ok++;
               sendLog.push({ email: maskEmail(c.email), status: 'sent', timestamp: ts });

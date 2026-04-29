@@ -1635,6 +1635,10 @@ function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, '').trim();
 }
 
+function sanitizeSubject(value: string): string {
+  return stripHtml(value).replace(/\r?\n/g, ' ').trim();
+}
+
 async function readJsonOrError(res: Response): Promise<Record<string, unknown>> {
   const text = await res.text().catch(() => '');
   if (!text.trim()) return {};
@@ -1828,6 +1832,7 @@ function IntegrationsPanel({
   const [emailSubjectDraft, setEmailSubjectDraft] = useState('');
   const [emailBodyDraft, setEmailBodyDraft] = useState('');
   const [emailDraftDirty, setEmailDraftDirty] = useState(false);
+  const [emailBodyFormat, setEmailBodyFormat] = useState<'plain' | 'html'>('plain');
   const [googleOAuth, setGoogleOAuth] = useState<{
     connected: boolean;
     google_email?: string | null;
@@ -2104,6 +2109,7 @@ function IntegrationsPanel({
         confirm_large_batch: contacts.length > 2000,
         subject_line: emailSubjectDraft,
         body_template: emailBodyDraft,
+        body_format: emailBodyFormat,
       };
       let res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/send-outreach`, {
         method: 'POST',
@@ -2158,8 +2164,10 @@ function IntegrationsPanel({
     activeContacts[0] ??
     fallbackPreviewContact;
   const generatedOutreachCopy = sprint ? buildOutreachCopy(sprint) : null;
-  const previewSubject = stripHtml(emailSubjectDraft || generatedOutreachCopy?.subjectLine || '');
-  const previewBodyTemplate = stripHtml(emailBodyDraft || generatedOutreachCopy?.baseBody || '');
+  const displayedEmailSubject = emailDraftDirty ? emailSubjectDraft : (emailSubjectDraft || generatedOutreachCopy?.subjectLine || '');
+  const displayedEmailBody = emailDraftDirty ? emailBodyDraft : (emailBodyDraft || generatedOutreachCopy?.baseBody || '');
+  const previewSubject = sanitizeSubject(displayedEmailSubject);
+  const previewBodyTemplate = displayedEmailBody.replace(/\r/g, '');
   const emailPreview =
     previewContact && previewSubject && previewBodyTemplate
       ? {
@@ -2393,7 +2401,7 @@ function IntegrationsPanel({
         <>
           <SectionTitle>SpreadsheetAgent</SectionTitle>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(420px, 1fr)', gap: 14, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(430px, 0.95fr) minmax(420px, 1.05fr)', gap: 14, alignItems: 'start' }}>
           <div
             style={{
               order: 2,
@@ -2602,6 +2610,7 @@ function IntegrationsPanel({
               color: C.ink,
               overflow: 'hidden',
               boxShadow: '0 8px 24px rgba(17,17,16,0.08)',
+              maxHeight: 'calc(100vh - 120px)',
             }}
           >
             <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, background: C.surface }}>
@@ -2610,8 +2619,8 @@ function IntegrationsPanel({
                 Real-time preview from selected contacts.
               </p>
             </div>
-            {emailPreview ? (
-              <div style={{ padding: 14 }}>
+            {previewContact ? (
+              <div style={{ padding: 14, maxHeight: 'calc(100vh - 188px)', overflowY: 'auto' }}>
                 <div style={{ borderRadius: 14, background: C.surface, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
                   <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.border}`, background: C.faint }}>
                     <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -2632,27 +2641,58 @@ function IntegrationsPanel({
                         </p>
                       </div>
                     </div>
+                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: C.faint, border: `1px solid ${C.border}` }}>
+                      <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>From</p>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.75rem', fontWeight: 800, color: C.ink }}>
+                        {googleOAuth?.google_email ?? 'Connected Gmail account'}
+                      </p>
+                    </div>
                     <div style={{ borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, padding: '9px 0', marginBottom: 10 }}>
                       <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>Subject</p>
                       <input
-                        value={emailSubjectDraft || generatedOutreachCopy?.subjectLine || ''}
+                        value={displayedEmailSubject}
                         onChange={(e) => {
                           setEmailDraftDirty(true);
-                          setEmailSubjectDraft(stripHtml(e.target.value));
+                          setEmailSubjectDraft(e.target.value.replace(/\r?\n/g, ' '));
                         }}
                         style={{ ...inpStyle(), marginTop: 5, fontSize: '0.8125rem', fontWeight: 800, background: '#FFF' }}
                       />
                     </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>Body format</p>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(['plain', 'html'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setEmailBodyFormat(mode)}
+                            style={{
+                              height: 24,
+                              padding: '0 8px',
+                              borderRadius: 999,
+                              border: `1px solid ${emailBodyFormat === mode ? C.ink : C.border}`,
+                              background: emailBodyFormat === mode ? C.ink : C.surface,
+                              color: emailBodyFormat === mode ? '#FFF' : C.muted,
+                              fontSize: '0.6875rem',
+                              cursor: 'pointer',
+                              textTransform: 'capitalize',
+                            }}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <textarea
-                      value={emailBodyDraft || generatedOutreachCopy?.baseBody || ''}
+                      value={displayedEmailBody}
                       onChange={(e) => {
                         setEmailDraftDirty(true);
-                        setEmailBodyDraft(stripHtml(e.target.value));
+                        setEmailBodyDraft(e.target.value);
                       }}
                       rows={10}
                       style={{
                         ...taStyle(),
-                        minHeight: 190,
+                        minHeight: 120,
                         resize: 'vertical',
                         background: '#FFF',
                         color: C.ink,
@@ -2661,13 +2701,28 @@ function IntegrationsPanel({
                         lineHeight: 1.6,
                       }}
                     />
-                    <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: C.faint, border: `1px solid ${C.border}` }}>
-                      <p style={{ margin: '0 0 6px', fontSize: '0.6875rem', color: C.muted, fontWeight: 800 }}>
+                    <div style={{ marginTop: 12, padding: 14, borderRadius: 14, background: C.faint, border: `1px solid ${C.border}` }}>
+                      <p style={{ margin: '0 0 10px', fontSize: '0.75rem', color: C.muted, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                         Personalized preview
                       </p>
-                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.75rem', lineHeight: 1.5, color: C.ink }}>
-                        {emailPreview.body}
-                      </pre>
+                      {!previewBodyTemplate.trim() ? (
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: C.muted, lineHeight: 1.45 }}>
+                          Start typing in the draft body above to preview the personalized message.
+                        </p>
+                      ) : emailBodyFormat === 'html' && emailPreview ? (
+                        <iframe
+                          title="HTML email preview"
+                          sandbox=""
+                          srcDoc={emailPreview.body}
+                          style={{ width: '100%', minHeight: 420, border: `1px solid ${C.border}`, borderRadius: 12, background: '#FFF' }}
+                        />
+                      ) : emailPreview ? (
+                        <div style={{ minHeight: 360, borderRadius: 12, background: '#FFF', border: `1px solid ${C.border}`, padding: 18 }}>
+                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.9375rem', lineHeight: 1.7, color: C.ink }}>
+                            {emailPreview.body}
+                          </pre>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -2697,7 +2752,7 @@ function IntegrationsPanel({
                 <button
                   type="button"
                   onClick={() => void sendOutreach()}
-                  disabled={loading !== null || !canSendOutreach}
+                  disabled={loading !== null || !canSendOutreach || !previewSubject || !previewBodyTemplate.trim()}
                   style={{
                     ...btnPrimary(),
                     width: '100%',
@@ -2705,15 +2760,12 @@ function IntegrationsPanel({
                     marginTop: 12,
                     background: C.ink,
                     color: '#FFF',
-                    opacity: loading !== null || !canSendOutreach ? 0.5 : 1,
-                    cursor: loading !== null || !canSendOutreach ? 'not-allowed' : 'pointer',
+                    opacity: loading !== null || !canSendOutreach || !previewSubject || !previewBodyTemplate.trim() ? 0.5 : 1,
+                    cursor: loading !== null || !canSendOutreach || !previewSubject || !previewBodyTemplate.trim() ? 'not-allowed' : 'pointer',
                   }}
                 >
                   {loading === 'outreach' ? 'Sending…' : `Send ${selectedContactCount} Email${selectedContactCount === 1 ? '' : 's'}`}
                 </button>
-                <p style={{ margin: '8px 0 0', fontSize: '0.6875rem', color: C.muted, lineHeight: 1.4 }}>
-                  Rate limited server-side through Gmail. Sends plain text for deliverability.
-                </p>
               </div>
             ) : (
               <div style={{ margin: 14, padding: 12, borderRadius: 10, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
@@ -2936,7 +2988,7 @@ export function NodePanel({
     panel === 'landing'
       ? 820
       : panel === 'integrations_sheet'
-        ? 760
+        ? 920
       : isIntegrationSurface
         ? 440
         : 380;
