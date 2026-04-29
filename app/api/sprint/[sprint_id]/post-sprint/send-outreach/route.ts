@@ -49,13 +49,15 @@ export async function POST(
   if (error || !raw) return Response.json({ error: 'Sprint not found' }, { status: 404 });
 
   const sprint = asSprint(raw as DbRow);
-  if (sprint.state !== 'COMPLETE') {
-    return Response.json({ error: 'Outreach runs only after sprint COMPLETE' }, { status: 409 });
-  }
-
   const verdict = sprint.verdict?.verdict;
+  if (!verdict) {
+    return Response.json({ error: 'Outreach waits for an aggregate verdict before sending.' }, { status: 409 });
+  }
   if (verdict === 'NO-GO') {
     return Response.json({ error: 'Hard block — aggregate verdict is NO-GO' }, { status: 403 });
+  }
+  if (verdict !== 'GO' && verdict !== 'ITERATE') {
+    return Response.json({ error: 'Outreach runs only when aggregate verdict is GO or ITERATE' }, { status: 409 });
   }
 
   const contacts = Array.isArray(body.contacts) ? body.contacts : [];
