@@ -2,15 +2,15 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ReactFlow, Background, BackgroundVariant,
-  Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler,
+  ReactFlow, Background, BackgroundVariant, applyNodeChanges,
+  Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
   ReactFlowProvider, Panel,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 import { CanvasToolbar } from './canvas-toolbar';
 import { NodePanel, type PanelId } from './node-panel';
-import { PipelineEdge, type EdgeState } from './pipeline-edge';
+import { PipelineEdge, PipelineEdgeMarkers, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
 // ── Node & Edge type registries ──────────────────────────────────────────────
-const nodeTypes: NodeTypes = {
+const NODE_TYPES: NodeTypes = {
   accounts:   AccountsNode,
   genome:     GenomeNode,
   healthgate: HealthgateNode,
@@ -35,7 +35,7 @@ const nodeTypes: NodeTypes = {
   settings:   SettingsNode,
 };
 
-const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
+const EDGE_TYPES: EdgeTypes = { pipeline: PipelineEdge };
 
 // ── Layout constants ─────────────────────────────────────────────────────────
 // React Flow positions are top-left coordinates. Keep dimensions centralized so
@@ -43,6 +43,7 @@ const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
 const NODE_SIZE = {
   standard: { width: 168, height: 96 },
   creative: { width: 236, height: 340 },
+  landing: { width: 236, height: 340 },
 };
 const LAYOUT = {
   left: 80,
@@ -62,7 +63,7 @@ const X = (() => {
     ['creative', NODE_SIZE.creative.width],
     ['campaign', NODE_SIZE.standard.width],
     ['verdict', NODE_SIZE.standard.width],
-    ['landing', NODE_SIZE.standard.width],
+    ['landing', NODE_SIZE.landing.width],
     ['report', NODE_SIZE.standard.width],
   ] as const;
 
@@ -82,6 +83,22 @@ type CreativeDraft = {
   image: string | null;
 };
 type CreativeDrafts = Partial<Record<Platform, CreativeDraft>>;
+type LandingDraft = {
+  mode: 'builder' | 'code';
+  theme: string;
+  eyebrow: string;
+  headline: string;
+  subheadline: string;
+  cta: string;
+  audience: string;
+  offer: string;
+  proof: string[];
+  testimonial: string;
+  formTitle: string;
+  formSubtext: string;
+  customHtml: string;
+  customCss: string;
+};
 
 // ── Sprint state → node/edge stage mapping ───────────────────────────────────
 type NodeStage = 'idle' | 'running' | 'done' | 'blocked' | 'warn';
@@ -214,6 +231,7 @@ function buildLayout(channelCount: number) {
 }
 
 function nodeSize(node: Node) {
+  if (node.type === 'landing') return NODE_SIZE.landing;
   return node.type === 'creative' ? NODE_SIZE.creative : NODE_SIZE.standard;
 }
 
@@ -297,6 +315,33 @@ function creativeDataFor(channel: Platform, sprint: SprintRecord | null, drafts:
   };
 }
 
+function landingDraftFor(sprint: SprintRecord | null, draft?: LandingDraft | null) {
+  const selectedAngle = selectedAngleFor(sprint);
+  const firstPage = sprint?.landing?.pages?.[0] as {
+    url?: string;
+    sections?: Array<{ headline?: string; subheadline?: string; cta_label?: string; bullets?: string[]; quote?: string }>;
+  } | undefined;
+
+  const hero = firstPage?.sections?.[0];
+  const proof = firstPage?.sections?.[1];
+  const trust = firstPage?.sections?.[3];
+
+  return {
+    pageCount: sprint?.landing?.pages?.length,
+    url: firstPage?.url ?? null,
+    mode: draft?.mode ?? 'builder',
+    theme: draft?.theme ?? 'studio',
+    eyebrow: draft?.eyebrow ?? 'LaunchLense validation sprint',
+    headline: draft?.headline ?? hero?.headline ?? selectedAngle?.copy.meta.headline,
+    subheadline: draft?.subheadline ?? hero?.subheadline ?? selectedAngle?.copy.meta.body,
+    cta: draft?.cta ?? hero?.cta_label ?? selectedAngle?.cta,
+    proof: draft?.proof ?? proof?.bullets,
+    testimonial: draft?.testimonial ?? trust?.quote,
+    customHtml: draft?.customHtml,
+    customCss: draft?.customCss,
+  };
+}
+
 function draftFingerprint(draft: CreativeDraft) {
   return JSON.stringify({
     channel: draft.channel,
@@ -308,13 +353,85 @@ function draftFingerprint(draft: CreativeDraft) {
   });
 }
 
+function landingFingerprint(draft: LandingDraft) {
+  return JSON.stringify(draft);
+}
+
+function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
+  if (!current.length) return nextBase;
+
+  const currentById = new Map(current.map((node) => [node.id, node]));
+  let changed = current.length !== nextBase.length;
+
+  const next = nextBase.map((baseNode) => {
+    const currentNode = currentById.get(baseNode.id);
+    if (!currentNode) {
+      changed = true;
+      return baseNode;
+    }
+
+    const merged = {
+      ...currentNode,
+      ...baseNode,
+      position: currentNode.position,
+      selected: currentNode.selected,
+      dragging: currentNode.dragging,
+      measured: currentNode.measured,
+      width: currentNode.width,
+      height: currentNode.height,
+    };
+
+    if (
+      currentNode.type !== baseNode.type ||
+      currentNode.data !== baseNode.data ||
+      currentNode.position.x !== merged.position.x ||
+      currentNode.position.y !== merged.position.y ||
+      currentNode.measured?.width !== merged.measured?.width ||
+      currentNode.measured?.height !== merged.measured?.height
+    ) {
+      changed = true;
+    }
+
+    return merged;
+  });
+
+  return changed ? next : current;
+}
+
+function meaningfulNodeChanges(changes: NodeChange[], currentNodes: Node[]) {
+  const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+
+  return changes.filter((change) => {
+    if (!('id' in change)) return true;
+    const current = currentById.get(change.id);
+    if (!current) return true;
+
+    if (change.type === 'position') {
+      if (!change.position) return true;
+      return current.position.x !== change.position.x ||
+        current.position.y !== change.position.y ||
+        current.dragging !== change.dragging;
+    }
+
+    if (change.type === 'dimensions') {
+      const dimensions = change.dimensions;
+      if (!dimensions) return true;
+      return current.measured?.width !== dimensions.width ||
+        current.measured?.height !== dimensions.height;
+    }
+
+    if (change.type === 'select') return current.selected !== change.selected;
+
+    return true;
+  });
+}
+
 // ── Build static node list ───────────────────────────────────────────────────
-function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts): Node[] {
+function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts, landingDraft: LandingDraft | null): Node[] {
   const s  = sprint?.state;
   const g  = sprint?.genome;
   const hg = sprint?.healthgate;
   const a  = sprint?.angles;
-  const l  = sprint?.landing;
   const c  = sprint?.campaign;
   const v  = sprint?.verdict;
   const activeChannels = activeChannelsFor(sprint);
@@ -348,7 +465,7 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts)
 
     // Landing pages
     { id: 'landing', type: 'landing', position: { x: X.landing, y: layout.standardTop },
-      data: { pageCount: l?.pages?.length, stage: sprintStageFor('landing', s, sprint) } },
+      data: { ...landingDraftFor(sprint, landingDraft), stage: sprintStageFor('landing', s, sprint) } },
 
     // Campaign per selected channel
     ...activeChannels.map((ch, i) => ({
@@ -679,6 +796,8 @@ interface CanvasProps {
 
 function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const { connectedPlatforms } = useAppStore();
+  const nodeTypes = useMemo(() => NODE_TYPES, []);
+  const edgeTypes = useMemo(() => EDGE_TYPES, []);
 
   const [sprints, setSprints] = useState<{ id: string; name: string; status: string }[]>([]);
   const [activeSprint, setActiveSprint] = useState<string | null>(initialSprint ?? null);
@@ -689,15 +808,47 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const [creativeDrafts, setCreativeDrafts] = useState<CreativeDrafts>({});
+  const [landingDraft, setLandingDraft] = useState<LandingDraft | null>(null);
+  const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
 
-  const nodes = useMemo(() => {
-    const built = buildNodes(sprintData, creativeDrafts);
+  const baseNodes = useMemo(() => {
+    const built = buildNodes(sprintData, creativeDrafts, landingDraft);
     if (!built[0]) return built;
     built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
-    return built;
-  }, [sprintData, creativeDrafts, connectedPlatforms.length]);
+    return built.map((node) => {
+      const position = nodePositions[node.id];
+      return position ? { ...node, position } : node;
+    });
+  }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
+  const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
 
   const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
+
+  useEffect(() => {
+    setNodes((current) => mergeCanvasNodes(current, baseNodes));
+  }, [baseNodes]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((current) => {
+      const meaningful = meaningfulNodeChanges(changes, current);
+      if (!meaningful.length) return current;
+      return applyNodeChanges(meaningful, current);
+    });
+    setNodePositions((current) => {
+      let next = current;
+
+      for (const change of changes) {
+        if (change.type !== 'position' || !change.position || change.dragging) continue;
+        const previous = current[change.id];
+        if (previous?.x === change.position.x && previous?.y === change.position.y) continue;
+
+        if (next === current) next = { ...current };
+        next[change.id] = change.position;
+      }
+
+      return next;
+    });
+  }, []);
 
   // ── Load sprint list ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -761,6 +912,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
   useEffect(() => {
     setCreativeDrafts({});
+    setLandingDraft(null);
   }, [activeSprint]);
 
   // ── Poll active sprint ───────────────────────────────────────────────────
@@ -936,6 +1088,13 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     });
   }, []);
 
+  const handleLandingDraftChange = useCallback((draft: LandingDraft) => {
+    setLandingDraft((current) => {
+      if (current && landingFingerprint(current) === landingFingerprint(draft)) return current;
+      return draft;
+    });
+  }, []);
+
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#FAFAF8', position: 'relative', fontFamily: 'inherit' }}>
       <ReactFlow
@@ -943,16 +1102,21 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
         onNodeClick={onNodeClick}
         onPaneClick={() => setActivePanel(null)}
         fitView
         fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
         minZoom={0.3}
         maxZoom={1.7}
-        nodesDraggable={false}
+        nodesDraggable
+        panOnScroll
+        selectionOnDrag
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#E8E4DC" />
+        <PipelineEdgeMarkers />
+        <Background id="lane-grid" variant={BackgroundVariant.Lines} gap={120} size={0.8} color="#F3F0EB" />
+        <Background id="dot-grid" variant={BackgroundVariant.Dots} gap={20} size={1.25} color="#D8D2C7" />
 
         <Panel position="top-left" style={{ margin: 14 }}>
           <CanvasToolbar
@@ -980,6 +1144,8 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
               onContinueAfterCreatives={(id) => void runDemoAfterCreatives(id)}
               creativeDraft={panelChannel ? creativeDrafts[panelChannel as Platform] : undefined}
               onCreativeDraftChange={handleCreativeDraftChange}
+              landingDraft={landingDraft}
+              onLandingDraftChange={handleLandingDraftChange}
               onSprintPatched={handleSprintPatched}
               workflowRunning={pipelineRunning}
               embedded

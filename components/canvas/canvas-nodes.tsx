@@ -2,6 +2,7 @@
 
 import { memo, type ReactNode } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { motion } from 'framer-motion';
 
 // ── PROOF design tokens ─────────────────────────────────────────────────────
 const C = {
@@ -36,6 +37,14 @@ function stageBorder(s: NodeStage) {
   return C.border;
 }
 
+function stageLabel(s: NodeStage) {
+  if (s === 'running') return 'Live';
+  if (s === 'done') return 'Done';
+  if (s === 'blocked') return 'Blocked';
+  if (s === 'warn') return 'Review';
+  return 'Queued';
+}
+
 // ── Shared card shell ───────────────────────────────────────────────────────
 interface CardProps {
   label: string;
@@ -57,68 +66,128 @@ function NodeCard({
 }: CardProps) {
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
+  const statusColor = stage === 'blocked' ? C.stop : stage === 'idle' ? C.muted : C.ink;
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: selected ? 1.015 : 1,
+      }}
+      whileHover={{ y: -3, scale: 1.015 }}
+      transition={{
+        opacity: { duration: 0.22 },
+        scale: { duration: 0.18 },
+        y: { duration: 0.18 },
+      }}
       style={{
         width,
         height,
         boxSizing: 'border-box',
         background: stageBg(stage),
-        border: `${isRunning ? 2 : 1.5}px solid ${selected ? C.ink : border}`,
-        borderRadius: 14,
+        border: `${isRunning || selected ? 2 : 1.25}px solid ${selected ? C.ink : border}`,
+        borderRadius: 16,
         padding: '11px 13px 12px',
         boxShadow: selected
-          ? `0 0 0 3px ${C.ink}20`
+          ? `0 0 0 3px ${C.ink}18, 0 1px 2px rgba(0,0,0,0.06)`
           : isRunning
-          ? `0 0 0 4px ${C.ink}18`
-          : '0 1px 3px rgba(0,0,0,0.05)',
-        cursor: 'pointer',
-        transition: 'box-shadow 0.2s ease, border-color 0.3s ease',
+          ? `0 0 0 5px ${C.ink}10, 0 1px 2px rgba(0,0,0,0.06)`
+          : '0 1px 2px rgba(0,0,0,0.05)',
+        cursor: 'grab',
+        transition: 'box-shadow 0.2s ease, border-color 0.3s ease, transform 0.2s ease',
         position: 'relative',
         overflow: height ? 'hidden' : 'visible',
       }}
     >
+      {isRunning && (
+        <motion.div
+          aria-hidden
+          initial={{ scaleX: 0.2, opacity: 0.55 }}
+          animate={{ scaleX: [0.2, 1, 0.2], opacity: [0.45, 0.95, 0.45] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+          style={{
+            position: 'absolute',
+            left: 14,
+            right: 14,
+            top: -2,
+            height: 2,
+            borderRadius: 999,
+            background: C.ink,
+            transformOrigin: 'center',
+          }}
+        />
+      )}
       {hasLeft && (
         <Handle
           type="target" position={Position.Left}
-          style={{ background: border, width: 7, height: 7, border: '1.5px solid white', left: -4 }}
+          style={{
+            background: stage === 'idle' ? C.surface : statusColor,
+            width: 10,
+            height: 10,
+            border: `2px solid ${C.surface}`,
+            left: -6,
+            boxShadow: `0 0 0 1px ${stage === 'idle' ? C.border : statusColor}`,
+          }}
         />
       )}
       {hasRight && (
         <Handle
           type="source" position={Position.Right}
-          style={{ background: border, width: 7, height: 7, border: '1.5px solid white', right: -4 }}
+          style={{
+            background: stage === 'idle' ? C.surface : statusColor,
+            width: 10,
+            height: 10,
+            border: `2px solid ${C.surface}`,
+            right: -6,
+            boxShadow: `0 0 0 1px ${stage === 'idle' ? C.border : statusColor}`,
+          }}
         />
       )}
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
-        <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, margin: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <p style={{ fontSize: '0.625rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, margin: 0, lineHeight: 1.2 }}>
           {label}
         </p>
-        {isRunning && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.5625rem', fontWeight: 800, letterSpacing: '0.08em', color: C.ink }}>
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          height: 18,
+          padding: '0 6px',
+          border: `1px solid ${stage === 'idle' ? C.border : statusColor}`,
+          borderRadius: 999,
+          background: C.surface,
+          color: statusColor,
+          fontSize: '0.53125rem',
+          fontWeight: 900,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+        }}>
+          {isRunning && (
             <span
-              style={{ width: 6, height: 6, borderRadius: '50%', background: C.ink, flexShrink: 0 }}
+              style={{ width: 5, height: 5, borderRadius: '50%', background: C.ink, flexShrink: 0 }}
               className="animate-pulse"
             />
-            RUNNING
-          </span>
-        )}
+          )}
+          {stageLabel(stage)}
+        </span>
       </div>
 
       {metric != null && (
-        <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.25rem', lineHeight: 1, color: stageColor(stage), margin: '0 0 3px' }}>
+        <p style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '1.3rem', lineHeight: 1, letterSpacing: '-0.04em', color: stageColor(stage), margin: '0 0 3px' }}>
           {metric}
         </p>
       )}
       {metricLabel && (
-        <p style={{ fontSize: '0.625rem', color: C.muted, margin: 0, fontWeight: 500 }}>{metricLabel}</p>
+        <p style={{ fontSize: '0.625rem', color: C.muted, margin: 0, fontWeight: 700 }}>{metricLabel}</p>
       )}
       {sublabel && !metric && (
-        <p style={{ fontSize: '0.8125rem', fontWeight: 500, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
+        <p style={{ fontSize: '0.8125rem', fontWeight: 800, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
       )}
       {children}
-    </div>
+    </motion.div>
   );
 }
 
@@ -254,16 +323,85 @@ function handleFor(brandName?: string) {
   return (brandName ?? 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'brand';
 }
 
-export type LandingNodeData = { pageCount?: number; stage: NodeStage };
+export type LandingNodeData = {
+  pageCount?: number;
+  stage: NodeStage;
+  mode?: 'builder' | 'code';
+  eyebrow?: string;
+  headline?: string;
+  subheadline?: string;
+  cta?: string;
+  proof?: string[];
+  testimonial?: string;
+  theme?: string;
+  customHtml?: string;
+  customCss?: string;
+  url?: string | null;
+};
 export type LandingNodeType = Node<LandingNodeData, 'landing'>;
 export const LandingNode = memo(({ data, selected }: NodeProps<LandingNodeType>) => (
   <NodeCard
-    label="Landing Page" stage={data.stage} selected={!!selected}
+    label="Landing Page" stage={data.stage} selected={!!selected} width={236} height={340}
     metric={data.pageCount != null ? `${data.pageCount}` : data.stage === 'running' ? '…' : '—'}
-    metricLabel="editable pages"
-  />
+    metricLabel={data.url ? 'deployed page' : 'live page draft'}
+  >
+    <LandingNodePreview data={data} />
+  </NodeCard>
 ));
 LandingNode.displayName = 'LandingNode';
+
+function LandingNodePreview({ data }: { data: LandingNodeData }) {
+  if (data.mode === 'code') {
+    const srcDoc = `<!doctype html><html><head><style>:root{--canvas:#FAFAF8;--surface:#FFFFFF;--border:#E8E4DC;--ink:#111110;--muted:#8C8880;--faint:#F3F0EB}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,system-ui,sans-serif;overflow:hidden}${data.customCss ?? ''}</style></head><body>${data.customHtml || '<main style="padding:24px"><p style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#8C8880;font-weight:800">Custom HTML/CSS</p><h1 style="font-size:42px;line-height:.95;letter-spacing:-.06em;margin:8px 0">Paste custom page</h1></main>'}</body></html>`;
+    return (
+      <div style={{ marginTop: 10, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', background: C.surface }}>
+        <div style={{ height: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px', borderBottom: `1px solid ${C.border}`, background: C.faint }}>
+          <span style={{ fontSize: '0.5625rem', color: C.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>HTML/CSS</span>
+          <span style={{ fontSize: '0.5625rem', color: C.muted }}>live</span>
+        </div>
+        <iframe
+          title="Landing node custom preview"
+          srcDoc={srcDoc}
+          sandbox=""
+          style={{ width: '100%', height: 238, border: 0, display: 'block', pointerEvents: 'none', transform: 'scale(0.82)', transformOrigin: 'top left', inlineSize: '122%' }}
+        />
+      </div>
+    );
+  }
+  const proof = data.proof?.filter(Boolean).slice(0, 3) ?? [];
+  const isEditorial = data.theme === 'editorial';
+  return (
+    <div style={{ marginTop: 10, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', background: C.surface }}>
+      <div style={{ padding: 10, background: isEditorial ? C.ink : C.faint, color: isEditorial ? '#FFF' : C.ink }}>
+        <p style={{ margin: '0 0 5px', color: isEditorial ? '#FFFFFF99' : C.muted, fontSize: '0.5625rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          {data.eyebrow || 'Validation page'}
+        </p>
+        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, lineHeight: 1.05, letterSpacing: '-0.04em', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {data.headline || 'Open this node to build the page'}
+        </p>
+        <p style={{ margin: '7px 0 0', color: isEditorial ? '#FFFFFFB3' : C.muted, fontSize: '0.625rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {data.subheadline || 'Real-time landing preview appears here before deploy.'}
+        </p>
+      </div>
+      <div style={{ padding: 10, display: 'grid', gap: 6 }}>
+        {proof.length ? proof.map((item, index) => (
+          <div key={`${item}-${index}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <span style={{ width: 14, height: 14, borderRadius: 999, background: C.ink, color: '#FFF', display: 'grid', placeItems: 'center', fontSize: '0.5rem', fontWeight: 900, flexShrink: 0 }}>{index + 1}</span>
+            <p style={{ margin: 0, color: C.ink, fontSize: '0.625rem', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item}</p>
+          </div>
+        )) : (
+          <div style={{ height: 38, border: `1px dashed ${C.border}`, borderRadius: 8, display: 'grid', placeItems: 'center', color: C.muted, fontSize: '0.625rem' }}>Proof blocks</div>
+        )}
+        <div style={{ marginTop: 4, border: `1px solid ${C.border}`, borderRadius: 10, padding: 8, background: C.faint }}>
+          <p style={{ margin: 0, fontSize: '0.625rem', color: C.muted, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{data.testimonial || 'Customer quote or demand signal'}</p>
+        </div>
+        <div style={{ marginTop: 3, height: 30, borderRadius: 999, background: C.ink, color: '#FFF', display: 'grid', placeItems: 'center', fontSize: '0.6875rem', fontWeight: 900 }}>
+          {data.cta || 'Join Waitlist'}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export type CampaignNodeData  = { channel: string; ctr?: number; spendCents?: number; stage: NodeStage };
 export type CampaignNodeType  = Node<CampaignNodeData, 'campaign'>;
