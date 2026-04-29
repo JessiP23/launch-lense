@@ -5,13 +5,14 @@ export async function sendGmailPlain(params: {
   to: string;
   subject: string;
   body: string;
+  bodyFormat?: 'plain' | 'html';
 }): Promise<void> {
   const lines = [
     `From: ${params.fromEmail}`,
     `To: ${params.to}`,
     `Subject: ${params.subject.replace(/\r?\n/g, ' ')}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
+    `Content-Type: ${params.bodyFormat === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8`,
     '',
     params.body.replace(/\r/g, ''),
   ];

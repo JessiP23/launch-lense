@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
   surface: '#FFFFFF', faint: '#F3F0EB',
-  go: '#111110', warn: '#8C8880', stop: '#DC2626',
+  go: '#16A34A', warn: '#8C8880', stop: '#DC2626',
 };
 
 export type NodeStage = 'idle' | 'running' | 'done' | 'blocked' | 'warn';
@@ -187,6 +187,46 @@ function NodeCard({
         <p style={{ fontSize: '0.8125rem', fontWeight: 800, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
       )}
       {children}
+      {stage !== 'idle' && stage !== 'warn' && (
+        <motion.div
+          aria-label={`${label} ${stageLabel(stage)}`}
+          initial={{ scale: 0.72, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.18 }}
+          style={{
+            position: 'absolute',
+            right: 10,
+            bottom: 10,
+            width: 26,
+            height: 26,
+            borderRadius: '50%',
+            display: 'grid',
+            placeItems: 'center',
+            border: `3px solid ${C.surface}`,
+            background: stage === 'blocked' ? C.stop : stage === 'running' ? C.ink : C.go,
+            color: '#FFF',
+            boxShadow: '0 8px 20px rgba(17,17,16,0.16)',
+            fontSize: '0.875rem',
+            fontWeight: 950,
+            lineHeight: 1,
+          }}
+        >
+          {stage === 'running' ? (
+            <motion.span
+              aria-hidden
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                border: '2px solid rgba(255,255,255,0.45)',
+                borderTopColor: '#FFF',
+              }}
+            />
+          ) : stage === 'blocked' ? '!' : '✓'}
+        </motion.div>
+      )}
     </motion.div>
   );
 }

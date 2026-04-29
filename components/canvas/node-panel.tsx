@@ -9,8 +9,10 @@ import type {
   Platform,
   SprintEventLogEntry,
   SprintRecord,
+  SpreadsheetContactRow,
   SpreadsheetAgentOutput,
 } from '@/lib/agents/types';
+import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -59,6 +61,10 @@ export type LandingDraft = {
   formSubtext: string;
   customHtml: string;
   customCss: string;
+};
+
+type ReviewedContact = SpreadsheetContactRow & {
+  selected: boolean;
 };
 
 interface Props {
@@ -1598,6 +1604,46 @@ function parseCsvToRows(text: string): Record<string, string>[] {
   });
 }
 
+function contactsSessionKey(sprintId: string): string {
+  return `ll_contacts_${sprintId}`;
+}
+
+function selectedContacts(rows: ReviewedContact[]): SpreadsheetContactRow[] {
+  return rows
+    .filter((row) => row.selected && row.email.trim())
+    .map((row) => ({
+      email: row.email,
+      firstName: row.firstName,
+      company: row.company,
+      role: row.role,
+    }));
+}
+
+function toReviewedContacts(contacts: SpreadsheetContactRow[]): ReviewedContact[] {
+  return contacts.map((contact) => ({ ...contact, selected: true }));
+}
+
+function persistReviewedContacts(sprintId: string, rows: ReviewedContact[]) {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(contactsSessionKey(sprintId), JSON.stringify(selectedContacts(rows)));
+}
+
+function personalizeTemplate(template: string, contact: SpreadsheetContactRow): string {
+  const first = contact.firstName?.trim() || 'there';
+  const company = contact.company?.trim() || 'your team';
+  return template
+    .replace(/\[firstName\]|\{firstName\}/gi, first)
+    .replace(/\[company\]|\{company\}/gi, company);
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, '').trim();
+}
+
+function sanitizeSubject(value: string): string {
+  return stripHtml(value).replace(/\r?\n/g, ' ').trim();
+}
+
 async function readJsonOrError(res: Response): Promise<Record<string, unknown>> {
   const text = await res.text().catch(() => '');
   if (!text.trim()) return {};
@@ -1619,9 +1665,11 @@ function describeIntegrationLogEntry(entry: SprintEventLogEntry): string {
     const icp = p.icpFilterApplied === true ? ' · ICP filter' : '';
     return `${mode}: ${vc} contacts ready (${tr} rows parsed)${icp}`;
   }
-  if (entry.agent === 'outreach' && entry.event_type === 'completed') {
+  if (entry.agent === 'outreach' && (entry.event_type === 'completed' || entry.event_type === 'failed')) {
     const ts = typeof p.totalSent === 'number' ? p.totalSent : 0;
     const fail = typeof p.failed === 'number' ? p.failed : 0;
+    const firstFailure = typeof p.firstFailure === 'string' && p.firstFailure.trim() ? ` · ${p.firstFailure}` : '';
+    if (entry.event_type === 'failed') return `Outreach failed: sent ${ts} (${fail} failed)${firstFailure}`;
     return fail ? `Outreach sent ${ts} (${fail} failed)` : `Outreach sent ${ts}`;
   }
   if (entry.agent === 'slack') {
@@ -1786,6 +1834,12 @@ function IntegrationsPanel({
   const [error, setError] = useState<string | null>(null);
   const [lastSpreadsheetPrep, setLastSpreadsheetPrep] = useState<SpreadsheetAgentOutput | null>(null);
   const [liveGoogleSheet, setLiveGoogleSheet] = useState(false);
+  const [contactRows, setContactRows] = useState<ReviewedContact[]>([]);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [emailSubjectDraft, setEmailSubjectDraft] = useState('');
+  const [emailBodyDraft, setEmailBodyDraft] = useState('');
+  const [emailDraftDirty, setEmailDraftDirty] = useState(false);
+  const [emailBodyFormat, setEmailBodyFormat] = useState<'plain' | 'html'>('plain');
   const [googleOAuth, setGoogleOAuth] = useState<{
     connected: boolean;
     google_email?: string | null;
@@ -1823,20 +1877,37 @@ function IntegrationsPanel({
   useEffect(() => {
     if (!sprint?.sprint_id) {
       setContactsReady(false);
+      setContactRows([]);
       return;
     }
     try {
-      const raw = sessionStorage.getItem(`ll_contacts_${sprint.sprint_id}`);
+      const raw = sessionStorage.getItem(contactsSessionKey(sprint.sprint_id));
       if (!raw) {
         setContactsReady(false);
+        setContactRows([]);
         return;
       }
       const parsed = JSON.parse(raw) as unknown;
-      setContactsReady(Array.isArray(parsed) && parsed.length > 0);
+      const contacts = Array.isArray(parsed) ? (parsed as SpreadsheetContactRow[]) : [];
+      setContactRows(toReviewedContacts(contacts));
+      setContactsReady(contacts.length > 0);
     } catch {
       setContactsReady(false);
+      setContactRows([]);
     }
   }, [sprint?.sprint_id, sprint?.post_sprint?.spreadsheet?.validContacts, lastSpreadsheetPrep?.validContacts]);
+
+  useEffect(() => {
+    if (!sprint || emailDraftDirty) return;
+    const copy = buildOutreachCopy(sprint);
+    if (!copy) return;
+    setEmailSubjectDraft(copy.subjectLine);
+    setEmailBodyDraft(copy.baseBody);
+  }, [emailDraftDirty, sprint]);
+
+  useEffect(() => {
+    setEmailDraftDirty(false);
+  }, [sprint?.sprint_id]);
 
   useEffect(() => {
     if (!sprint?.sprint_id) {
@@ -1925,7 +1996,10 @@ function IntegrationsPanel({
 
   const canRunPrepareSheet = spreadsheetBlockReason === null;
 
-  const canSendOutreach = canPrepareSpreadsheet && contactsReady;
+  const canSendOutreach =
+    canPrepareSpreadsheet &&
+    contactsReady &&
+    contactRows.some((row) => row.selected && row.email.trim());
 
   const patchIntegrations = async (partial: Record<string, unknown>) => {
     if (!sprint?.sprint_id) return;
@@ -2017,7 +2091,11 @@ function IntegrationsPanel({
       if (spreadsheet) setLastSpreadsheetPrep(spreadsheet);
       onSprintPatched?.((data as { sprint: unknown }).sprint);
       if (typeof window !== 'undefined' && spreadsheet?.contacts?.length) {
-        window.sessionStorage.setItem(`ll_contacts_${sprint.sprint_id}`, JSON.stringify(spreadsheet.contacts));
+        const reviewed = toReviewedContacts(spreadsheet.contacts);
+        setContactRows(reviewed);
+        setPreviewIndex(0);
+        setContactsReady(reviewed.length > 0);
+        persistReviewedContacts(sprint.sprint_id, reviewed);
       }
       await refreshSprintFromServer();
     } catch (e) {
@@ -2031,35 +2109,56 @@ function IntegrationsPanel({
     if (!sprint?.sprint_id) return;
     setLoading('outreach');
     setError(null);
+    onSprintPatched?.({
+      ...sprint,
+      post_sprint: {
+        ...(sprint.post_sprint ?? { phase: 'idle' }),
+        phase: 'outreach_running',
+        updated_at: new Date().toISOString(),
+      },
+    });
     try {
-      let contacts: unknown[] = [];
-      if (typeof window !== 'undefined') {
-        const raw = window.sessionStorage.getItem(`ll_contacts_${sprint.sprint_id}`);
-        contacts = raw ? (JSON.parse(raw) as unknown[]) : [];
-      }
+      const contacts = selectedContacts(contactRows);
       const payload = {
         contacts,
         confirm_large_batch: contacts.length > 2000,
+        subject_line: emailSubjectDraft,
+        body_template: emailBodyDraft,
+        body_format: emailBodyFormat,
       };
       let res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/send-outreach`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      let data = await res.json().catch(() => ({}));
+      let data = await readJsonOrError(res);
       if (res.status === 409 && (data as { needsConfirm?: boolean }).needsConfirm && contacts.length > 2000) {
         res = await fetch(`/api/sprint/${sprint.sprint_id}/post-sprint/send-outreach`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...payload, confirm_large_batch: true }),
         });
-        data = await res.json().catch(() => ({}));
+        data = await readJsonOrError(res);
       }
       if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Send failed');
-      onSprintPatched?.((data as { sprint: unknown }).sprint);
+      const updatedSprint = (data as { sprint?: SprintRecord }).sprint;
+      if (updatedSprint) onSprintPatched?.(updatedSprint);
+      const outreach = updatedSprint?.post_sprint?.outreach;
+      const firstFailure = outreach?.sendLog?.find((entry) => entry.status === 'failed')?.error;
+      if (outreach && outreach.totalSent === 0 && outreach.failed > 0) {
+        setError(firstFailure ? `Outreach failed: ${firstFailure}` : `Outreach failed for ${outreach.failed} contact${outreach.failed === 1 ? '' : 's'}.`);
+      }
       await refreshSprintFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
+      onSprintPatched?.({
+        ...sprint,
+        post_sprint: {
+          ...(sprint.post_sprint ?? { phase: 'idle' }),
+          phase: 'outreach_failed',
+          updated_at: new Date().toISOString(),
+        },
+      });
     } finally {
       setLoading(null);
     }
@@ -2087,10 +2186,40 @@ function IntegrationsPanel({
   const spreadsheetPrepDisplay =
     lastSpreadsheetPrep ?? sprint?.post_sprint?.spreadsheet ?? undefined;
 
+  const activeContacts = selectedContacts(contactRows);
+  const fallbackPreviewContact = contactRows.find((row) => row.email.trim()) ?? null;
+  const previewContact =
+    activeContacts[Math.min(previewIndex, Math.max(0, activeContacts.length - 1))] ??
+    activeContacts[0] ??
+    fallbackPreviewContact;
+  const generatedOutreachCopy = sprint ? buildOutreachCopy(sprint) : null;
+  const displayedEmailSubject = emailDraftDirty ? emailSubjectDraft : (emailSubjectDraft || generatedOutreachCopy?.subjectLine || '');
+  const displayedEmailBody = emailDraftDirty ? emailBodyDraft : (emailBodyDraft || generatedOutreachCopy?.baseBody || '');
+  const previewSubject = sanitizeSubject(displayedEmailSubject);
+  const previewBodyTemplate = displayedEmailBody.replace(/\r/g, '');
+  const emailPreview =
+    previewContact && previewSubject && previewBodyTemplate
+      ? {
+          subjectLine: previewSubject,
+          body: personalizeTemplate(previewBodyTemplate, previewContact),
+        }
+      : null;
+  const selectedContactCount = activeContacts.length;
+
+  const updateContactRow = (index: number, patch: Partial<SpreadsheetContactRow & { selected: boolean }>) => {
+    if (!sprint?.sprint_id) return;
+    setContactRows((current) => {
+      const next = current.map((row, i) => (i === index ? { ...row, ...patch } : row));
+      persistReviewedContacts(sprint.sprint_id, next);
+      setContactsReady(selectedContacts(next).length > 0);
+      return next;
+    });
+  };
+
   const lostContactSession =
     !!sprint?.post_sprint?.spreadsheet?.validContacts &&
     sprint.post_sprint.spreadsheet.validContacts > 0 &&
-    !contactsReady;
+    contactRows.length === 0;
 
   const persistSheetLinkFromDraft = () => {
     const v = sheetDraft.trim();
@@ -2246,9 +2375,6 @@ function IntegrationsPanel({
               <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, letterSpacing: '-0.02em' }}>
                 OutreachAgent · Gmail
               </div>
-              <p style={{ fontSize: '0.75rem', color: C.muted, margin: '6px 0 10px', lineHeight: 1.45 }}>
-                Sends plain-text mail via Google after verdict is GO or ITERATE — OAuth handles credentials and limits.
-              </p>
               <label style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
                   type="checkbox"
@@ -2303,31 +2429,23 @@ function IntegrationsPanel({
       {variant === 'sheet' && (
         <>
           <SectionTitle>SpreadsheetAgent</SectionTitle>
-          <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.55 }}>
-            Prepare contacts after verdict <strong style={{ fontWeight: 600 }}>GO</strong> or{' '}
-            <strong style={{ fontWeight: 600 }}>ITERATE</strong>.{' '}
-            <strong style={{ fontWeight: 600 }}>CSV paste</strong> works without Google — row&nbsp;1 names columns (export from Sheets as CSV
-            or copy the grid).{' '}
-            <strong style={{ fontWeight: 600 }}>Live Sheet</strong> reads the workbook URL via Google after you connect — same columns as CSV,
-            no duplicate paste.
-          </p>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(430px, 0.95fr) minmax(420px, 1.05fr)', gap: 14, alignItems: 'start' }}>
           <div
             style={{
+              order: 2,
               borderRadius: 16,
               padding: 18,
               marginBottom: 12,
-              background: C.ink,
-              border: `1px solid ${C.border}`,
+              background: '#151513',
+              border: '1px solid rgba(250,250,248,0.14)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
             }}
           >
             <div ref={spreadsheetDarkRef}>
               <div style={{ fontWeight: 700, fontSize: '1rem', color: '#FAFAF8', letterSpacing: '-0.02em', marginBottom: 8 }}>
                 Contacts source
               </div>
-              <p style={{ fontSize: '0.8125rem', color: 'rgba(250,250,248,0.86)', lineHeight: 1.55, marginBottom: 14 }}>
-                Connect Google once so we can pull Sheets and send Gmail from Outreach. Without OAuth, paste CSV below — the agent maps headers
-                automatically (email required; first name, company, role/title optional — labels like “Email”, “Company”, “Job title” all work).
-              </p>
               {oauthEl}
               {(sheetDraft.trim() || integration.google_sheet_url?.trim()) && !liveGoogleSheet ? (
                 <p
@@ -2419,8 +2537,271 @@ function IntegrationsPanel({
                 </p>
               )}
               <SpreadsheetPrepSummaryCard output={spreadsheetPrepDisplay} />
+              {contactRows.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                    borderRadius: 10,
+                    background: 'rgba(250,250,248,0.08)',
+                    border: '1px solid rgba(250,250,248,0.14)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#FAFAF8', letterSpacing: '0.02em' }}>
+                        Review contact list
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!sprint?.sprint_id) return;
+                        const next = contactRows.map((row) => ({ ...row, selected: true }));
+                        setContactRows(next);
+                        setContactsReady(next.length > 0);
+                        persistReviewedContacts(sprint.sprint_id, next);
+                      }}
+                      style={{ height: 28, padding: '0 10px', borderRadius: 8, border: '1px solid rgba(250,250,248,0.26)', background: 'transparent', color: '#FAFAF8', fontSize: '0.72rem', cursor: 'pointer' }}
+                    >
+                      Restore all
+                    </button>
+                  </div>
+
+                  <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 2 }}>
+                    {contactRows.map((contact, index) => (
+                      <div
+                        key={`contact-${index}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '18px minmax(145px,1fr) minmax(82px,.7fr)',
+                          gap: 7,
+                          alignItems: 'center',
+                          padding: 8,
+                          borderRadius: 8,
+                          background: contact.selected ? 'rgba(250,250,248,0.08)' : 'rgba(250,250,248,0.03)',
+                          border: `1px solid ${contact.selected ? 'rgba(250,250,248,0.14)' : 'rgba(250,250,248,0.08)'}`,
+                          opacity: contact.selected ? 1 : 0.58,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={contact.selected}
+                          onChange={(e) => updateContactRow(index, { selected: e.target.checked })}
+                          aria-label={`Select ${contact.email}`}
+                        />
+                        <div style={{ display: 'grid', gap: 5 }}>
+                          <input
+                            value={contact.email}
+                            onChange={(e) => updateContactRow(index, { email: e.target.value })}
+                            style={{ ...inpOnDark, margin: 0, height: 30, fontSize: '0.75rem' }}
+                            placeholder="email@company.com"
+                          />
+                          <input
+                            value={contact.company ?? ''}
+                            onChange={(e) => updateContactRow(index, { company: e.target.value || null })}
+                            style={{ ...inpOnDark, margin: 0, height: 30, fontSize: '0.75rem' }}
+                            placeholder="Company"
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gap: 5 }}>
+                          <input
+                            value={contact.firstName ?? ''}
+                            onChange={(e) => updateContactRow(index, { firstName: e.target.value || null })}
+                            style={{ ...inpOnDark, margin: 0, height: 30, fontSize: '0.75rem' }}
+                            placeholder="First name"
+                          />
+                          <input
+                            value={contact.role ?? ''}
+                            onChange={(e) => updateContactRow(index, { role: e.target.value || null })}
+                            style={{ ...inpOnDark, margin: 0, height: 30, fontSize: '0.75rem' }}
+                            placeholder="Role"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                </div>
+              )}
               <IntegrationAgentLog events={sprint?.events} variant="sheet" />
             </div>
+          </div>
+          <aside
+            style={{
+              order: 1,
+              position: 'sticky',
+              top: 0,
+              borderRadius: 16,
+              padding: 0,
+              background: '#F8F6F1',
+              border: `1px solid ${C.border}`,
+              color: C.ink,
+              overflow: 'hidden',
+              boxShadow: '0 8px 24px rgba(17,17,16,0.08)',
+              maxHeight: 'calc(100vh - 120px)',
+            }}
+          >
+            <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+              <div style={{ fontWeight: 900, fontSize: '0.8125rem', letterSpacing: '-0.02em' }}>Live email preview</div>
+              <p style={{ margin: '3px 0 0', fontSize: '0.7rem', color: C.muted, lineHeight: 1.35 }}>
+                Real-time preview from selected contacts.
+              </p>
+            </div>
+            {previewContact ? (
+              <div style={{ padding: 14, maxHeight: 'calc(100vh - 188px)', overflowY: 'auto' }}>
+                <div style={{ borderRadius: 14, background: C.surface, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: `1px solid ${C.border}`, background: C.faint }}>
+                    <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      Gmail draft
+                    </p>
+                  </div>
+                  <div style={{ padding: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: C.ink, color: '#FFF', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: '0.875rem', flexShrink: 0 }}>
+                        {(previewContact?.firstName || previewContact?.email || 'C')[0]?.toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: C.ink }}>
+                          {previewContact?.firstName || 'there'}{previewContact?.company ? ` · ${previewContact.company}` : ''}
+                        </p>
+                        <p style={{ margin: '2px 0 0', fontSize: '0.6875rem', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          To: {previewContact?.email}
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: C.faint, border: `1px solid ${C.border}` }}>
+                      <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>From</p>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.75rem', fontWeight: 800, color: C.ink }}>
+                        {googleOAuth?.google_email ?? 'Connected Gmail account'}
+                      </p>
+                    </div>
+                    <div style={{ borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, padding: '9px 0', marginBottom: 10 }}>
+                      <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>Subject</p>
+                      <input
+                        value={displayedEmailSubject}
+                        onChange={(e) => {
+                          setEmailDraftDirty(true);
+                          setEmailSubjectDraft(e.target.value.replace(/\r?\n/g, ' '));
+                        }}
+                        style={{ ...inpStyle(), marginTop: 5, fontSize: '0.8125rem', fontWeight: 800, background: '#FFF' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <p style={{ margin: 0, fontSize: '0.6875rem', color: C.muted }}>Body format</p>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(['plain', 'html'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setEmailBodyFormat(mode)}
+                            style={{
+                              height: 24,
+                              padding: '0 8px',
+                              borderRadius: 999,
+                              border: `1px solid ${emailBodyFormat === mode ? C.ink : C.border}`,
+                              background: emailBodyFormat === mode ? C.ink : C.surface,
+                              color: emailBodyFormat === mode ? '#FFF' : C.muted,
+                              fontSize: '0.6875rem',
+                              cursor: 'pointer',
+                              textTransform: 'capitalize',
+                            }}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      value={displayedEmailBody}
+                      onChange={(e) => {
+                        setEmailDraftDirty(true);
+                        setEmailBodyDraft(e.target.value);
+                      }}
+                      rows={10}
+                      style={{
+                        ...taStyle(),
+                        minHeight: 120,
+                        resize: 'vertical',
+                        background: '#FFF',
+                        color: C.ink,
+                        fontFamily: 'inherit',
+                        fontSize: '0.8125rem',
+                        lineHeight: 1.6,
+                      }}
+                    />
+                    <div style={{ marginTop: 12, padding: 14, borderRadius: 14, background: C.faint, border: `1px solid ${C.border}` }}>
+                      <p style={{ margin: '0 0 10px', fontSize: '0.75rem', color: C.muted, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                        Personalized preview
+                      </p>
+                      {!previewBodyTemplate.trim() ? (
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: C.muted, lineHeight: 1.45 }}>
+                          Start typing in the draft body above to preview the personalized message.
+                        </p>
+                      ) : emailBodyFormat === 'html' && emailPreview ? (
+                        <iframe
+                          title="HTML email preview"
+                          sandbox=""
+                          srcDoc={emailPreview.body}
+                          style={{ width: '100%', minHeight: 420, border: `1px solid ${C.border}`, borderRadius: 12, background: '#FFF' }}
+                        />
+                      ) : emailPreview ? (
+                        <div style={{ minHeight: 360, borderRadius: 12, background: '#FFF', border: `1px solid ${C.border}`, padding: 18 }}>
+                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.9375rem', lineHeight: 1.7, color: C.ink }}>
+                            {emailPreview.body}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                {activeContacts.length > 1 && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                    {activeContacts.slice(0, 8).map((contact, index) => (
+                      <button
+                        key={`${contact.email}-${index}`}
+                        type="button"
+                        onClick={() => setPreviewIndex(index)}
+                        style={{
+                          height: 26,
+                          padding: '0 8px',
+                          borderRadius: 999,
+                          border: `1px solid ${previewContact?.email === contact.email ? C.ink : C.border}`,
+                          background: previewContact?.email === contact.email ? C.ink : C.surface,
+                          color: previewContact?.email === contact.email ? '#FFF' : C.muted,
+                          fontSize: '0.6875rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {contact.firstName || contact.email.split('@')[0]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void sendOutreach()}
+                  disabled={loading !== null || !canSendOutreach || !previewSubject || !previewBodyTemplate.trim()}
+                  style={{
+                    ...btnPrimary(),
+                    width: '100%',
+                    height: 38,
+                    marginTop: 12,
+                    background: C.ink,
+                    color: '#FFF',
+                    opacity: loading !== null || !canSendOutreach || !previewSubject || !previewBodyTemplate.trim() ? 0.5 : 1,
+                    cursor: loading !== null || !canSendOutreach || !previewSubject || !previewBodyTemplate.trim() ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {loading === 'outreach' ? 'Sending…' : `Send ${selectedContactCount} Email${selectedContactCount === 1 ? '' : 's'}`}
+                </button>
+              </div>
+            ) : (
+              <div style={{ margin: 14, padding: 12, borderRadius: 10, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
+                Prepare a sheet and keep at least one contact selected to see the personalized Gmail preview here.
+              </div>
+            )}
+          </aside>
           </div>
         </>
       )}
@@ -2448,6 +2829,22 @@ function IntegrationsPanel({
                 Uses your Google connection for plain-text sends (winning angle subject + body).
               </p>
               {oauthEl}
+              {emailPreview && (
+                <div style={{ padding: 12, borderRadius: 10, background: 'rgba(250,250,248,0.08)', border: '1px solid rgba(250,250,248,0.14)', marginBottom: 12 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.75rem', color: '#FAFAF8', marginBottom: 6 }}>
+                    Preview · {selectedContactCount} selected
+                  </div>
+                  <p style={{ margin: '0 0 4px', fontSize: '0.75rem', color: 'rgba(250,250,248,0.62)' }}>
+                    To example: {previewContact?.email}
+                  </p>
+                  <p style={{ margin: '0 0 8px', fontSize: '0.8125rem', color: '#FAFAF8', fontWeight: 700 }}>
+                    Subject: {emailPreview.subjectLine}
+                  </p>
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.75rem', lineHeight: 1.5, color: 'rgba(250,250,248,0.86)' }}>
+                    {emailPreview.body}
+                  </pre>
+                </div>
+              )}
               <div style={{ height: 1, background: 'rgba(250,250,248,0.12)', margin: '18px 0' }} />
               <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#FAFAF8', marginBottom: 6 }}>Confirm outreach</div>
               <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.75)', marginBottom: 10, lineHeight: 1.45 }}>
@@ -2619,6 +3016,8 @@ export function NodePanel({
   const panelWidth =
     panel === 'landing'
       ? 820
+      : panel === 'integrations_sheet'
+        ? 920
       : isIntegrationSurface
         ? 440
         : 380;

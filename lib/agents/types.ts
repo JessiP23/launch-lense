@@ -89,6 +89,7 @@ export type PostSprintPhase =
   | 'outreach_confirm'
   | 'outreach_running'
   | 'outreach_done'
+  | 'outreach_failed'
   | 'slack_running'
   | 'slack_done'
   | 'complete';
@@ -335,6 +336,7 @@ export interface OutreachSendLogEntry {
   email: string;
   status: 'sent' | 'failed' | 'bounced';
   timestamp: string;
+  error?: string;
 }
 
 export interface OutreachAgentOutput {

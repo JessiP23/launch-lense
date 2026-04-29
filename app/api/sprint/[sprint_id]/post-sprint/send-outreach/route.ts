@@ -5,9 +5,9 @@ import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import type { OutreachAgentOutput, SpreadsheetContactRow, SprintRecord } from '@/lib/agents/types';
 import {
+  buildOutreachCopy,
   maskEmail,
   personalizeCopyBody,
-  simulateOutreachBatch,
 } from '@/lib/agents/outreach-agent';
 import { oauthScopeKeyFromSprint } from '@/lib/google/sprint-scope';
 import { getGoogleConnection, getGoogleRefreshToken } from '@/lib/google/token-store';
@@ -33,6 +33,22 @@ function sendGapMs(): number {
   return Math.ceil(3_600_000 / 50);
 }
 
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, '').trim();
+}
+
+function sanitizeSubject(value: string): string {
+  return stripHtml(value).replace(/\r?\n/g, ' ').trim();
+}
+
+function personalizeTemplate(template: string, contact: SpreadsheetContactRow): string {
+  const first = contact.firstName?.trim() || 'there';
+  const company = contact.company?.trim() || 'your team';
+  return template
+    .replace(/\[firstName\]|\{firstName\}/gi, first)
+    .replace(/\[company\]|\{company\}/gi, company);
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ sprint_id: string }> },
@@ -43,6 +59,9 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     contacts?: SpreadsheetContactRow[];
     confirm_large_batch?: boolean;
+    subject_line?: string;
+    body_template?: string;
+    body_format?: 'plain' | 'html';
   };
 
   const { data: raw, error } = await db.from('sprints').select('*').eq('id', sprint_id).single();
@@ -83,7 +102,17 @@ export async function POST(
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-  let outreach: OutreachAgentOutput;
+  let outreach: OutreachAgentOutput | null = null;
+
+  if (!rt) {
+    return Response.json({ error: 'Google not connected — authorize Gmail before sending outreach.' }, { status: 401 });
+  }
+  if (!clientId || !clientSecret) {
+    return Response.json({ error: 'Google OAuth client is not configured on the server.' }, { status: 503 });
+  }
+  if (sendDisabled) {
+    return Response.json({ error: 'Gmail sending is disabled on this deployment (GOOGLE_SEND_DISABLED=1).' }, { status: 503 });
+  }
 
   if (rt && clientId && clientSecret && !sendDisabled) {
     let fromEmail = conn?.google_email ?? null;
@@ -97,11 +126,20 @@ export async function POST(
     }
 
     if (!fromEmail) {
-      outreach = simulateOutreachBatch(sprint, contacts, { maxSimulated: Math.min(contacts.length, 500) });
-      outreach.bodyPreview =
-        (outreach.bodyPreview ?? '') +
-        '\n\n[Deliverability] Gmail sender email unavailable — simulated batch.';
+      return Response.json({ error: 'Gmail sender email unavailable — reconnect Google before sending.' }, { status: 401 });
     } else {
+      await db
+        .from('sprints')
+        .update({
+          post_sprint: {
+            ...(sprint.post_sprint ?? { phase: 'idle' }),
+            phase: 'outreach_running' as const,
+            updated_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', sprint_id);
+
       const envCap = Number.parseInt(process.env.GOOGLE_SEND_MAX ?? '', 10);
       const maxSend = Number.isFinite(envCap) && envCap > 0 ? Math.min(contacts.length, envCap) : contacts.length;
 
@@ -110,6 +148,11 @@ export async function POST(
       let failed = 0;
       let angleUsed: OutreachAgentOutput['angleUsed'] = 'angle_A';
       let subjectLine = '';
+      const customSubject = typeof body.subject_line === 'string' ? sanitizeSubject(body.subject_line).slice(0, 200) : '';
+      const customTemplate = typeof body.body_template === 'string' ? body.body_template.replace(/\r/g, '').trim() : '';
+      const bodyFormat = body.body_format === 'html' ? 'html' : 'plain';
+      const baseCopy = buildOutreachCopy(sprint);
+      if (baseCopy) angleUsed = baseCopy.angleUsed;
 
       const refreshAccess = async () => {
         const t = await refreshAccessToken({ refreshToken: rt, clientId, clientSecret });
@@ -119,10 +162,18 @@ export async function POST(
       for (let i = 0; i < maxSend; i++) {
         const c = contacts[i];
         const ts = new Date().toISOString();
-        const pc = personalizeCopyBody(sprint, c);
+        const generated = personalizeCopyBody(sprint, c);
+        const pc = customSubject && customTemplate
+          ? {
+              subjectLine: customSubject,
+              body: personalizeTemplate(customTemplate, c),
+              angleUsed,
+            }
+          : generated;
         if (!pc) {
           failed++;
-          sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
+          const reason = 'Cannot build outreach copy for this contact.';
+          sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts, error: reason });
           continue;
         }
         if (!subjectLine) {
@@ -137,6 +188,7 @@ export async function POST(
             to: c.email,
             subject: pc.subjectLine,
             body: pc.body,
+            bodyFormat,
           });
           ok++;
           sendLog.push({ email: maskEmail(c.email), status: 'sent', timestamp: ts });
@@ -152,16 +204,18 @@ export async function POST(
                 to: c.email,
                 subject: pc.subjectLine,
                 body: pc.body,
+                bodyFormat,
               });
               ok++;
               sendLog.push({ email: maskEmail(c.email), status: 'sent', timestamp: ts });
-            } catch {
+            } catch (retryErr) {
+              const retryMsg = retryErr instanceof Error ? retryErr.message : 'Gmail retry failed';
               failed++;
-              sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
+              sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts, error: retryMsg });
             }
           } else {
             failed++;
-            sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts });
+            sendLog.push({ email: maskEmail(c.email), status: 'failed', timestamp: ts, error: msg || 'Gmail send failed' });
           }
         }
 
@@ -171,25 +225,30 @@ export async function POST(
       }
 
       const sample = personalizeCopyBody(sprint, contacts[0]);
+      const sampleBody = customTemplate
+        ? personalizeTemplate(customTemplate, contacts[0])
+        : sample?.body;
 
       outreach = {
         totalSent: ok,
         failed,
         bounced: 0,
-        subjectLine: subjectLine || sample?.subjectLine || '',
+        subjectLine: subjectLine || customSubject || sample?.subjectLine || '',
         angleUsed,
         sendLog,
         sprintId: sprint.sprint_id,
-        bodyPreview: sample?.body.slice(0, 480),
+        bodyPreview: sampleBody?.slice(0, 480),
       };
     }
-  } else {
-    outreach = simulateOutreachBatch(sprint, contacts, { maxSimulated: Math.min(contacts.length, 500) });
+  }
+
+  if (!outreach) {
+    return Response.json({ error: 'Outreach could not be built from the selected contacts and winning angle.' }, { status: 500 });
   }
 
   const post_sprint = {
     ...(sprint.post_sprint ?? { phase: 'idle' }),
-    phase: 'outreach_done' as const,
+    phase: outreach.failed > 0 && outreach.totalSent === 0 ? 'outreach_failed' as const : 'outreach_done' as const,
     outreach,
     updated_at: new Date().toISOString(),
   };
@@ -211,8 +270,12 @@ export async function POST(
   await db.from('sprint_events').insert({
     sprint_id,
     agent: 'outreach',
-    event_type: 'completed',
-    payload: { totalSent: outreach.totalSent, failed: outreach.failed },
+    event_type: outreach.failed > 0 && outreach.totalSent === 0 ? 'failed' : 'completed',
+    payload: {
+      totalSent: outreach.totalSent,
+      failed: outreach.failed,
+      firstFailure: outreach.sendLog.find((entry) => entry.status === 'failed')?.error ?? null,
+    },
   });
 
   return Response.json({ outreach, sprint: updated });
