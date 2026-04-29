@@ -494,6 +494,23 @@ function nodeDataLooselyEqual(a: unknown, b: unknown): boolean {
   }
 }
 
+function isWorkflowAutoLayoutNode(id: string): boolean {
+  return [
+    'accounts',
+    'genome',
+    'angles',
+    'landing',
+    'verdict',
+    'report',
+    'spreadsheet',
+    'outreach',
+    'slack',
+  ].includes(id) ||
+    id.startsWith('hg-') ||
+    id.startsWith('creative-') ||
+    id.startsWith('campaign-');
+}
+
 function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
   if (!current.length) return nextBase;
 
@@ -510,7 +527,7 @@ function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
     const merged = {
       ...currentNode,
       ...baseNode,
-      position: currentNode.position,
+      position: isWorkflowAutoLayoutNode(baseNode.id) ? baseNode.position : currentNode.position,
       selected: currentNode.selected,
       dragging: currentNode.dragging,
       measured: currentNode.measured,
@@ -1030,7 +1047,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
     return built.map((node) => {
       const position = nodePositions[node.id];
-      return position ? { ...node, position } : node;
+      return position && !isWorkflowAutoLayoutNode(node.id) ? { ...node, position } : node;
     });
   }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
   const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
@@ -1052,6 +1069,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
       for (const change of changes) {
         if (change.type !== 'position' || !change.position || change.dragging) continue;
+        if (isWorkflowAutoLayoutNode(change.id)) continue;
         const previous = current[change.id];
         if (previous?.x === change.position.x && previous?.y === change.position.y) continue;
 

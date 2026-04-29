@@ -2369,39 +2369,6 @@ function IntegrationsPanel({
                 background: C.faint,
               }}
             >
-              <Mail size={22} strokeWidth={1.75} color={C.muted} aria-hidden />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, letterSpacing: '-0.02em' }}>
-                OutreachAgent · Gmail
-              </div>
-              <label style={{ fontSize: '0.6875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={!!integration.canvas_outreach}
-                  onChange={(e) => void patchIntegrations({ canvas_outreach: e.target.checked })}
-                />
-                Implement
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ ...cardStyle(), padding: 16 }}>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                border: `1px solid ${C.border}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                background: C.faint,
-              }}
-            >
               <SlackGlyph size={22} color={C.muted} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
