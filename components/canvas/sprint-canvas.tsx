@@ -376,13 +376,18 @@ function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
       position: currentNode.position,
       selected: currentNode.selected,
       dragging: currentNode.dragging,
+      measured: currentNode.measured,
+      width: currentNode.width,
+      height: currentNode.height,
     };
 
     if (
       currentNode.type !== baseNode.type ||
       currentNode.data !== baseNode.data ||
       currentNode.position.x !== merged.position.x ||
-      currentNode.position.y !== merged.position.y
+      currentNode.position.y !== merged.position.y ||
+      currentNode.measured?.width !== merged.measured?.width ||
+      currentNode.measured?.height !== merged.measured?.height
     ) {
       changed = true;
     }
@@ -391,6 +396,34 @@ function mergeCanvasNodes(current: Node[], nextBase: Node[]) {
   });
 
   return changed ? next : current;
+}
+
+function meaningfulNodeChanges(changes: NodeChange[], currentNodes: Node[]) {
+  const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+
+  return changes.filter((change) => {
+    if (!('id' in change)) return true;
+    const current = currentById.get(change.id);
+    if (!current) return true;
+
+    if (change.type === 'position') {
+      if (!change.position) return true;
+      return current.position.x !== change.position.x ||
+        current.position.y !== change.position.y ||
+        current.dragging !== change.dragging;
+    }
+
+    if (change.type === 'dimensions') {
+      const dimensions = change.dimensions;
+      if (!dimensions) return true;
+      return current.measured?.width !== dimensions.width ||
+        current.measured?.height !== dimensions.height;
+    }
+
+    if (change.type === 'select') return current.selected !== change.selected;
+
+    return true;
+  });
 }
 
 // ── Build static node list ───────────────────────────────────────────────────
@@ -794,7 +827,11 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   }, [baseNodes]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((current) => applyNodeChanges(changes, current));
+    setNodes((current) => {
+      const meaningful = meaningfulNodeChanges(changes, current);
+      if (!meaningful.length) return current;
+      return applyNodeChanges(meaningful, current);
+    });
     setNodePositions((current) => {
       let next = current;
 

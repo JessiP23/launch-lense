@@ -72,16 +72,14 @@ function NodeCard({
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{
         opacity: 1,
-        y: isRunning ? [0, -2, 0] : 0,
+        y: 0,
         scale: selected ? 1.015 : 1,
       }}
       whileHover={{ y: -3, scale: 1.015 }}
       transition={{
         opacity: { duration: 0.22 },
         scale: { duration: 0.18 },
-        y: isRunning
-          ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
-          : { duration: 0.18 },
+        y: { duration: 0.18 },
       }}
       style={{
         width,
