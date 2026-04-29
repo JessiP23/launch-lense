@@ -7,7 +7,6 @@ import type { OutreachAgentOutput, SpreadsheetContactRow, SprintRecord } from '@
 import {
   maskEmail,
   personalizeCopyBody,
-  simulateOutreachBatch,
 } from '@/lib/agents/outreach-agent';
 import { oauthScopeKeyFromSprint } from '@/lib/google/sprint-scope';
 import { getGoogleConnection, getGoogleRefreshToken } from '@/lib/google/token-store';
@@ -83,7 +82,17 @@ export async function POST(
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-  let outreach: OutreachAgentOutput;
+  let outreach: OutreachAgentOutput | null = null;
+
+  if (!rt) {
+    return Response.json({ error: 'Google not connected — authorize Gmail before sending outreach.' }, { status: 401 });
+  }
+  if (!clientId || !clientSecret) {
+    return Response.json({ error: 'Google OAuth client is not configured on the server.' }, { status: 503 });
+  }
+  if (sendDisabled) {
+    return Response.json({ error: 'Gmail sending is disabled on this deployment (GOOGLE_SEND_DISABLED=1).' }, { status: 503 });
+  }
 
   if (rt && clientId && clientSecret && !sendDisabled) {
     let fromEmail = conn?.google_email ?? null;
@@ -97,10 +106,7 @@ export async function POST(
     }
 
     if (!fromEmail) {
-      outreach = simulateOutreachBatch(sprint, contacts, { maxSimulated: Math.min(contacts.length, 500) });
-      outreach.bodyPreview =
-        (outreach.bodyPreview ?? '') +
-        '\n\n[Deliverability] Gmail sender email unavailable — simulated batch.';
+      return Response.json({ error: 'Gmail sender email unavailable — reconnect Google before sending.' }, { status: 401 });
     } else {
       const envCap = Number.parseInt(process.env.GOOGLE_SEND_MAX ?? '', 10);
       const maxSend = Number.isFinite(envCap) && envCap > 0 ? Math.min(contacts.length, envCap) : contacts.length;
@@ -183,8 +189,10 @@ export async function POST(
         bodyPreview: sample?.body.slice(0, 480),
       };
     }
-  } else {
-    outreach = simulateOutreachBatch(sprint, contacts, { maxSimulated: Math.min(contacts.length, 500) });
+  }
+
+  if (!outreach) {
+    return Response.json({ error: 'Outreach could not be built from the selected contacts and winning angle.' }, { status: 500 });
   }
 
   const post_sprint = {
