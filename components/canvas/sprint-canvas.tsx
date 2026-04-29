@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 
 import { CanvasToolbar } from './canvas-toolbar';
 import { NodePanel, type PanelId } from './node-panel';
-import { PipelineEdge, type EdgeState } from './pipeline-edge';
+import { PipelineEdge, PipelineEdgeMarkers, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode, BenchmarksNode, SettingsNode,
@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
 // ── Node & Edge type registries ──────────────────────────────────────────────
-const nodeTypes: NodeTypes = {
+const NODE_TYPES: NodeTypes = {
   accounts:   AccountsNode,
   genome:     GenomeNode,
   healthgate: HealthgateNode,
@@ -35,7 +35,7 @@ const nodeTypes: NodeTypes = {
   settings:   SettingsNode,
 };
 
-const edgeTypes: EdgeTypes = { pipeline: PipelineEdge };
+const EDGE_TYPES: EdgeTypes = { pipeline: PipelineEdge };
 
 // ── Layout constants ─────────────────────────────────────────────────────────
 // React Flow positions are top-left coordinates. Keep dimensions centralized so
@@ -796,6 +796,8 @@ interface CanvasProps {
 
 function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const { connectedPlatforms } = useAppStore();
+  const nodeTypes = useMemo(() => NODE_TYPES, []);
+  const edgeTypes = useMemo(() => EDGE_TYPES, []);
 
   const [sprints, setSprints] = useState<{ id: string; name: string; status: string }[]>([]);
   const [activeSprint, setActiveSprint] = useState<string | null>(initialSprint ?? null);
@@ -1112,6 +1114,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         selectionOnDrag
         proOptions={{ hideAttribution: true }}
       >
+        <PipelineEdgeMarkers />
         <Background id="lane-grid" variant={BackgroundVariant.Lines} gap={120} size={0.8} color="#F3F0EB" />
         <Background id="dot-grid" variant={BackgroundVariant.Dots} gap={20} size={1.25} color="#D8D2C7" />
 
