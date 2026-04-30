@@ -1204,9 +1204,6 @@ function LandingPanel({
             <>
               <LandingInput label="Custom HTML Body" value={customHtml} onChange={setCustomHtml} multiline rows={10} />
               <LandingInput label="Custom CSS" value={customCss} onChange={setCustomCss} multiline rows={10} />
-              <p style={{ margin: 0, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
-                Paste body HTML and CSS only. LaunchLense wraps it in a fast single-file page for deploy.
-              </p>
             </>
           )}
           <button onClick={handleDeploy} disabled={deploying} style={{ height: 38, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontWeight: 800, cursor: deploying ? 'default' : 'pointer', opacity: deploying ? 0.7 : 1 }}>
@@ -1216,10 +1213,6 @@ function LandingPanel({
           {deployMessage && <p style={{ margin: 0, color: deployMessage.startsWith('Landing') ? C.go : C.stop, fontSize: '0.75rem' }}>{deployMessage}</p>}
         </div>
         <div style={{ position: 'sticky', top: 0, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', background: '#FFF' }}>
-          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.6875rem', color: C.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Live Preview</span>
-            <span style={{ fontSize: '0.6875rem', color: C.muted }}>{mode === 'code' ? 'Custom HTML/CSS' : 'Builder'}</span>
-          </div>
           <iframe title="Landing page preview" srcDoc={html} style={{ width: '100%', height: 640, border: 0, display: 'block' }} />
         </div>
       </div>

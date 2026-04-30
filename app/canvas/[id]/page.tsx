@@ -4,7 +4,6 @@ import { Suspense } from 'react';
 import { useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { SprintCanvas } from '@/components/canvas/sprint-canvas';
-import { CommandPalette } from '@/components/command-palette';
 
 function CanvasWithParams() {
   const params = useParams<{ id: string }>();
@@ -32,7 +31,6 @@ export default function CanvasSprintPage() {
   return (
     <Suspense fallback={null}>
       <CanvasWithParams />
-      <CommandPalette />
     </Suspense>
   );
 }

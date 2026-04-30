@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant, applyNodeChanges,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
-  ReactFlowProvider, Panel,
+  ReactFlowProvider, Panel, useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -325,6 +325,52 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
   return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
 }
 
+function isNodeDiscovered(nodeId: string, sprint: SprintRecord | null): boolean {
+  const s = sprint?.state;
+  if (nodeId === 'accounts') return true;
+  if (!s || s === 'IDLE') return false;
+
+  if (nodeId === 'genome') return true;
+  if (s === 'BLOCKED') {
+    if (nodeId.startsWith('hg-')) return Boolean(sprint?.healthgate);
+    if (nodeId === 'angles') return Boolean(sprint?.angles);
+    if (nodeId.startsWith('creative-')) return Boolean(sprint?.angles);
+    if (nodeId === 'landing') return Boolean(sprint?.landing);
+    if (nodeId.startsWith('campaign-')) return Boolean(sprint?.campaign);
+    if (nodeId === 'verdict') return Boolean(sprint?.verdict);
+    if (nodeId === 'report') return Boolean(sprint?.report);
+    return false;
+  }
+
+  const healthgateStates: SprintState[] = [
+    'GENOME_DONE', 'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE', 'ANGLES_RUNNING', 'ANGLES_DONE',
+    'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
+  ];
+  const angleStates: SprintState[] = [
+    'HEALTHGATE_DONE', 'ANGLES_RUNNING', 'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE',
+    'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
+  ];
+  const creativeStates: SprintState[] = [
+    'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
+  ];
+  const landingStates: SprintState[] = ['LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE'];
+  const campaignStates: SprintState[] = ['CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE'];
+
+  if (nodeId.startsWith('hg-')) return healthgateStates.includes(s);
+  if (nodeId === 'angles') return angleStates.includes(s);
+  if (nodeId.startsWith('creative-')) return creativeStates.includes(s);
+  if (nodeId === 'landing') return landingStates.includes(s);
+  if (nodeId.startsWith('campaign-')) return campaignStates.includes(s);
+  if (nodeId === 'verdict') return s === 'VERDICT_GENERATING' || s === 'COMPLETE';
+  if (nodeId === 'report') return s === 'COMPLETE';
+
+  if (nodeId === 'spreadsheet') return s === 'COMPLETE' && sprint?.integrations?.canvas_sheet === true;
+  if (nodeId === 'outreach') return s === 'COMPLETE' && sprint?.integrations?.canvas_outreach === true;
+  if (nodeId === 'slack') return s === 'COMPLETE' && sprint?.integrations?.canvas_slack === true;
+
+  return false;
+}
+
 function buildLayout(channelCount: number) {
   const safeChannelCount = Math.max(1, Math.min(CHANNELS.length, channelCount));
   const laneHeight = NODE_SIZE.creative.height;
@@ -594,6 +640,8 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   const selectedAngle = selectedAngleFor(sprint);
   const layout = buildLayout(activeChannels.length);
 
+  const discovered = (node: Node) => isNodeDiscovered(node.id, sprint);
+
   return resolveNodeOverlaps([
     // Accounts
     { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: layout.standardTop },
@@ -688,13 +736,10 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
       return nodes;
     })(),
 
-    // Utility nodes
-    { id: 'benchmarks', type: 'benchmarks', position: { x: X.accounts, y: layout.utilityTop }, data: { stage: 'idle' as NodeStage } },
-    { id: 'settings',   type: 'settings',   position: { x: X.genome,   y: layout.utilityTop }, data: { stage: 'idle' as NodeStage, configured: false } },
-  ]);
+  ].filter(discovered));
 }
 
-function buildEdges(sprint: SprintRecord | null): Edge[] {
+function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): Edge[] {
   const s = sprint?.state;
   const activeChannels = activeChannelsFor(sprint);
 
@@ -724,7 +769,9 @@ function buildEdges(sprint: SprintRecord | null): Edge[] {
     { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s, sprint) } },
     ...buildPostSprintEdges(s, sprint),
   ];
-  return edges;
+  return visibleNodeIds
+    ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
+    : edges;
 }
 
 /** Links enabled post-sprint nodes in order (report → sheet → outreach → slack), skipping disabled segments */
@@ -1025,6 +1072,7 @@ interface CanvasProps {
 }
 
 function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
+  const { fitView } = useReactFlow();
   const { connectedPlatforms } = useAppStore();
   const nodeTypes = useMemo(() => NODE_TYPES, []);
   const edgeTypes = useMemo(() => EDGE_TYPES, []);
@@ -1052,11 +1100,27 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
   const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
 
-  const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
+  const visibleNodeIds = useMemo(() => new Set(baseNodes.map((node) => node.id)), [baseNodes]);
+  const edges = useMemo(() => buildEdges(sprintData, visibleNodeIds), [sprintData, visibleNodeIds]);
 
   useEffect(() => {
     setNodes((current) => mergeCanvasNodes(current, baseNodes));
   }, [baseNodes]);
+
+  // Re-fit only when the visible node count changes (new nodes discovered).
+  // Use two rAF ticks so React Flow has applied layout before we read bounding boxes.
+  useEffect(() => {
+    let frame1: number, frame2: number;
+    frame1 = window.requestAnimationFrame(() => {
+      frame2 = window.requestAnimationFrame(() => {
+        void fitView({ padding: 0.22, maxZoom: 1.8, duration: 320 });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame1);
+      window.cancelAnimationFrame(frame2);
+    };
+  }, [baseNodes.length, fitView]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((current) => {
@@ -1081,7 +1145,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     });
   }, []);
 
-  // ── Load sprint list ─────────────────────────────────────────────────────
+  // ── Load sprint list (populate selector only — never auto-selects) ────────
   useEffect(() => {
     async function loadSprints() {
       try {
@@ -1098,12 +1162,13 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
               status: s.state.toLowerCase().replace(/_/g, ' '),
             }));
           setSprints(mapped);
-          if (mapped.length > 0 && !activeSprint) setActiveSprint(mapped[0].id);
+          // ⚑ Never auto-select — the URL owns which sprint is active.
+          // /canvas stays empty; /canvas/[id] loads via initialSprint prop.
         }
       } catch {}
     }
-    loadSprints();
-  }, [activeSprint]);
+    void loadSprints();
+  }, []);
 
   // ── Load sprint detail ───────────────────────────────────────────────────
   const loadSprintDetail = useCallback(async (id: string) => {
@@ -1307,11 +1372,16 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     setSprintData(sprint);
     setActivePanel('genome');
     setShowNew(false);
-    void runSprintPipeline(sprint.sprint_id);
+    // Push URL without triggering a Next.js navigation — keeps this component alive
+    // so runSprintPipeline's setSprintData / setActivePanel calls still work.
+    // On refresh the browser lands on /canvas/[id] which loads correctly.
+    window.history.pushState(null, '', `/canvas/${encodeURIComponent(sprint.sprint_id)}`);
+    void runSprintPipeline(sprint.sprint_id, { overrideStop: true });
   };
 
   const handleEditSetup = (sprintId: string) => {
     setActiveSprint(sprintId);
+    window.history.pushState(null, '', `/canvas/${encodeURIComponent(sprintId)}`);
     setActivePanel('campaign');
     setPanelChannel(undefined);
   };
@@ -1370,7 +1440,12 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
           <CanvasToolbar
             sprints={sprints}
             activeSprint={activeSprint}
-            onSelect={(id) => { setActiveSprint(id); setActivePanel(null); }}
+            onSelect={(id) => {
+              setActiveSprint(id);
+              setActivePanel(null);
+              const url = id ? `/canvas/${encodeURIComponent(id)}` : '/canvas';
+              window.history.pushState(null, '', url);
+            }}
             onNew={() => setShowNew(true)}
             onOpenPanel={(panel) => {
               setActivePanel(panel as PanelId);
@@ -1435,7 +1510,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
             <div style={{ width: 360, background: '#FFFFFF', border: '1px solid #E8E4DC', borderRadius: 16, padding: 22, textAlign: 'center' }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8C8880', marginBottom: 8 }}>No sprints yet</p>
               <p style={{ fontSize: '1.125rem', fontWeight: 700, color: '#111110', marginBottom: 4 }}>Start your first validation</p>
-              <p style={{ fontSize: '0.875rem', color: '#8C8880', margin: 0 }}>Use New Sprint to watch Genome, Healthgate, Angles, Landing, Campaign, Verdict, and Report in one canvas.</p>
             </div>
           </Panel>
         )}
