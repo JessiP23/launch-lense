@@ -9,7 +9,7 @@ export interface PipelineEdgeData extends Record<string, unknown> {
 }
 
 const COLORS: Record<EdgeState, string> = {
-  pending: '#C9C1B4',
+  pending: '#9C9590',  // darker — clearly visible on the #FAFAF8 canvas
   running: '#111110',
   done:    '#111110',
   warn:    '#8C8880',
@@ -17,7 +17,7 @@ const COLORS: Record<EdgeState, string> = {
 };
 
 const OPACITY: Record<EdgeState, number> = {
-  pending: 0.58,
+  pending: 0.72,      // raised from 0.58 — no longer near-invisible
   running: 1,
   done: 0.9,
   warn: 0.76,

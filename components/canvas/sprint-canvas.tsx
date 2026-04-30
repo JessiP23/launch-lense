@@ -14,8 +14,7 @@ import { PipelineEdge, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode,
-  SpreadsheetNode, OutreachNode, SlackNode,
-  BenchmarksNode, SettingsNode,
+  SpreadsheetNode, OutreachNode, SlackNode, SettingsNode,
 } from './canvas-nodes';
 import { useAppStore } from '@/lib/store';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
@@ -36,7 +35,6 @@ const NODE_TYPES: NodeTypes = {
   spreadsheet: SpreadsheetNode,
   outreach:   OutreachNode,
   slack:      SlackNode,
-  benchmarks: BenchmarksNode,
   settings:   SettingsNode,
 };
 
@@ -214,36 +212,49 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
   if (!sprintState || sprintState === 'IDLE') return 'pending';
   const s = sprintState;
 
+  // For BLOCKED, treat completed stages as done based on persisted data
+  const hasHealthgate = Boolean(sprint?.healthgate);
+  const hasAngles     = Boolean(sprint?.angles);
+  const hasCampaign   = Boolean(sprint?.campaign);
+  const hasVerdict    = Boolean(sprint?.verdict);
+
   const CAMPAIGN_STATES = ['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'] as SprintState[];
   const POST_HG = ['HEALTHGATE_DONE','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
+  const POST_ANGLES = ['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
 
   if (edgeId === 'e-accounts-genome') {
     if (s === 'GENOME_RUNNING') return 'running';
-    return 'done'; // any non-IDLE state = done
+    return 'done';
   }
   if (edgeId.startsWith('e-genome-hg-')) {
     if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
-    if (POST_HG.includes(s)) return 'done';
+    if (POST_HG.includes(s) || (s === 'BLOCKED' && hasHealthgate)) return 'done';
   }
   if (edgeId.startsWith('e-hg-') && edgeId.endsWith('-angles')) {
     if (s === 'ANGLES_RUNNING') return 'running';
-    if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
   }
   if (edgeId.startsWith('e-angles-creative-')) {
     if (s === 'ANGLES_RUNNING') return 'running';
-    if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
   }
   if (edgeId.startsWith('e-creative-') && edgeId.includes('-campaign-')) {
     if (['VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     if (['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING'].includes(s)) return 'running';
+    if (s === 'BLOCKED' && hasCampaign) return 'done';
+    // Campaign hasn't started yet — show as a visible upcoming step, not invisible
     return 'pending';
   }
   if (edgeId.startsWith('e-campaign-') && edgeId.endsWith('-verdict')) {
     if (s === 'VERDICT_GENERATING') return 'running';
     if (s === 'COMPLETE') return 'done';
+    if (['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING'].includes(s)) return 'running';
+    if (s === 'BLOCKED' && hasVerdict) return 'done';
   }
   if (edgeId === 'e-verdict-report') {
     if (s === 'COMPLETE') return 'done';
+    if (s === 'VERDICT_GENERATING') return 'running';
+    if (s === 'BLOCKED' && hasVerdict) return 'done';
   }
   if (edgeId === 'e-verdict-landing') {
     if (s === 'LANDING_RUNNING') return 'running';

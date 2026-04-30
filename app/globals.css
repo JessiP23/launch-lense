@@ -121,3 +121,15 @@ h1, h2, h3, h4 {
   50% { opacity: 0.4; }
 }
 .animate-pulse-live { animation: pulse-live 2s ease-in-out infinite; }
+
+/* ── React Flow — strip all handle dots unconditionally ───────────── */
+.react-flow__handle {
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

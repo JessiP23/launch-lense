@@ -2431,10 +2431,6 @@ function IntegrationsPanel({
                   <Label>
                     <span style={{ color: 'rgba(250,250,248,0.75)' }}>Paste CSV (comma-separated)</span>
                   </Label>
-                  <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.68)', lineHeight: 1.45, marginBottom: 8 }}>
-                    First line = headers. Include one column whose name contains “email”. Other columns can be first name, company, role — we match
-                    common header names from Sheets exports.
-                  </p>
                   <textarea
                     value={csvText}
                     onChange={(e) => setCsvText(e.target.value)}

@@ -67,12 +67,17 @@ function NodeCard({
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
   const statusColor = stage === 'blocked' ? C.stop : stage === 'idle' ? C.muted : C.ink;
-  const hiddenHandleStyle = {
-    width: 10,
-    height: 10,
-    opacity: 0,
+  // Zero-size, visibility:hidden prevents React Flow's own stylesheet from
+  // rendering the circular connection dot even on hover/selection.
+  const hiddenHandleStyle: React.CSSProperties = {
+    width: 0,
+    height: 0,
+    minWidth: 0,
+    minHeight: 0,
     border: 'none',
     background: 'transparent',
+    visibility: 'hidden',
+    pointerEvents: 'none',
   };
   return (
     <motion.div
@@ -516,10 +521,6 @@ SlackNode.displayName = 'SlackNode';
 
 export type BenchmarksNodeData  = { stage: NodeStage };
 export type BenchmarksNodeType  = Node<BenchmarksNodeData, 'benchmarks'>;
-export const BenchmarksNode = memo(({ data, selected }: NodeProps<BenchmarksNodeType>) => (
-  <NodeCard label="Benchmarks" sublabel="6 verticals" stage={data.stage} selected={!!selected} hasLeft={false} hasRight={false} />
-));
-BenchmarksNode.displayName = 'BenchmarksNode';
 
 export type SettingsNodeData  = { stage: NodeStage; configured?: boolean };
 export type SettingsNodeType  = Node<SettingsNodeData, 'settings'>;
