@@ -27,6 +27,51 @@ export interface RealMarketData {
 // Key env var: SERPER_API_KEY (reusing same name to avoid .env changes)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const SERPAPI_TIMEOUT_MS = 22_000;
+
+async function fetchGoogleDataOnce(query: string, apiKey: string): Promise<SerperData> {
+  const params = new URLSearchParams({
+    engine: 'google',
+    q: query,
+    gl: 'us',
+    hl: 'en',
+    num: '10',
+    api_key: apiKey,
+  });
+
+  const res = await fetch(`https://serpapi.com/search?${params.toString()}`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(SERPAPI_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`SerpAPI HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as {
+    search_information?: { total_results?: number };
+    ads?: unknown[];
+    organic_results?: Array<{ title: string; snippet?: string }>;
+    related_searches?: Array<{ query: string }>;
+    knowledge_graph?: { title?: string };
+  };
+
+  const related = (data.related_searches ?? [])
+    .map((r) => r.query)
+    .filter((q) => q.toLowerCase() !== query.toLowerCase())
+    .slice(0, 4);
+
+  return {
+    organic_result_count: data.search_information?.total_results ?? 0,
+    google_ads_count: data.ads?.length ?? 0,
+    related_searches: related,
+    top_titles: (data.organic_results ?? []).slice(0, 5).map((r) => r.title),
+    top_snippet: data.organic_results?.[0]?.snippet ?? '',
+    knowledge_graph_title: data.knowledge_graph?.title,
+  };
+}
+
 export async function fetchGoogleData(query: string): Promise<SerperData | null> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
@@ -34,52 +79,24 @@ export async function fetchGoogleData(query: string): Promise<SerperData | null>
     return null;
   }
 
-  try {
-    const params = new URLSearchParams({
-      engine: 'google',
-      q: query,
-      gl: 'us',
-      hl: 'en',
-      num: '10',
-      api_key: apiKey,
-    });
-
-    const res = await fetch(`https://serpapi.com/search?${params.toString()}`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!res.ok) {
-      console.error('[market-research] SerpAPI error', res.status, await res.text());
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await fetchGoogleDataOnce(query, apiKey);
+    } catch (err) {
+      const isTimeout =
+        err instanceof Error &&
+        (err.name === 'TimeoutError' ||
+          err.message.includes('timeout') ||
+          ('code' in err && (err as NodeJS.ErrnoException).code === '23'));
+      if (isTimeout && attempt < 2) {
+        console.warn('[market-research] SerpAPI timeout — retrying once');
+        continue;
+      }
+      console.error('[market-research] fetchGoogleData failed:', err);
       return null;
     }
-
-    const data = await res.json() as {
-      search_information?: { total_results?: number };
-      ads?: unknown[];
-      organic_results?: Array<{ title: string; snippet?: string }>;
-      related_searches?: Array<{ query: string }>;
-      knowledge_graph?: { title?: string };
-    };
-
-    // Pick 3–4 of the most specific/commercial related searches (skip generic ones)
-    const related = (data.related_searches ?? [])
-      .map((r) => r.query)
-      .filter((q) => q.toLowerCase() !== query.toLowerCase())
-      .slice(0, 4);
-
-    return {
-      organic_result_count: data.search_information?.total_results ?? 0,
-      google_ads_count: data.ads?.length ?? 0,
-      related_searches: related,
-      top_titles: (data.organic_results ?? []).slice(0, 5).map((r) => r.title),
-      top_snippet: data.organic_results?.[0]?.snippet ?? '',
-      knowledge_graph_title: data.knowledge_graph?.title,
-    };
-  } catch (err) {
-    console.error('[market-research] fetchGoogleData failed:', err);
-    return null;
   }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

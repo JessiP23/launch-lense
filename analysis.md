@@ -6,6 +6,145 @@ LaunchLense is evolving from a Meta-focused validation tool into an agentic laun
 
 The strongest direction is the canvas-based workflow. It makes the product feel like an operating system for validating startup ideas rather than a form-based campaign builder. The main product risk is complexity: the user experience must keep the workflow visually clear, explain what each agent is doing, and avoid exposing implementation friction like OAuth setup, blocked states, or raw CSV semantics without strong guidance.
 
+---
+
+## Comprehensive architecture and product inventory (master reference)
+
+Use this section as the **single overview** for architecture, shipped scope, APIs, and product approach (investors, onboarding, handoff).
+
+### Product thesis and approach
+
+- **Thesis**: Replace slow “ship an MVP first” cycles with **fast, evidence-backed validation** across paid channels: research → readiness → messaging → landing → campaign evidence → **verdict** → artifacts, plus optional **activation** (Google Sheets → Gmail outreach → Slack).
+- **Mechanism**: Each sprint is a **state machine** persisted in Supabase. Stages are **agents** (Groq-backed structured JSON + rules + external APIs) that read prior outputs and write into the sprint row. The **canvas** is the navigational metaphor; **GET/PATCH `/api/sprint/[id]`** and agent POST routes are the operational truth.
+- **UX philosophy**: Nodes convey **status and headline outputs**; the side panel holds **controls, previews, and logs**. Progressive disclosure can hide downstream nodes until the sprint reaches relevant states. Integrations can appear as **optional floating nodes**, visually separate from the core pipeline.
+- **Production realities**: Google OAuth requires verification / test users for restricted scopes; outbound APIs (SerpAPI, Meta, Groq) depend on keys, quotas, and latency — failures degrade gracefully where coded (e.g. Genome partial data).
+
+### High-level architecture
+
+```mermaid
+flowchart TB
+  subgraph client["Client — Next.js App Router"]
+    Canvas["Sprint canvas — React Flow"]
+    Panel["Node panel"]
+    Store["Zustand — UI state"]
+  end
+  subgraph edge["Edge — Route Handlers"]
+    SprintAPI["/api/sprint/*"]
+    IntegAPI["/api/integrations/google/*"]
+    CronAPI["/api/cron/*"]
+  end
+  subgraph data["Data"]
+    SB[(Supabase PostgreSQL)]
+    Events[sprint_events]
+  end
+  subgraph agents["Agents — lib/agents/*"]
+    Genome[GenomeAgent]
+    HG[Healthgate]
+    Angle[AngleAgent]
+    Verdict[VerdictAgent]
+    Sheet[SpreadsheetAgent]
+    OutReach[Outreach]
+    SlackA[Slack]
+  end
+  subgraph ext["External APIs"]
+    Groq[Groq LLM]
+    Serp[SerpAPI search]
+    MetaG[Meta Graph / Ad Library]
+    GoogleAP[Gmail and Sheets]
+  end
+  Canvas --> SprintAPI
+  Panel --> SprintAPI
+  SprintAPI --> SB
+  SprintAPI --> agents
+  agents --> Groq
+  Genome --> Serp
+  Genome --> MetaG
+  Sheet --> GoogleAP
+  OutReach --> GoogleAP
+  SprintAPI --> Events
+```
+
+### Technology stack
+
+| Layer | Choices |
+| --- | --- |
+| App | Next.js App Router, React, TypeScript |
+| Canvas | `@xyflow/react`, custom nodes/edges, light Framer Motion |
+| Client state | React state + Zustand (`lib/store.ts`) |
+| Database | Supabase / Postgres; server uses service client |
+| LLM | Groq (`lib/groq.ts`) for agent JSON |
+| Research | `lib/market-research.ts` — SerpAPI + Meta Ad Library |
+| Google | OAuth (`lib/google/*`), Sheets (`fetch-sheet`), Gmail (`send-gmail`), encrypted tokens |
+| Meta | Auth callbacks, webhooks, uploads (`lib/meta.ts`, related routes) |
+
+### Sprint state machine
+
+States (`SprintState` in `lib/agents/types.ts`):  
+`IDLE` → Genome → Healthgate → Angles → Landing → Campaign (`CAMPAIGN_RUNNING` / `CAMPAIGN_MONITORING`) → Verdict → `COMPLETE`; **`BLOCKED`** halts with `blocked_reason`.
+
+Server orchestration primitives: `lib/sprint-machine.ts` (`dispatchGenome`, `dispatchHealthgate`, `dispatchAngles`, …). The UI may invoke routes in sequence; durable server-side job queues remain a roadmap upgrade.
+
+### Data model (conceptual)
+
+One **`sprints`** row holds scalars (`idea`, `state`, `active_channels`, `budget_cents`, …) plus JSON blobs: **`genome`**, **`healthgate`**, **`angles`**, **`landing`**, **`campaign`**, **`verdict`**, **`report`**, **`integrations`**, **`post_sprint`**.
+
+**`sprint_events`** stores audit rows (agent, event_type, payload) for timelines and integration logs.
+
+Trade-off: flexible JSON speeds iteration; cap large inline assets (e.g. creative images) to avoid PATCH/DB failures — prefer blob storage at scale.
+
+### Agent inventory
+
+| Capability | Purpose | Persisted mainly under |
+| --- | --- | --- |
+| GenomeAgent | Pre-screen idea (scores, composite, GO/ITERATE/STOP, risks) | `genome` |
+| Healthgate | Per-channel readiness | `healthgate` |
+| AngleAgent | Channel-aware messaging angles | `angles` |
+| Landing flow | Landing narrative / deploy | `landing` |
+| Campaign | Spend / monitoring semantics | `campaign` |
+| VerdictAgent | Aggregate channel verdict | `verdict` |
+| Report | Summary artifact readiness | `report` |
+| SpreadsheetAgent | Sheet or CSV → contacts | `post_sprint`, client session for edits |
+| Outreach | Gmail sends + logs | `post_sprint`, events |
+| Slack agent | Channel post | `post_sprint`, events |
+
+### HTTP API inventory (representative)
+
+**Core sprint**: `GET`/`POST` `/api/sprint`; `GET`/`PATCH` `/api/sprint/[id]`; `POST` `.../genome`, `.../healthgate`, `.../angles`, `.../override-stop`, `.../campaign/start`, `.../demo-complete`, `.../verdict`.
+
+**Post-sprint**: `.../post-sprint/prepare-sheet`, `send-outreach`, `post-slack`.
+
+**Google**: `/api/integrations/google/start`, `callback`, `status`, `disconnect`.
+
+**Meta / ops**: `/api/auth/meta/*`, `/api/webhooks/meta`, upload routes; **`/api/cron/*`** for monitors/metrics/verdict/health.
+
+**Legacy / utilities**: `/api/tests/*`, `/api/reports/*`, `/api/accounts`, `/api/lp/deploy`, `/api/policy/scan`, `/api/qa`, `/api/ai/*`, `/api/angle/*`, etc.
+
+Dynamic landing delivery may live under `app/lp/[test_id]/route.ts`.
+
+### Frontend map
+
+- **`/canvas`** — empty hub; **`/canvas/[id]`** — deep-link sprint.
+- **`sprint-canvas.tsx`** — graph layout, progressive visibility, edges, toolbar wiring.
+- **`canvas-nodes.tsx`** — node visuals and stages.
+- **`node-panel.tsx`** — Genome logs, creatives, integrations, outreach, spreadsheet UX.
+- **`canvas-toolbar.tsx`** — sprint selector, new sprint, global panels.
+
+### Metrics vocabulary (product language)
+
+Terms aligned with positioning: **CTR, CPM, CPC, CPA, ROAS**, impressions, spend, frequency — tied to campaign/verdict storytelling where implemented — alongside workflow terms (**composite**, **signal**, **healthgate**, **verdict**, **GO / ITERATE / STOP / NO-GO**).
+
+### Security and compliance (summary)
+
+Server-held OAuth secrets; encrypted token storage; Gmail rate limiting; Google verification for production scopes; minimize persisted PII in sprint JSON; explicit user consent for outreach.
+
+### Known architectural tensions
+
+- Browser-driven sequencing vs durable workers for long pipelines.
+- External API flakiness (SerpAPI timeouts, Meta quotas).
+- Creative fidelity vs payload size without object storage.
+
+---
+
 ## Product Positioning
 
 LaunchLense promises faster startup validation by replacing slow MVP cycles with fast demand tests. The product is strongest when positioned as:
