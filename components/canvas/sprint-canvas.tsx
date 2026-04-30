@@ -4,18 +4,17 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant, applyNodeChanges,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
-  ReactFlowProvider, Panel,
+  ReactFlowProvider, Panel, useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 import { CanvasToolbar } from './canvas-toolbar';
 import { NodePanel, type PanelId } from './node-panel';
-import { PipelineEdge, PipelineEdgeMarkers, type EdgeState } from './pipeline-edge';
+import { PipelineEdge, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode,
-  SpreadsheetNode, OutreachNode, SlackNode,
-  BenchmarksNode, SettingsNode,
+  SpreadsheetNode, OutreachNode, SlackNode, SettingsNode,
 } from './canvas-nodes';
 import { useAppStore } from '@/lib/store';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
@@ -36,7 +35,6 @@ const NODE_TYPES: NodeTypes = {
   spreadsheet: SpreadsheetNode,
   outreach:   OutreachNode,
   slack:      SlackNode,
-  benchmarks: BenchmarksNode,
   settings:   SettingsNode,
 };
 
@@ -63,15 +61,15 @@ const LAYOUT = {
 };
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
 
-/** Horizontal gap after column `leftW` before column `rightW` — tight for uniform cards, wider next to tall previews */
+/** Horizontal gap after column `leftW` before column `rightW` — separated enough that each edge reads as its own step. */
 function horizontalGapBetween(leftW: number, rightW: number): number {
   const wideThreshold = Math.min(NODE_SIZE.creative.width, NODE_SIZE.landing.width) - 12;
   const std = NODE_SIZE.standard.width;
   const l = leftW >= wideThreshold || rightW >= wideThreshold;
   const bothStd = leftW <= std + 8 && rightW <= std + 8;
-  if (bothStd) return 40;
-  if (l) return 68;
-  return 52;
+  if (bothStd) return 128;
+  if (l) return 164;
+  return 144;
 }
 
 /** X positions derived from actual column widths so spacing scales with card size (dynamic packing) */
@@ -86,9 +84,7 @@ function computeColumnLeftEdges(): Record<string, number> {
     ['verdict', NODE_SIZE.standard.width],
     ['landing', NODE_SIZE.landing.width],
     ['report', NODE_SIZE.standard.width],
-    ['spreadsheet', NODE_SIZE.standard.width],
-    ['outreach', NODE_SIZE.standard.width],
-    ['slack', NODE_SIZE.standard.width],
+    // Integration nodes are positioned separately (floating below the workflow)
   ] as const;
 
   let cursor = LAYOUT.left;
@@ -216,103 +212,55 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
   if (!sprintState || sprintState === 'IDLE') return 'pending';
   const s = sprintState;
 
+  // For BLOCKED, treat completed stages as done based on persisted data
+  const hasHealthgate = Boolean(sprint?.healthgate);
+  const hasAngles     = Boolean(sprint?.angles);
+  const hasCampaign   = Boolean(sprint?.campaign);
+  const hasVerdict    = Boolean(sprint?.verdict);
+
   const CAMPAIGN_STATES = ['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'] as SprintState[];
   const POST_HG = ['HEALTHGATE_DONE','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
+  const POST_ANGLES = ['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
 
   if (edgeId === 'e-accounts-genome') {
     if (s === 'GENOME_RUNNING') return 'running';
-    return 'done'; // any non-IDLE state = done
+    return 'done';
   }
   if (edgeId.startsWith('e-genome-hg-')) {
     if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
-    if (POST_HG.includes(s)) return 'done';
+    if (POST_HG.includes(s) || (s === 'BLOCKED' && hasHealthgate)) return 'done';
   }
   if (edgeId.startsWith('e-hg-') && edgeId.endsWith('-angles')) {
     if (s === 'ANGLES_RUNNING') return 'running';
-    if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
   }
   if (edgeId.startsWith('e-angles-creative-')) {
     if (s === 'ANGLES_RUNNING') return 'running';
-    if (['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES].includes(s)) return 'done';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
   }
   if (edgeId.startsWith('e-creative-') && edgeId.includes('-campaign-')) {
     if (['VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     if (['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING'].includes(s)) return 'running';
+    if (s === 'BLOCKED' && hasCampaign) return 'done';
+    // Campaign hasn't started yet — show as a visible upcoming step, not invisible
     return 'pending';
   }
   if (edgeId.startsWith('e-campaign-') && edgeId.endsWith('-verdict')) {
     if (s === 'VERDICT_GENERATING') return 'running';
     if (s === 'COMPLETE') return 'done';
+    if (['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING'].includes(s)) return 'running';
+    if (s === 'BLOCKED' && hasVerdict) return 'done';
   }
   if (edgeId === 'e-verdict-report') {
     if (s === 'COMPLETE') return 'done';
+    if (s === 'VERDICT_GENERATING') return 'running';
+    if (s === 'BLOCKED' && hasVerdict) return 'done';
   }
   if (edgeId === 'e-verdict-landing') {
     if (s === 'LANDING_RUNNING') return 'running';
     if (s === 'LANDING_DONE') return 'done';
     if (s === 'COMPLETE') return 'warn';
   }
-  if (edgeId === 'e-report-spreadsheet') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'spreadsheet_running') return 'running';
-    if (phase && phase !== 'idle') return 'done';
-    return 'pending';
-  }
-  if (edgeId === 'e-spreadsheet-outreach') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'outreach_running') return 'running';
-    if (phase === 'outreach_failed') return 'blocked';
-    if (
-      phase &&
-      ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
-    ) {
-      return 'done';
-    }
-    return 'pending';
-  }
-  if (edgeId === 'e-outreach-slack') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'slack_running') return 'running';
-    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
-    return 'pending';
-  }
-
-  /** Report links directly to outreach when Spreadsheet node is hidden */
-  if (edgeId === 'e-report-outreach') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'outreach_running') return 'running';
-    if (phase === 'outreach_failed') return 'blocked';
-    if (
-      phase &&
-      ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
-    ) {
-      return 'done';
-    }
-    return 'pending';
-  }
-
-  /** Report → Slack when intermediate nodes are hidden */
-  if (edgeId === 'e-report-slack') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'slack_running') return 'running';
-    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
-    return 'pending';
-  }
-
-  /** Spreadsheet → Slack when outreach node is hidden */
-  if (edgeId === 'e-spreadsheet-slack') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'slack_running') return 'running';
-    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
-    return 'pending';
-  }
-
   return 'pending';
 }
 
@@ -323,6 +271,52 @@ function channelEdgeState(edgeId: string, channel: Platform, sprint: SprintRecor
 
 function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
   return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
+}
+
+function isNodeDiscovered(nodeId: string, sprint: SprintRecord | null): boolean {
+  const s = sprint?.state;
+  if (nodeId === 'accounts') return true;
+  if (!s || s === 'IDLE') return false;
+
+  if (nodeId === 'genome') return true;
+  if (s === 'BLOCKED') {
+    if (nodeId.startsWith('hg-')) return Boolean(sprint?.healthgate);
+    if (nodeId === 'angles') return Boolean(sprint?.angles);
+    if (nodeId.startsWith('creative-')) return Boolean(sprint?.angles);
+    if (nodeId === 'landing') return Boolean(sprint?.landing);
+    if (nodeId.startsWith('campaign-')) return Boolean(sprint?.campaign);
+    if (nodeId === 'verdict') return Boolean(sprint?.verdict);
+    if (nodeId === 'report') return Boolean(sprint?.report);
+    return false;
+  }
+
+  const healthgateStates: SprintState[] = [
+    'GENOME_DONE', 'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE', 'ANGLES_RUNNING', 'ANGLES_DONE',
+    'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
+  ];
+  const angleStates: SprintState[] = [
+    'HEALTHGATE_DONE', 'ANGLES_RUNNING', 'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE',
+    'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
+  ];
+  const creativeStates: SprintState[] = [
+    'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
+  ];
+  const landingStates: SprintState[] = ['LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE'];
+  const campaignStates: SprintState[] = ['CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE'];
+
+  if (nodeId.startsWith('hg-')) return healthgateStates.includes(s);
+  if (nodeId === 'angles') return angleStates.includes(s);
+  if (nodeId.startsWith('creative-')) return creativeStates.includes(s);
+  if (nodeId === 'landing') return landingStates.includes(s);
+  if (nodeId.startsWith('campaign-')) return campaignStates.includes(s);
+  if (nodeId === 'verdict') return s === 'VERDICT_GENERATING' || s === 'COMPLETE';
+  if (nodeId === 'report') return s === 'COMPLETE';
+
+  if (nodeId === 'spreadsheet') return s === 'COMPLETE' && sprint?.integrations?.canvas_sheet === true;
+  if (nodeId === 'outreach') return s === 'COMPLETE' && sprint?.integrations?.canvas_outreach === true;
+  if (nodeId === 'slack') return s === 'COMPLETE' && sprint?.integrations?.canvas_slack === true;
+
+  return false;
 }
 
 function buildLayout(channelCount: number) {
@@ -594,6 +588,8 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   const selectedAngle = selectedAngleFor(sprint);
   const layout = buildLayout(activeChannels.length);
 
+  const discovered = (node: Node) => isNodeDiscovered(node.id, sprint);
+
   return resolveNodeOverlaps([
     // Accounts
     { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: layout.standardTop },
@@ -645,56 +641,34 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
     { id: 'report', type: 'report', position: { x: X.report, y: layout.standardTop },
       data: { ready: !!sprint?.report?.pdf_url, stage: sprintStageFor('report', s, sprint) } },
 
-    // Post-sprint chain — opt-in via integrations.canvas_* (hidden until enabled)
+    // Integration nodes — float independently below the workflow, no edges
     ...((): Node[] => {
       const i = sprint?.integrations ?? {};
-      const showSheet = i.canvas_sheet === true;
-      const showOutreach = i.canvas_outreach === true;
-      const showSlack = i.canvas_slack === true;
-      const nodes: Node[] = [];
-      if (showSheet) {
-        nodes.push({
-          id: 'spreadsheet',
-          type: 'spreadsheet',
-          position: { x: X.spreadsheet, y: layout.standardTop },
-          data: {
-            validCount: sprint?.post_sprint?.spreadsheet?.validContacts,
-            stage: sprintStageFor('spreadsheet', s, sprint),
-          },
-        });
-      }
-      if (showOutreach) {
-        nodes.push({
-          id: 'outreach',
-          type: 'outreach',
-          position: { x: X.outreach, y: layout.standardTop },
-          data: {
-            sent: sprint?.post_sprint?.outreach?.totalSent,
-            stage: sprintStageFor('outreach', s, sprint),
-          },
-        });
-      }
-      if (showSlack) {
-        nodes.push({
-          id: 'slack',
-          type: 'slack',
-          position: { x: X.slack, y: layout.standardTop },
-          data: {
-            posted: sprint?.post_sprint?.slack?.posted,
-            stage: sprintStageFor('slack', s, sprint),
-          },
-        });
-      }
-      return nodes;
+      const slots = [
+        i.canvas_sheet    && { id: 'spreadsheet', type: 'spreadsheet', data: { validCount: sprint?.post_sprint?.spreadsheet?.validContacts, stage: sprintStageFor('spreadsheet', s, sprint) } },
+        i.canvas_outreach && { id: 'outreach',    type: 'outreach',    data: { sent: sprint?.post_sprint?.outreach?.totalSent, stage: sprintStageFor('outreach', s, sprint) } },
+        i.canvas_slack    && { id: 'slack',        type: 'slack',       data: { posted: sprint?.post_sprint?.slack?.posted, stage: sprintStageFor('slack', s, sprint) } },
+      ].filter(Boolean) as { id: string; type: string; data: Record<string, unknown> }[];
+
+      // Position below the main workflow row, centred on the canvas
+      const floatY = layout.standardTop + NODE_SIZE.standard.height + 200;
+      const nodeW = NODE_SIZE.standard.width;
+      const gap = 64;
+      const totalW = slots.length * nodeW + (slots.length - 1) * gap;
+      // Anchor centre at the middle of the main workflow
+      const workflowCentreX = X.accounts + (X.report + nodeW - X.accounts) / 2;
+      const startX = workflowCentreX - totalW / 2;
+
+      return slots.map((slot, idx) => ({
+        ...slot,
+        position: { x: startX + idx * (nodeW + gap), y: floatY },
+      }));
     })(),
 
-    // Utility nodes
-    { id: 'benchmarks', type: 'benchmarks', position: { x: X.accounts, y: layout.utilityTop }, data: { stage: 'idle' as NodeStage } },
-    { id: 'settings',   type: 'settings',   position: { x: X.genome,   y: layout.utilityTop }, data: { stage: 'idle' as NodeStage, configured: false } },
-  ]);
+  ].filter(discovered));
 }
 
-function buildEdges(sprint: SprintRecord | null): Edge[] {
+function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): Edge[] {
   const s = sprint?.state;
   const activeChannels = activeChannelsFor(sprint);
 
@@ -722,37 +696,11 @@ function buildEdges(sprint: SprintRecord | null): Edge[] {
     })),
     { id: 'e-verdict-landing', type: 'pipeline', source: 'verdict', target: 'landing', data: { state: edgeStageFor('e-verdict-landing', s, sprint) } },
     { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s, sprint) } },
-    ...buildPostSprintEdges(s, sprint),
+    // Integration nodes are floating/disconnected — no edges link them
   ];
-  return edges;
-}
-
-/** Links enabled post-sprint nodes in order (report → sheet → outreach → slack), skipping disabled segments */
-function buildPostSprintEdges(s: SprintState | undefined, sprint: SprintRecord | null): Edge[] {
-  const i = sprint?.integrations ?? {};
-  const showSheet = i.canvas_sheet === true;
-  const showOutreach = i.canvas_outreach === true;
-  const showSlack = i.canvas_slack === true;
-
-  const seq: string[] = ['report'];
-  if (showSheet) seq.push('spreadsheet');
-  if (showOutreach) seq.push('outreach');
-  if (showSlack) seq.push('slack');
-
-  const edges: Edge[] = [];
-  for (let k = 0; k < seq.length - 1; k++) {
-    const src = seq[k];
-    const tgt = seq[k + 1];
-    const id = `e-${src}-${tgt}`;
-    edges.push({
-      id,
-      type: 'pipeline',
-      source: src,
-      target: tgt,
-      data: { state: edgeStageFor(id, s, sprint) },
-    });
-  }
-  return edges;
+  return visibleNodeIds
+    ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
+    : edges;
 }
 
 type RawSprintRecord = Partial<SprintRecord> & {
@@ -1025,6 +973,7 @@ interface CanvasProps {
 }
 
 function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
+  const { fitView } = useReactFlow();
   const { connectedPlatforms } = useAppStore();
   const nodeTypes = useMemo(() => NODE_TYPES, []);
   const edgeTypes = useMemo(() => EDGE_TYPES, []);
@@ -1052,11 +1001,27 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
   const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
 
-  const edges = useMemo(() => buildEdges(sprintData), [sprintData]);
+  const visibleNodeIds = useMemo(() => new Set(baseNodes.map((node) => node.id)), [baseNodes]);
+  const edges = useMemo(() => buildEdges(sprintData, visibleNodeIds), [sprintData, visibleNodeIds]);
 
   useEffect(() => {
     setNodes((current) => mergeCanvasNodes(current, baseNodes));
   }, [baseNodes]);
+
+  // Re-fit only when the visible node count changes (new nodes discovered).
+  // Use two rAF ticks so React Flow has applied layout before we read bounding boxes.
+  useEffect(() => {
+    let frame1: number, frame2: number;
+    frame1 = window.requestAnimationFrame(() => {
+      frame2 = window.requestAnimationFrame(() => {
+        void fitView({ padding: 0.22, maxZoom: 1.8, duration: 320 });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame1);
+      window.cancelAnimationFrame(frame2);
+    };
+  }, [baseNodes.length, fitView]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((current) => {
@@ -1081,7 +1046,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     });
   }, []);
 
-  // ── Load sprint list ─────────────────────────────────────────────────────
+  // ── Load sprint list (populate selector only — never auto-selects) ────────
   useEffect(() => {
     async function loadSprints() {
       try {
@@ -1098,12 +1063,13 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
               status: s.state.toLowerCase().replace(/_/g, ' '),
             }));
           setSprints(mapped);
-          if (mapped.length > 0 && !activeSprint) setActiveSprint(mapped[0].id);
+          // ⚑ Never auto-select — the URL owns which sprint is active.
+          // /canvas stays empty; /canvas/[id] loads via initialSprint prop.
         }
       } catch {}
     }
-    loadSprints();
-  }, [activeSprint]);
+    void loadSprints();
+  }, []);
 
   // ── Load sprint detail ───────────────────────────────────────────────────
   const loadSprintDetail = useCallback(async (id: string) => {
@@ -1307,19 +1273,42 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     setSprintData(sprint);
     setActivePanel('genome');
     setShowNew(false);
-    void runSprintPipeline(sprint.sprint_id);
+    // Push URL without triggering a Next.js navigation — keeps this component alive
+    // so runSprintPipeline's setSprintData / setActivePanel calls still work.
+    // On refresh the browser lands on /canvas/[id] which loads correctly.
+    window.history.pushState(null, '', `/canvas/${encodeURIComponent(sprint.sprint_id)}`);
+    void runSprintPipeline(sprint.sprint_id, { overrideStop: true });
   };
 
   const handleEditSetup = (sprintId: string) => {
     setActiveSprint(sprintId);
+    window.history.pushState(null, '', `/canvas/${encodeURIComponent(sprintId)}`);
     setActivePanel('campaign');
     setPanelChannel(undefined);
   };
 
-  const handleSprintPatched = (raw: unknown) => {
+  const handleSprintPatched = useCallback((raw: unknown) => {
     const normalized = normalizeSprint(raw as RawSprintRecord);
-    if (normalized) setSprintData(normalized);
-  };
+    if (!normalized) return;
+    setSprintData((prev) => {
+      if (!prev) return normalized;
+      // The pipeline makes optimistic state advances in memory before the DB
+      // is updated. A PATCH for integrations/angles can return a DB row that
+      // still has the old (lower) state. Always keep the further-along state.
+      const order: SprintState[] = [
+        'IDLE', 'GENOME_RUNNING', 'GENOME_DONE',
+        'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE',
+        'ANGLES_RUNNING', 'ANGLES_DONE',
+        'LANDING_RUNNING', 'LANDING_DONE',
+        'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+        'VERDICT_GENERATING', 'COMPLETE',
+      ];
+      const prevIdx = order.indexOf(prev.state);
+      const nextIdx = order.indexOf(normalized.state);
+      const state = prevIdx > nextIdx ? prev.state : normalized.state;
+      return { ...normalized, state };
+    });
+  }, []);
 
   const handleCreativeDraftChange = useCallback((draft: CreativeDraft) => {
     setCreativeDrafts((prev) => {
@@ -1363,7 +1352,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         selectionOnDrag
         proOptions={{ hideAttribution: true }}
       >
-        <PipelineEdgeMarkers />
         <Background id="lane-grid" variant={BackgroundVariant.Lines} gap={120} size={0.8} color="#F3F0EB" />
         <Background id="dot-grid" variant={BackgroundVariant.Dots} gap={20} size={1.25} color="#D8D2C7" />
 
@@ -1371,7 +1359,12 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
           <CanvasToolbar
             sprints={sprints}
             activeSprint={activeSprint}
-            onSelect={(id) => { setActiveSprint(id); setActivePanel(null); }}
+            onSelect={(id) => {
+              setActiveSprint(id);
+              setActivePanel(null);
+              const url = id ? `/canvas/${encodeURIComponent(id)}` : '/canvas';
+              window.history.pushState(null, '', url);
+            }}
             onNew={() => setShowNew(true)}
             onOpenPanel={(panel) => {
               setActivePanel(panel as PanelId);
@@ -1436,7 +1429,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
             <div style={{ width: 360, background: '#FFFFFF', border: '1px solid #E8E4DC', borderRadius: 16, padding: 22, textAlign: 'center' }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8C8880', marginBottom: 8 }}>No sprints yet</p>
               <p style={{ fontSize: '1.125rem', fontWeight: 700, color: '#111110', marginBottom: 4 }}>Start your first validation</p>
-              <p style={{ fontSize: '0.875rem', color: '#8C8880', margin: 0 }}>Use New Sprint to watch Genome, Healthgate, Angles, Landing, Campaign, Verdict, and Report in one canvas.</p>
             </div>
           </Panel>
         )}

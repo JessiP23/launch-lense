@@ -1204,9 +1204,6 @@ function LandingPanel({
             <>
               <LandingInput label="Custom HTML Body" value={customHtml} onChange={setCustomHtml} multiline rows={10} />
               <LandingInput label="Custom CSS" value={customCss} onChange={setCustomCss} multiline rows={10} />
-              <p style={{ margin: 0, color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
-                Paste body HTML and CSS only. LaunchLense wraps it in a fast single-file page for deploy.
-              </p>
             </>
           )}
           <button onClick={handleDeploy} disabled={deploying} style={{ height: 38, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontWeight: 800, cursor: deploying ? 'default' : 'pointer', opacity: deploying ? 0.7 : 1 }}>
@@ -1216,10 +1213,6 @@ function LandingPanel({
           {deployMessage && <p style={{ margin: 0, color: deployMessage.startsWith('Landing') ? C.go : C.stop, fontSize: '0.75rem' }}>{deployMessage}</p>}
         </div>
         <div style={{ position: 'sticky', top: 0, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', background: '#FFF' }}>
-          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.6875rem', color: C.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Live Preview</span>
-            <span style={{ fontSize: '0.6875rem', color: C.muted }}>{mode === 'code' ? 'Custom HTML/CSS' : 'Builder'}</span>
-          </div>
           <iframe title="Landing page preview" srcDoc={html} style={{ width: '100%', height: 640, border: 0, display: 'block' }} />
         </div>
       </div>
@@ -2414,23 +2407,6 @@ function IntegrationsPanel({
                 Contacts source
               </div>
               {oauthEl}
-              {(sheetDraft.trim() || integration.google_sheet_url?.trim()) && !liveGoogleSheet ? (
-                <p
-                  style={{
-                    fontSize: '0.75rem',
-                    color: 'rgba(250,250,248,0.72)',
-                    lineHeight: 1.45,
-                    marginBottom: 12,
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    background: 'rgba(250,250,248,0.06)',
-                    border: '1px solid rgba(250,250,248,0.12)',
-                  }}
-                >
-                  A spreadsheet URL is saved — turn on <strong style={{ fontWeight: 600 }}>Pull first tab live</strong> after connecting Google to
-                  fetch it server-side. Until then, paste an exported CSV (same columns as your sheet) in the box below.
-                </p>
-              ) : null}
               <Label>
                 <span style={{ color: 'rgba(250,250,248,0.75)' }}>Spreadsheet URL or ID</span>
               </Label>
@@ -2455,10 +2431,6 @@ function IntegrationsPanel({
                   <Label>
                     <span style={{ color: 'rgba(250,250,248,0.75)' }}>Paste CSV (comma-separated)</span>
                   </Label>
-                  <p style={{ fontSize: '0.75rem', color: 'rgba(250,250,248,0.68)', lineHeight: 1.45, marginBottom: 8 }}>
-                    First line = headers. Include one column whose name contains “email”. Other columns can be first name, company, role — we match
-                    common header names from Sheets exports.
-                  </p>
                   <textarea
                     value={csvText}
                     onChange={(e) => setCsvText(e.target.value)}

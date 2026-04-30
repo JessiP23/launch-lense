@@ -115,7 +115,6 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
 
       <div style={{ flex: 1 }} />
 
-      {/* Nav shortcuts */}
       {[
         { label: 'Accounts', panel: 'accounts' },
         { label: 'Integrations', panel: 'integrations' },
@@ -136,23 +135,6 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
           {label}
         </button>
       ))}
-
-      {/* Search / Cmd-K */}
-      <button
-        onClick={() => setCmdkOpen(true)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          height: 30, padding: '0 10px',
-          background: C.faint, border: `1px solid ${C.border}`,
-          borderRadius: 8, fontSize: '0.8125rem', color: C.muted,
-          cursor: 'pointer', flexShrink: 0,
-        }}
-      >
-        Search
-        <kbd style={{ fontSize: '0.625rem', border: `1px solid ${C.border}`, borderRadius: 4, padding: '1px 4px', fontFamily: 'monospace' }}>
-          Cmd K
-        </kbd>
-      </button>
     </div>
   );
 }

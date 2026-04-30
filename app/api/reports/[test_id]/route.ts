@@ -373,7 +373,7 @@ function SprintVerdictPDF({ sprint }: { sprint: SprintRecord }) {
       React.createElement(Text, { style: { marginBottom: 6, lineHeight: 1.45 } }, `Gmail outreach: ${outreachSummary}`),
       React.createElement(Text, { style: { lineHeight: 1.45 } }, `Slack: ${slackSummary}`),
     ),
-    React.createElement(Text, { style: styles.footer }, 'LaunchLense · Page 2 of 2 · Confidential validation memo'),
+    React.createElement(Text, { style: styles.footer }),
   );
 
   return React.createElement(Document, null, page1, page2);
