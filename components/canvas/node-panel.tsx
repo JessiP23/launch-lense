@@ -2407,23 +2407,6 @@ function IntegrationsPanel({
                 Contacts source
               </div>
               {oauthEl}
-              {(sheetDraft.trim() || integration.google_sheet_url?.trim()) && !liveGoogleSheet ? (
-                <p
-                  style={{
-                    fontSize: '0.75rem',
-                    color: 'rgba(250,250,248,0.72)',
-                    lineHeight: 1.45,
-                    marginBottom: 12,
-                    padding: '10px 12px',
-                    borderRadius: 10,
-                    background: 'rgba(250,250,248,0.06)',
-                    border: '1px solid rgba(250,250,248,0.12)',
-                  }}
-                >
-                  A spreadsheet URL is saved — turn on <strong style={{ fontWeight: 600 }}>Pull first tab live</strong> after connecting Google to
-                  fetch it server-side. Until then, paste an exported CSV (same columns as your sheet) in the box below.
-                </p>
-              ) : null}
               <Label>
                 <span style={{ color: 'rgba(250,250,248,0.75)' }}>Spreadsheet URL or ID</span>
               </Label>

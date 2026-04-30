@@ -86,9 +86,7 @@ function computeColumnLeftEdges(): Record<string, number> {
     ['verdict', NODE_SIZE.standard.width],
     ['landing', NODE_SIZE.landing.width],
     ['report', NODE_SIZE.standard.width],
-    ['spreadsheet', NODE_SIZE.standard.width],
-    ['outreach', NODE_SIZE.standard.width],
-    ['slack', NODE_SIZE.standard.width],
+    // Integration nodes are positioned separately (floating below the workflow)
   ] as const;
 
   let cursor = LAYOUT.left;
@@ -252,67 +250,6 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
     if (s === 'LANDING_DONE') return 'done';
     if (s === 'COMPLETE') return 'warn';
   }
-  if (edgeId === 'e-report-spreadsheet') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'spreadsheet_running') return 'running';
-    if (phase && phase !== 'idle') return 'done';
-    return 'pending';
-  }
-  if (edgeId === 'e-spreadsheet-outreach') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'outreach_running') return 'running';
-    if (phase === 'outreach_failed') return 'blocked';
-    if (
-      phase &&
-      ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
-    ) {
-      return 'done';
-    }
-    return 'pending';
-  }
-  if (edgeId === 'e-outreach-slack') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'slack_running') return 'running';
-    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
-    return 'pending';
-  }
-
-  /** Report links directly to outreach when Spreadsheet node is hidden */
-  if (edgeId === 'e-report-outreach') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'outreach_running') return 'running';
-    if (phase === 'outreach_failed') return 'blocked';
-    if (
-      phase &&
-      ['outreach_confirm', 'outreach_done', 'slack_running', 'slack_done', 'complete'].includes(phase)
-    ) {
-      return 'done';
-    }
-    return 'pending';
-  }
-
-  /** Report → Slack when intermediate nodes are hidden */
-  if (edgeId === 'e-report-slack') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'slack_running') return 'running';
-    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
-    return 'pending';
-  }
-
-  /** Spreadsheet → Slack when outreach node is hidden */
-  if (edgeId === 'e-spreadsheet-slack') {
-    if (s !== 'COMPLETE') return 'pending';
-    const phase = sprint?.post_sprint?.phase;
-    if (phase === 'slack_running') return 'running';
-    if (phase === 'complete' || sprint?.post_sprint?.slack?.posted) return 'done';
-    return 'pending';
-  }
-
   return 'pending';
 }
 
@@ -693,47 +630,28 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
     { id: 'report', type: 'report', position: { x: X.report, y: layout.standardTop },
       data: { ready: !!sprint?.report?.pdf_url, stage: sprintStageFor('report', s, sprint) } },
 
-    // Post-sprint chain — opt-in via integrations.canvas_* (hidden until enabled)
+    // Integration nodes — float independently below the workflow, no edges
     ...((): Node[] => {
       const i = sprint?.integrations ?? {};
-      const showSheet = i.canvas_sheet === true;
-      const showOutreach = i.canvas_outreach === true;
-      const showSlack = i.canvas_slack === true;
-      const nodes: Node[] = [];
-      if (showSheet) {
-        nodes.push({
-          id: 'spreadsheet',
-          type: 'spreadsheet',
-          position: { x: X.spreadsheet, y: layout.standardTop },
-          data: {
-            validCount: sprint?.post_sprint?.spreadsheet?.validContacts,
-            stage: sprintStageFor('spreadsheet', s, sprint),
-          },
-        });
-      }
-      if (showOutreach) {
-        nodes.push({
-          id: 'outreach',
-          type: 'outreach',
-          position: { x: X.outreach, y: layout.standardTop },
-          data: {
-            sent: sprint?.post_sprint?.outreach?.totalSent,
-            stage: sprintStageFor('outreach', s, sprint),
-          },
-        });
-      }
-      if (showSlack) {
-        nodes.push({
-          id: 'slack',
-          type: 'slack',
-          position: { x: X.slack, y: layout.standardTop },
-          data: {
-            posted: sprint?.post_sprint?.slack?.posted,
-            stage: sprintStageFor('slack', s, sprint),
-          },
-        });
-      }
-      return nodes;
+      const slots = [
+        i.canvas_sheet    && { id: 'spreadsheet', type: 'spreadsheet', data: { validCount: sprint?.post_sprint?.spreadsheet?.validContacts, stage: sprintStageFor('spreadsheet', s, sprint) } },
+        i.canvas_outreach && { id: 'outreach',    type: 'outreach',    data: { sent: sprint?.post_sprint?.outreach?.totalSent, stage: sprintStageFor('outreach', s, sprint) } },
+        i.canvas_slack    && { id: 'slack',        type: 'slack',       data: { posted: sprint?.post_sprint?.slack?.posted, stage: sprintStageFor('slack', s, sprint) } },
+      ].filter(Boolean) as { id: string; type: string; data: Record<string, unknown> }[];
+
+      // Position below the main workflow row, centred on the canvas
+      const floatY = layout.standardTop + NODE_SIZE.standard.height + 200;
+      const nodeW = NODE_SIZE.standard.width;
+      const gap = 64;
+      const totalW = slots.length * nodeW + (slots.length - 1) * gap;
+      // Anchor centre at the middle of the main workflow
+      const workflowCentreX = X.accounts + (X.report + nodeW - X.accounts) / 2;
+      const startX = workflowCentreX - totalW / 2;
+
+      return slots.map((slot, idx) => ({
+        ...slot,
+        position: { x: startX + idx * (nodeW + gap), y: floatY },
+      }));
     })(),
 
   ].filter(discovered));
@@ -767,39 +685,11 @@ function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): 
     })),
     { id: 'e-verdict-landing', type: 'pipeline', source: 'verdict', target: 'landing', data: { state: edgeStageFor('e-verdict-landing', s, sprint) } },
     { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s, sprint) } },
-    ...buildPostSprintEdges(s, sprint),
+    // Integration nodes are floating/disconnected — no edges link them
   ];
   return visibleNodeIds
     ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
     : edges;
-}
-
-/** Links enabled post-sprint nodes in order (report → sheet → outreach → slack), skipping disabled segments */
-function buildPostSprintEdges(s: SprintState | undefined, sprint: SprintRecord | null): Edge[] {
-  const i = sprint?.integrations ?? {};
-  const showSheet = i.canvas_sheet === true;
-  const showOutreach = i.canvas_outreach === true;
-  const showSlack = i.canvas_slack === true;
-
-  const seq: string[] = ['report'];
-  if (showSheet) seq.push('spreadsheet');
-  if (showOutreach) seq.push('outreach');
-  if (showSlack) seq.push('slack');
-
-  const edges: Edge[] = [];
-  for (let k = 0; k < seq.length - 1; k++) {
-    const src = seq[k];
-    const tgt = seq[k + 1];
-    const id = `e-${src}-${tgt}`;
-    edges.push({
-      id,
-      type: 'pipeline',
-      source: src,
-      target: tgt,
-      data: { state: edgeStageFor(id, s, sprint) },
-    });
-  }
-  return edges;
 }
 
 type RawSprintRecord = Partial<SprintRecord> & {
@@ -1386,10 +1276,28 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     setPanelChannel(undefined);
   };
 
-  const handleSprintPatched = (raw: unknown) => {
+  const handleSprintPatched = useCallback((raw: unknown) => {
     const normalized = normalizeSprint(raw as RawSprintRecord);
-    if (normalized) setSprintData(normalized);
-  };
+    if (!normalized) return;
+    setSprintData((prev) => {
+      if (!prev) return normalized;
+      // The pipeline makes optimistic state advances in memory before the DB
+      // is updated. A PATCH for integrations/angles can return a DB row that
+      // still has the old (lower) state. Always keep the further-along state.
+      const order: SprintState[] = [
+        'IDLE', 'GENOME_RUNNING', 'GENOME_DONE',
+        'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE',
+        'ANGLES_RUNNING', 'ANGLES_DONE',
+        'LANDING_RUNNING', 'LANDING_DONE',
+        'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+        'VERDICT_GENERATING', 'COMPLETE',
+      ];
+      const prevIdx = order.indexOf(prev.state);
+      const nextIdx = order.indexOf(normalized.state);
+      const state = prevIdx > nextIdx ? prev.state : normalized.state;
+      return { ...normalized, state };
+    });
+  }, []);
 
   const handleCreativeDraftChange = useCallback((draft: CreativeDraft) => {
     setCreativeDrafts((prev) => {
