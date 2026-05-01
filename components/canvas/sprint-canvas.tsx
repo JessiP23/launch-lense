@@ -20,6 +20,7 @@ import { useAppStore } from '@/lib/store';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 // ── Node & Edge type registries ──────────────────────────────────────────────
 const NODE_TYPES: NodeTypes = {
@@ -60,6 +61,21 @@ const LAYOUT = {
   utilityGapMax: 140,
 };
 const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
+
+const LOG_PREFIX = '[canvas-workflow]';
+
+/** Dev logs by default; set localStorage CANVAS_WORKFLOW_LOG=0 to mute, or NEXT_PUBLIC_CANVAS_WORKFLOW_LOG=1 in prod. */
+function canvasWorkflowLogEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (process.env.NEXT_PUBLIC_CANVAS_WORKFLOW_LOG === '1') return true;
+  try {
+    if (globalThis.localStorage?.getItem('CANVAS_WORKFLOW_LOG') === '0') return false;
+  } catch {
+    /* private mode */
+  }
+  if (process.env.NEXT_PUBLIC_CANVAS_WORKFLOW_LOG === '0') return false;
+  return process.env.NODE_ENV === 'development';
+}
 
 /** Horizontal gap after column `leftW` before column `rightW` — separated enough that each edge reads as its own step. */
 function horizontalGapBetween(leftW: number, rightW: number): number {
@@ -273,21 +289,66 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
   return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
 }
 
-function isNodeDiscovered(nodeId: string, sprint: SprintRecord | null): boolean {
-  const s = sprint?.state;
-  if (nodeId === 'accounts') return true;
-  if (!s || s === 'IDLE') return false;
+/** States where the main pipeline tail (landing → campaign → verdict → report) should stay on-canvas together with creatives. */
+const PIPELINE_TAIL_VISIBLE: SprintState[] = [
+  'ANGLES_DONE',
+  'LANDING_RUNNING', 'LANDING_DONE',
+  'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+  'VERDICT_GENERATING', 'COMPLETE',
+];
 
-  if (nodeId === 'genome') return true;
+type NodeDiscovery = { visible: boolean; reason: string };
+
+function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscovery {
+  const s = sprint?.state;
+  if (nodeId === 'accounts') return { visible: true, reason: 'accounts: always' };
+  if (!s || s === 'IDLE') {
+    return { visible: false, reason: `hidden: sprint state is ${s === 'IDLE' ? 'IDLE' : 'missing'} (workflow not started)` };
+  }
+
+  if (nodeId === 'genome') return { visible: true, reason: 'genome: always once past IDLE' };
   if (s === 'BLOCKED') {
-    if (nodeId.startsWith('hg-')) return Boolean(sprint?.healthgate);
-    if (nodeId === 'angles') return Boolean(sprint?.angles);
-    if (nodeId.startsWith('creative-')) return Boolean(sprint?.angles);
-    if (nodeId === 'landing') return Boolean(sprint?.landing);
-    if (nodeId.startsWith('campaign-')) return Boolean(sprint?.campaign);
-    if (nodeId === 'verdict') return Boolean(sprint?.verdict);
-    if (nodeId === 'report') return Boolean(sprint?.report);
-    return false;
+    if (nodeId.startsWith('hg-')) {
+      const ok = Boolean(sprint?.healthgate);
+      return { visible: ok, reason: ok ? 'blocked+healthgate: show hg' : 'blocked: no healthgate blob yet' };
+    }
+    if (nodeId === 'angles') {
+      const ok = Boolean(sprint?.angles);
+      return { visible: ok, reason: ok ? 'blocked+angles' : 'blocked: no angles blob' };
+    }
+    if (nodeId.startsWith('creative-')) {
+      const ok = Boolean(sprint?.angles);
+      return { visible: ok, reason: ok ? 'blocked+creative (angles exists)' : 'blocked: no angles for creative' };
+    }
+    if (nodeId === 'landing') {
+      const ok = Boolean(sprint?.landing);
+      return { visible: ok, reason: ok ? 'blocked+landing' : 'blocked: no landing blob' };
+    }
+    if (nodeId.startsWith('campaign-')) {
+      const ok = Boolean(sprint?.campaign);
+      return { visible: ok, reason: ok ? 'blocked+campaign' : 'blocked: no campaign blob' };
+    }
+    if (nodeId === 'verdict') {
+      const ok = Boolean(sprint?.verdict);
+      return { visible: ok, reason: ok ? 'blocked+verdict' : 'blocked: no verdict blob' };
+    }
+    if (nodeId === 'report') {
+      const ok = Boolean(sprint?.report);
+      return { visible: ok, reason: ok ? 'blocked+report' : 'blocked: no report blob' };
+    }
+    if (nodeId === 'spreadsheet') {
+      const ok = Boolean(sprint?.integrations?.canvas_sheet);
+      return { visible: ok, reason: ok ? 'blocked+spreadsheet flag' : 'blocked: canvas_sheet false' };
+    }
+    if (nodeId === 'outreach') {
+      const ok = Boolean(sprint?.integrations?.canvas_outreach);
+      return { visible: ok, reason: ok ? 'blocked+outreach flag' : 'blocked: canvas_outreach false' };
+    }
+    if (nodeId === 'slack') {
+      const ok = Boolean(sprint?.integrations?.canvas_slack);
+      return { visible: ok, reason: ok ? 'blocked+slack flag' : 'blocked: canvas_slack false' };
+    }
+    return { visible: false, reason: 'blocked: unhandled node id' };
   }
 
   const healthgateStates: SprintState[] = [
@@ -301,22 +362,79 @@ function isNodeDiscovered(nodeId: string, sprint: SprintRecord | null): boolean 
   const creativeStates: SprintState[] = [
     'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
   ];
-  const landingStates: SprintState[] = ['LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE'];
-  const campaignStates: SprintState[] = ['CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE'];
 
-  if (nodeId.startsWith('hg-')) return healthgateStates.includes(s);
-  if (nodeId === 'angles') return angleStates.includes(s);
-  if (nodeId.startsWith('creative-')) return creativeStates.includes(s);
-  if (nodeId === 'landing') return landingStates.includes(s);
-  if (nodeId.startsWith('campaign-')) return campaignStates.includes(s);
-  if (nodeId === 'verdict') return s === 'VERDICT_GENERATING' || s === 'COMPLETE';
-  if (nodeId === 'report') return s === 'COMPLETE';
+  if (nodeId.startsWith('hg-')) {
+    const ok = healthgateStates.includes(s);
+    return { visible: ok, reason: ok ? `hg: state ${s} in healthgate window` : `hg: state ${s} before healthgate window` };
+  }
+  if (nodeId === 'angles') {
+    const ok = angleStates.includes(s);
+    return { visible: ok, reason: ok ? `angles: state ${s} ok` : `angles: state ${s} before angle window` };
+  }
+  if (nodeId.startsWith('creative-')) {
+    const ok = creativeStates.includes(s);
+    return { visible: ok, reason: ok ? `creative: state ${s} in creative window` : `creative: state ${s} before ANGLES_DONE` };
+  }
+  if (nodeId === 'landing') {
+    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    return {
+      visible: ok,
+      reason: ok ? `landing: state ${s} in PIPELINE_TAIL (ANGLES_DONE+)` : `landing: state ${s} not in tail (${PIPELINE_TAIL_VISIBLE.join(', ')})`,
+    };
+  }
+  if (nodeId.startsWith('campaign-')) {
+    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    return {
+      visible: ok,
+      reason: ok ? `campaign: state ${s} in PIPELINE_TAIL` : `campaign: state ${s} not in PIPELINE_TAIL`,
+    };
+  }
+  if (nodeId === 'verdict') {
+    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `verdict: state ${s} in PIPELINE_TAIL` : `verdict: state ${s} not in PIPELINE_TAIL` };
+  }
+  if (nodeId === 'report') {
+    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `report: state ${s} in PIPELINE_TAIL` : `report: state ${s} not in PIPELINE_TAIL` };
+  }
 
-  if (nodeId === 'spreadsheet') return s === 'COMPLETE' && sprint?.integrations?.canvas_sheet === true;
-  if (nodeId === 'outreach') return s === 'COMPLETE' && sprint?.integrations?.canvas_outreach === true;
-  if (nodeId === 'slack') return s === 'COMPLETE' && sprint?.integrations?.canvas_slack === true;
+  if (nodeId === 'spreadsheet') {
+    const flag = Boolean(sprint?.integrations?.canvas_sheet);
+    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
+    if (!flag) {
+      return {
+        visible: false,
+        reason: 'spreadsheet: not in graph — integrations.canvas_sheet is false (enable sheet on canvas / slot)',
+      };
+    }
+    if (!tail) {
+      return {
+        visible: false,
+        reason: `spreadsheet: canvas_sheet true but state ${s} before PIPELINE_TAIL (need ANGLES_DONE+); integration node still filtered`,
+      };
+    }
+    return { visible: true, reason: 'spreadsheet: canvas_sheet + PIPELINE_TAIL state' };
+  }
+  if (nodeId === 'outreach') {
+    const flag = Boolean(sprint?.integrations?.canvas_outreach);
+    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
+    if (!flag) return { visible: false, reason: 'outreach: canvas_outreach false — node never added to candidates' };
+    if (!tail) return { visible: false, reason: `outreach: state ${s} before PIPELINE_TAIL` };
+    return { visible: true, reason: 'outreach: flag + tail' };
+  }
+  if (nodeId === 'slack') {
+    const flag = Boolean(sprint?.integrations?.canvas_slack);
+    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
+    if (!flag) return { visible: false, reason: 'slack: canvas_slack false' };
+    if (!tail) return { visible: false, reason: `slack: state ${s} before PIPELINE_TAIL` };
+    return { visible: true, reason: 'slack: flag + tail' };
+  }
 
-  return false;
+  return { visible: false, reason: `unclassified node id: ${nodeId}` };
+}
+
+function isNodeDiscovered(nodeId: string, sprint: SprintRecord | null): boolean {
+  return nodeDiscovery(nodeId, sprint).visible;
 }
 
 function buildLayout(channelCount: number) {
@@ -588,9 +706,7 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   const selectedAngle = selectedAngleFor(sprint);
   const layout = buildLayout(activeChannels.length);
 
-  const discovered = (node: Node) => isNodeDiscovered(node.id, sprint);
-
-  return resolveNodeOverlaps([
+  const raw: Node[] = [
     // Accounts
     { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: layout.standardTop },
       data: { connectedCount: 0, stage: sprintStageFor('accounts', s, sprint) } },
@@ -665,7 +781,47 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
       }));
     })(),
 
-  ].filter(discovered));
+  ];
+
+  if (canvasWorkflowLogEnabled()) {
+    const integ = sprint?.integrations;
+    console.groupCollapsed(`${LOG_PREFIX} buildNodes · sprint=${sprint?.sprint_id ?? '—'} · state=${String(s)}`);
+    console.log('workflow.head', {
+      activeChannels,
+      angleCount: a?.angles?.length ?? 0,
+      hasGenome: Boolean(g),
+      hasLanding: Boolean(sprint?.landing),
+      hasCampaign: Boolean(c),
+      hasVerdict: Boolean(v),
+    });
+    console.log('integrations.flags', {
+      canvas_sheet: integ?.canvas_sheet,
+      canvas_outreach: integ?.canvas_outreach,
+      canvas_slack: integ?.canvas_slack,
+    });
+    const discoveryRows = raw.map((n) => {
+      const d = nodeDiscovery(n.id, sprint);
+      return {
+        nodeId: n.id,
+        type: n.type,
+        visible: d.visible,
+        reason: d.reason,
+        uiStage: sprintStageFor(n.id, s, sprint),
+      };
+    });
+    console.table(discoveryRows);
+    const hidden = discoveryRows.filter((row) => !row.visible);
+    if (hidden.length) console.log(`${LOG_PREFIX} hidden (${hidden.length})`, hidden);
+    const visibleCount = raw.filter((node) => isNodeDiscovered(node.id, sprint)).length;
+    console.log(`${LOG_PREFIX} summary`, {
+      candidateCount: raw.length,
+      visibleCount,
+      spreadsheetInCandidates: raw.some((n) => n.id === 'spreadsheet'),
+    });
+    console.groupEnd();
+  }
+
+  return resolveNodeOverlaps(raw.filter((node) => isNodeDiscovered(node.id, sprint)));
 }
 
 function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): Edge[] {
@@ -698,9 +854,34 @@ function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): 
     { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s, sprint) } },
     // Integration nodes are floating/disconnected — no edges link them
   ];
-  return visibleNodeIds
+  const filtered = visibleNodeIds
     ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
     : edges;
+
+  if (canvasWorkflowLogEnabled()) {
+    console.groupCollapsed(
+      `${LOG_PREFIX} buildEdges · sprint=${sprint?.sprint_id ?? '—'} · state=${String(s)} · visibleNodeCount=${visibleNodeIds?.size ?? 'all'}`,
+    );
+    if (visibleNodeIds) {
+      const dropped = edges.filter((e) => !visibleNodeIds.has(e.source) || !visibleNodeIds.has(e.target));
+      if (dropped.length) {
+        console.log(`${LOG_PREFIX} edges dropped (missing endpoint in visible set)`, dropped.length);
+        console.table(
+          dropped.map((e) => ({
+            edgeId: e.id,
+            source: e.source,
+            target: e.target,
+            sourceIn: visibleNodeIds.has(e.source),
+            targetIn: visibleNodeIds.has(e.target),
+          })),
+        );
+      }
+    }
+    console.table(filtered.map((e) => ({ edgeId: e.id, edgeState: (e.data as { state?: string })?.state })));
+    console.groupEnd();
+  }
+
+  return filtered;
 }
 
 type RawSprintRecord = Partial<SprintRecord> & {
@@ -990,6 +1171,47 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [landingDraft, setLandingDraft] = useState<LandingDraft | null>(null);
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
 
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const sprintFromQuery = searchParams.get('sprint');
+  const panelFromQuery = searchParams.get('panel');
+
+  // Keep the active sprint aligned with the URL (path, ?sprint=, or manual host fix after OAuth).
+  // Does not clear workflow data in the DB — only drives which sprint we fetch into the canvas.
+  useEffect(() => {
+    const normalizedPath = pathname.replace(/\/$/, '') || '/';
+    const m = pathname.match(/^\/canvas\/([^/?#]+)/);
+    let id: string | null = null;
+    if (m?.[1] && m[1] !== 'new') {
+      try {
+        id = decodeURIComponent(m[1]);
+      } catch {
+        id = m[1];
+      }
+    }
+    if (!id && sprintFromQuery?.trim()) id = sprintFromQuery.trim();
+
+    if (!id && normalizedPath === '/canvas') {
+      if (canvasWorkflowLogEnabled()) {
+        console.log(`${LOG_PREFIX} urlSync · cleared canvas (no sprint in path/query)`);
+      }
+      setActiveSprint(null);
+      setSprintData(null);
+      return;
+    }
+
+    if (id) {
+      if (canvasWorkflowLogEnabled()) {
+        console.log(`${LOG_PREFIX} urlSync · active sprint from URL`, { sprintId: id, pathname, sprintFromQuery });
+      }
+      setActiveSprint((prev) => (prev === id ? prev : id));
+    }
+  }, [pathname, sprintFromQuery]);
+
+  useEffect(() => {
+    if (panelFromQuery) setActivePanel(panelFromQuery as PanelId);
+  }, [panelFromQuery]);
+
   const baseNodes = useMemo(() => {
     const built = buildNodes(sprintData, creativeDrafts, landingDraft);
     if (!built[0]) return built;
@@ -1073,15 +1295,21 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
   // ── Load sprint detail ───────────────────────────────────────────────────
   const loadSprintDetail = useCallback(async (id: string) => {
+    if (canvasWorkflowLogEnabled()) {
+      console.log(`${LOG_PREFIX} loadSprintDetail · request`, { sprintId: id });
+    }
     try {
       let data: SprintRecord | null = null;
+      let loadSource: 'api/sprint' | 'api/tests' | 'none' = 'none';
       const res = await fetch(`/api/sprint/${id}`);
       if (res.ok) {
+        loadSource = 'api/sprint';
         const json = await res.json();
         data = normalizeSprint(json.sprint ?? json);
       } else {
         const res2 = await fetch(`/api/tests/${id}/metrics`);
         if (res2.ok) {
+          loadSource = 'api/tests';
           const json2 = await res2.json();
           // Map legacy test format to sprint format
           data = normalizeSprint({
@@ -1096,9 +1324,21 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
           });
         }
       }
+      if (canvasWorkflowLogEnabled()) {
+        console.log(`${LOG_PREFIX} loadSprintDetail · response`, {
+          sprintId: id,
+          loadSource,
+          state: data?.state,
+          hasAngles: Boolean(data?.angles),
+          integrationsCanvasSheet: data?.integrations?.canvas_sheet,
+        });
+      }
       setSprintData(data);
       return data;
-    } catch {
+    } catch (e) {
+      if (canvasWorkflowLogEnabled()) {
+        console.warn(`${LOG_PREFIX} loadSprintDetail · error`, { sprintId: id, error: e });
+      }
       return null;
     }
   }, []);

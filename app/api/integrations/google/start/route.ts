@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { GOOGLE_WORKSPACE_SCOPES } from '@/lib/google/scopes';
-import { appOrigin } from '@/lib/google/public-url';
+import { requestAppOrigin } from '@/lib/google/public-url';
 import { signOAuthState } from '@/lib/google/oauth-state';
 import { oauthScopeKeyFromSprint } from '@/lib/google/sprint-scope';
 
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   });
 
   const state = signOAuthState({ sprint_id: sprintId, scope_key, ts: Date.now() }, stateSecret);
-  const redirectUri = `${appOrigin()}/api/integrations/google/callback`;
+  const redirectUri = `${requestAppOrigin(req)}/api/integrations/google/callback`;
 
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.searchParams.set('client_id', clientId);

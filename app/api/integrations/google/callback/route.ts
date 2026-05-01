@@ -4,13 +4,13 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { exchangeAuthorizationCode } from '@/lib/google/oauth-http';
-import { appOrigin } from '@/lib/google/public-url';
+import { requestAppOrigin } from '@/lib/google/public-url';
 import { verifyOAuthState } from '@/lib/google/oauth-state';
 import { fetchGoogleUserEmail } from '@/lib/google/userinfo';
 import { saveGoogleRefreshToken } from '@/lib/google/token-store';
 
-function redirect(path: string) {
-  return Response.redirect(`${appOrigin()}${path}`, 302);
+function redirect(req: NextRequest, path: string) {
+  return Response.redirect(`${requestAppOrigin(req)}${path}`, 302);
 }
 
 export async function GET(req: NextRequest) {
@@ -20,25 +20,25 @@ export async function GET(req: NextRequest) {
   const oauthErr = url.searchParams.get('error');
 
   if (oauthErr) {
-    return redirect(`/canvas?panel=integrations&google_error=${encodeURIComponent(oauthErr)}`);
+    return redirect(req, `/canvas?panel=integrations&google_error=${encodeURIComponent(oauthErr)}`);
   }
   if (!code || !stateStr) {
-    return redirect('/canvas?panel=integrations&google_error=missing_params');
+    return redirect(req, '/canvas?panel=integrations&google_error=missing_params');
   }
 
   const stateSecret = process.env.GOOGLE_OAUTH_STATE_SECRET;
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!stateSecret || !clientId || !clientSecret) {
-    return redirect('/canvas?panel=integrations&google_error=oauth_not_configured');
+    return redirect(req, '/canvas?panel=integrations&google_error=oauth_not_configured');
   }
 
   const parsed = verifyOAuthState(stateStr, stateSecret);
   if (!parsed) {
-    return redirect('/canvas?panel=integrations&google_error=invalid_state');
+    return redirect(req, '/canvas?panel=integrations&google_error=invalid_state');
   }
 
-  const redirectUri = `${appOrigin()}/api/integrations/google/callback`;
+  const redirectUri = `${requestAppOrigin(req)}/api/integrations/google/callback`;
 
   let tokens: Awaited<ReturnType<typeof exchangeAuthorizationCode>>;
   try {
@@ -50,12 +50,18 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'token_exchange_failed';
-    return redirect(`/canvas?panel=integrations&google_error=${encodeURIComponent(msg)}`);
+    return redirect(
+      req,
+      `/canvas/${encodeURIComponent(parsed.sprint_id)}?panel=integrations&google_error=${encodeURIComponent(msg)}`
+    );
   }
 
   const refresh = tokens.refresh_token;
   if (!refresh) {
-    return redirect('/canvas?panel=integrations&google_error=no_refresh_token');
+    return redirect(
+      req,
+      `/canvas/${encodeURIComponent(parsed.sprint_id)}?panel=integrations&google_error=no_refresh_token`
+    );
   }
 
   let email: string | null = null;
@@ -76,7 +82,10 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'save_failed';
-    return redirect(`/canvas?panel=integrations&google_error=${encodeURIComponent(msg)}`);
+    return redirect(
+      req,
+      `/canvas/${encodeURIComponent(parsed.sprint_id)}?panel=integrations&google_error=${encodeURIComponent(msg)}`
+    );
   }
 
   const db = createServiceClient();
@@ -100,5 +109,5 @@ export async function GET(req: NextRequest) {
     })
     .eq('id', parsed.sprint_id);
 
-  return redirect(`/canvas?sprint=${parsed.sprint_id}&panel=integrations&google_connected=1`);
+  return redirect(req, `/canvas/${encodeURIComponent(parsed.sprint_id)}?panel=integrations&google_connected=1`);
 }
