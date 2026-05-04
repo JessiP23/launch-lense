@@ -150,7 +150,7 @@ Channel-Specific Rules:
 5. Typeform: title = value prop, not feature. Max 3 questions. Q1 always "What's your email?" type=email. submit_btn = "Join Waitlist".
 
 ### PHASE 3: VERDICT [T+48h]
-Goal: Narrative synthesis only — canonical GO / ITERATE / NO-GO is computed deterministically in VerdictAgent (see lib/demand-validation/scoring.ts): mandatory spend-weighted CTR gate at 0.80%, CTR/conversion/consistency/efficiency rubric to 100, confidence from weighted formula. Do not contradict those outputs if metrics are supplied.
+Goal: Narrative synthesis only — canonical GO / ITERATE / NO-GO is computed deterministically in VerdictAgent (see lib/demand-validation/scoring.ts): mandatory spend-weighted CTR gate at 0.80%, CTR/conversion/consistency/efficiency rubric sums to total_score (max 100), confidence from weighted formula (total_score/consistency/spend completeness), then aggregate GO requires confidence >= 70 after that CTR gate (ITERATE 35-69; NO-GO if confidence < 35 or CTR gate fails). Do not contradict those outputs if metrics are supplied.
 Input: { metrics: { meta, google, reddit, twitter, typeform } }
 Output JSON: {
   verdict: "GO"|"NO-GO"|"ITERATE",

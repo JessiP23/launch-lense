@@ -233,12 +233,22 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
   }
 
   try {
+    const db = createServiceClient();
+    const { data: benchRow } = await db
+      .from('benchmarks')
+      .select('avg_ctr, avg_cvr, avg_cpa_cents')
+      .eq('vertical', 'saas')
+      .maybeSingle();
+
     const verdict = await runVerdictAgent(completedCampaigns, {
       genome: sprint.genome,
       angles: sprint.angles,
       sprint_budget_cents: sprint.budget_cents,
       sprint_created_at: sprint.created_at,
       landing_conversion_rate: null,
+      benchmark_avg_ctr: benchRow?.avg_ctr != null ? Number(benchRow.avg_ctr) : null,
+      benchmark_avg_cvr: benchRow?.avg_cvr != null ? Number(benchRow.avg_cvr) : null,
+      benchmark_avg_cpc_cents: benchRow?.avg_cpa_cents != null ? Number(benchRow.avg_cpa_cents) : null,
     });
     await patchSprint(sprint_id, { verdict, state: 'COMPLETE', campaign: completedCampaigns });
   } catch (err) {

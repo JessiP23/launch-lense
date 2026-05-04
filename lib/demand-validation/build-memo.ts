@@ -13,6 +13,10 @@ import type {
   Platform,
   VerdictAgentRunContext,
 } from '@/lib/agents/types';
+import {
+  AGGREGATE_GO_CONFIDENCE_MIN,
+  AGGREGATE_ITERATE_CONFIDENCE_MIN,
+} from '@/lib/demand-validation/scoring';
 
 function genomeSignalToVerdict(signal: GenomeAgentOutput['signal']): ChannelVerdict {
   if (signal === 'STOP') return 'NO-GO';
@@ -99,7 +103,8 @@ function counterfactual(
   verdict: ChannelVerdict,
   weightedCtr: number,
   b: DemandValidationScoreBreakdown,
-  landingCvr: number | null
+  _landingCvr: number | null,
+  confidenceScore: number
 ): DemandValidationMemo['counterfactual_analysis'] {
   if (verdict === 'GO') {
     return {
@@ -109,15 +114,21 @@ function counterfactual(
   }
   const parts: string[] = [];
   if (weightedCtr < 0.008) parts.push('raise spend-weighted blended CTR to at least 0.80%');
-  if (b.total_score <= 70) parts.push(`raise total_score above 70 (observed ${b.total_score})`);
-  if (!b.conversion_strong) parts.push('raise landing conversion tier to ≥5.00% (conversion_score ≥20)');
-  const condition = parts.length ? parts.join('; ') + '.' : 'Raise CTR above the NO-GO gate and satisfy GO composite rules.';
+  if (confidenceScore < AGGREGATE_GO_CONFIDENCE_MIN) {
+    parts.push(
+      `raise aggregate confidence to at least ${AGGREGATE_GO_CONFIDENCE_MIN} (observed ${confidenceScore})`
+    );
+  }
+  const condition =
+    parts.length > 0
+      ? parts.join('; ') + '.'
+      : `Raise aggregate confidence toward ${AGGREGATE_GO_CONFIDENCE_MIN}+ while holding blended CTR above the mandatory gate.`;
   const gap =
     weightedCtr < 0.008
       ? `Blended CTR ${(weightedCtr * 100).toFixed(2)}% remains below the 0.80% mandatory gate.`
-      : landingCvr == null
-        ? 'Landing conversion rate was not observed; conversion tier score is 0, blocking GO.'
-        : `Conversion tier score ${b.conversion_score} does not reach the GO prerequisite with total_score ${b.total_score}.`;
+      : verdict === 'ITERATE'
+        ? `Aggregate confidence ${confidenceScore} is below the ${AGGREGATE_GO_CONFIDENCE_MIN}-point GO threshold (total_score ${b.total_score}).`
+        : `Aggregate confidence ${confidenceScore} is below the ${AGGREGATE_ITERATE_CONFIDENCE_MIN}-point continuation floor (total_score ${b.total_score}).`;
   return { condition_for_positive_verdict: condition, gap_to_threshold: gap };
 }
 
@@ -131,7 +142,7 @@ function recommendationBlock(
     return {
       action: 'SCALE',
       justification:
-        'Deterministic model assigns GO with conversion tier satisfied and composite score above the GO threshold.',
+        `Deterministic model assigns GO because aggregate confidence cleared ${AGGREGATE_GO_CONFIDENCE_MIN}+ after the CTR gate.`,
       next_test_budget: Math.round(sprintBudgetDollars),
       focus_area: `${recommendedChannel?.toUpperCase() ?? 'Primary'} channel scaling on angle ${winningAngle ?? 'angle_A'} creative.`,
     };
@@ -141,7 +152,7 @@ function recommendationBlock(
     return {
       action: 'ITERATE',
       justification:
-        'Composite score sits in the 35–70 iterate band; messaging or offer refinement is indicated before scaling.',
+        `Aggregate confidence sits below ${AGGREGATE_GO_CONFIDENCE_MIN}; messaging or offer refinement is indicated before scaling.`,
       next_test_budget: micro,
       focus_area: `Rewrite headlines on ${winningAngle ?? 'top'} angle and retest with ${micro} USD staged spend.`,
     };
@@ -212,12 +223,14 @@ export function buildDemandValidationMemo(input: MemoBuildInput): DemandValidati
     `Conversion score mapped from observed landing rate ${landingCvr == null ? 'not supplied' : `${(landingCvr * 100).toFixed(2)}%`}.`,
     `Consistency score ${input.scoreBreakdown.consistency_score} derived from per-channel categorical verdict tally.`,
     `Efficiency score ${input.scoreBreakdown.efficiency_score} derived from average CPC versus benchmark or absolute bands.`,
-    'GO requires total_score > 70 and conversion tier score ≥20; ITERATE requires total_score 35–70 after CTR gate.',
+    `Confidence score ${input.confidenceScore} = total_score (${input.scoreBreakdown.total_score}) at 60% weight + normalized consistency at 30% + spend completeness at 10%.`,
+    `GO requires aggregate confidence >= ${AGGREGATE_GO_CONFIDENCE_MIN} after CTR gate; ITERATE when confidence ${AGGREGATE_ITERATE_CONFIDENCE_MIN}-${AGGREGATE_GO_CONFIDENCE_MIN - 1}; NO-GO when confidence < ${AGGREGATE_ITERATE_CONFIDENCE_MIN} or CTR gate fails.`,
   ];
 
   const steps: string[] = [
     `Observed spend-weighted blended CTR = ${(wctr * 100).toFixed(2)}%.`,
     `Component scores: CTR ${input.scoreBreakdown.ctr_score}, conversion ${input.scoreBreakdown.conversion_score}, consistency ${input.scoreBreakdown.consistency_score}, efficiency ${input.scoreBreakdown.efficiency_score}; total ${input.scoreBreakdown.total_score}.`,
+    `Aggregate confidence score ${input.confidenceScore}/100.`,
     `Market signal strength classified as ${input.scoreBreakdown.market_signal_strength} from total score thresholds.`,
     `Deterministic verdict ${observed} applied with data completeness factor ${input.dataCompletenessFactor}.`,
   ];
@@ -255,13 +268,13 @@ export function buildDemandValidationMemo(input: MemoBuildInput): DemandValidati
   ];
 
   const primaryConstraint =
-    wctr < 0.008
-      ? 'Blended CTR below the 0.80% mandatory gate.'
-      : landingCvr == null
-        ? 'Landing conversion rate not supplied; conversion tier scoring is zeroed.'
-        : !input.scoreBreakdown.conversion_strong
-          ? 'Conversion depth is below the 5.00% tier used for GO classification.'
-          : `Cross-channel dispersion (consistency score ${input.scoreBreakdown.consistency_score}) limits aggregate certainty.`;
+    observed === 'GO'
+      ? `Aggregate confidence ${input.confidenceScore} cleared ${AGGREGATE_GO_CONFIDENCE_MIN}; scale ${best?.channel.toUpperCase() ?? input.recommendedChannel?.toUpperCase() ?? 'the leading channel'} / angle messaging before widening budget.`
+      : wctr < 0.008
+        ? 'Blended CTR below the 0.80% mandatory gate.'
+        : observed === 'ITERATE'
+          ? `Aggregate confidence ${input.confidenceScore} is below the ${AGGREGATE_GO_CONFIDENCE_MIN}-point GO threshold; iterate creative while demand signal remains non-terminal.`
+          : `Aggregate confidence ${input.confidenceScore} is below the ${AGGREGATE_ITERATE_CONFIDENCE_MIN}-point continuation floor.`;
 
   const anomalies: string[] = [];
   if (landingCvr == null) {
@@ -381,7 +394,7 @@ export function buildDemandValidationMemo(input: MemoBuildInput): DemandValidati
       ctx?.benchmark_avg_cvr ?? null,
       ctx?.benchmark_avg_cpc_cents ?? null
     ),
-    counterfactual_analysis: counterfactual(observed, wctr, input.scoreBreakdown, landingCvr),
+    counterfactual_analysis: counterfactual(observed, wctr, input.scoreBreakdown, landingCvr, input.confidenceScore),
     signal_timing: {
       spend_at_signal: spendAtSignalUsd,
       interpretation: earlySignal

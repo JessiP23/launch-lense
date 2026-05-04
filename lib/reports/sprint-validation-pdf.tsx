@@ -25,21 +25,21 @@ Font.register({
   family: 'DM Sans',
   fonts: [
     {
-      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-400-normal.woff2',
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-400-normal.woff',
       fontWeight: 400,
     },
     {
-      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-400-italic.woff2',
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-400-italic.woff',
       fontWeight: 400,
       fontStyle: 'italic',
     },
     /* Fontsource dm-sans has no latin-*-600-* files — use weight 500 (Medium) everywhere we want semibold. */
     {
-      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-500-normal.woff2',
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-500-normal.woff',
       fontWeight: 500,
     },
     {
-      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-700-normal.woff2',
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-sans@5.0.3/files/dm-sans-latin-700-normal.woff',
       fontWeight: 700,
     },
   ],
@@ -49,7 +49,7 @@ Font.register({
   family: 'DM Mono',
   fonts: [
     {
-      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-mono@5.0.3/files/dm-mono-latin-400-normal.woff2',
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/dm-mono@5.0.3/files/dm-mono-latin-400-normal.woff',
       fontWeight: 400,
     },
   ],
@@ -75,11 +75,13 @@ const C = {
 };
 
 const styles = StyleSheet.create({
+  /** Bottom padding keeps body text above the `fixed` footer (absolute positioning does not reserve flow space). */
   page: {
     fontFamily: 'DM Sans',
     fontSize: 10,
     color: C.ink,
     padding: 40,
+    paddingBottom: 56,
     backgroundColor: C.white,
   },
   pageMuted: {
@@ -87,6 +89,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: C.ink,
     padding: 40,
+    paddingBottom: 56,
     backgroundColor: C.canvas,
   },
   mono: { fontFamily: 'DM Mono' },
@@ -102,7 +105,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: 500,
     color: C.muted,
-    letterSpacing: 1.2,
     marginBottom: 14,
   },
   coverIdea: {
@@ -131,7 +133,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: 500,
     color: C.muted,
-    letterSpacing: 0.8,
     marginBottom: 4,
     textTransform: 'uppercase',
   },
@@ -145,7 +146,6 @@ const styles = StyleSheet.create({
   cfLabel: {
     fontSize: 8,
     textTransform: 'uppercase',
-    letterSpacing: 1,
     color: C.muted,
     fontWeight: 500,
   },
@@ -166,7 +166,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: 700,
     color: C.muted,
-    letterSpacing: 1.4,
     marginBottom: 10,
     paddingBottom: 6,
     borderBottomWidth: 1,
@@ -194,7 +193,6 @@ const styles = StyleSheet.create({
     color: C.muted,
     textTransform: 'uppercase',
     marginBottom: 4,
-    letterSpacing: 0.8,
   },
   ecVal: { fontSize: 10, fontWeight: 500, lineHeight: 1.35 },
   bullet: {
@@ -220,7 +218,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     textTransform: 'uppercase',
     marginBottom: 4,
-    letterSpacing: 0.8,
   },
   actionTxt: { fontSize: 11, color: C.white, fontWeight: 500, maxWidth: 420 },
   kpiRow: {
@@ -244,7 +241,6 @@ const styles = StyleSheet.create({
     color: C.muted,
     marginTop: 4,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
   },
   kpiBench: { fontSize: 7, color: '#D4D0C8', marginTop: 2, fontFamily: 'DM Mono' },
   interp: {
@@ -299,7 +295,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
   },
-  row: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: C.faint, paddingVertical: 5 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.faint,
+    paddingVertical: 5,
+  },
   th: {
     flex: 1,
     fontSize: 7,
@@ -321,12 +323,11 @@ const styles = StyleSheet.create({
   },
   gRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
   hgCard: {
-    width: '48%',
+    width: '100%',
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: 5,
-    marginBottom: 8,
-    marginRight: '2%',
+    marginBottom: 10,
   },
   hgHead: {
     flexDirection: 'row',
@@ -604,7 +605,7 @@ function MemoReport({ sprint, benchmark }: { sprint: SprintRecord; benchmark: Re
                     </Text>
                   </View>
                   <Text style={styles.chSub}>
-                    Threshold ≥ {goTh} CTR · Observed {fmtPct(row.ctr)}
+                    Threshold &gt;= {goTh} CTR · Observed {fmtPct(row.ctr)}
                   </Text>
                 </View>
                 <View style={styles.chMetrics}>
@@ -643,10 +644,11 @@ function MemoReport({ sprint, benchmark }: { sprint: SprintRecord; benchmark: Re
       <Page size="A4" style={styles.pageMuted}>
         <Text style={styles.sectionLabel}>Creative analysis · 04</Text>
         <Text style={styles.interp} wrap>
-          Win: {memo.creative_analysis.winning_angle.headline} — {memo.creative_analysis.winning_angle.reason}
+          Win: {memo.creative_analysis.winning_angle.headline} - {memo.creative_analysis.winning_angle.reason}
         </Text>
         <Text style={styles.interp} wrap>
-          Under: {memo.creative_analysis.underperforming_angle.headline} — {memo.creative_analysis.underperforming_angle.reason}
+          Under: {memo.creative_analysis.underperforming_angle.headline} -{' '}
+          {memo.creative_analysis.underperforming_angle.reason}
         </Text>
         <Text style={styles.bullet} wrap>
           Pattern: {memo.creative_analysis.pattern_summary}
@@ -658,6 +660,21 @@ function MemoReport({ sprint, benchmark }: { sprint: SprintRecord; benchmark: Re
             <Text style={styles.bullet} wrap>
               Signal {genome.signal} · Composite {genome.composite}/100 · {genome.icp}
             </Text>
+            {genome.problem_statement ? (
+              <Text style={styles.interp} wrap>
+                Problem: {genome.problem_statement}
+              </Text>
+            ) : null}
+            {genome.proceed_note ? (
+              <Text style={styles.interp} wrap>
+                Proceed note: {genome.proceed_note}
+              </Text>
+            ) : null}
+            {genome.pivot_brief ? (
+              <Text style={styles.interp} wrap>
+                Pivot brief: {genome.pivot_brief}
+              </Text>
+            ) : null}
             <View style={styles.gRow}>
               {scores &&
                 (
@@ -675,41 +692,60 @@ function MemoReport({ sprint, benchmark }: { sprint: SprintRecord; benchmark: Re
                   </View>
                 ))}
             </View>
-            {genome.risks.slice(0, 4).map((r, i) => (
+            {genome.risks.slice(0, 6).map((r, i) => (
               <Text key={i} style={styles.bullet} wrap>
                 {r}
               </Text>
             ))}
+            {genome.research_sources?.length ? (
+              <Text style={[styles.interp, { marginTop: 6 }]} wrap>
+                Sources: {genome.research_sources.slice(0, 12).join(' · ')}
+              </Text>
+            ) : null}
           </>
         ) : (
           <Text style={styles.interp}>Genome not stored on this sprint.</Text>
         )}
 
-        <Text style={[styles.sectionLabel, { marginTop: 16 }]}>Healthgate™ · 06</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-          {sprint.healthgate
-            ? Object.entries(sprint.healthgate).map(([ch, hg]) => (
-                <View key={ch} style={styles.hgCard}>
-                  <View style={styles.hgHead}>
-                    <Text style={{ fontSize: 10, fontWeight: 700 }}>{ch.toUpperCase()}</Text>
-                    <Text style={{ fontSize: 14, fontWeight: 700 }}>{hg.score}</Text>
-                  </View>
-                  {hg.checks.slice(0, 6).map((ck) => (
-                    <View key={ck.key} style={styles.row}>
-                      <Text style={{ fontSize: 8, flex: 1 }}>{ck.name}</Text>
-                      <Text style={{ fontSize: 7, fontWeight: 700, color: ck.passed ? C.go : C.no }}>
-                        {ck.passed ? 'PASS' : 'FAIL'}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ))
-            : (
-                <Text style={styles.interp}>No Healthgate snapshots.</Text>
-              )}
-        </View>
         <Text style={styles.foot} fixed>
           LaunchLense · Page {3 + channelPages.length}
+        </Text>
+      </Page>
+
+      <Page size="A4" style={styles.pageMuted}>
+        <Text style={styles.sectionLabel}>Healthgate · 06</Text>
+        {sprint.healthgate ? (
+          Object.entries(sprint.healthgate).map(([ch, hg]) => (
+            <View key={ch} style={styles.hgCard}>
+              <View style={styles.hgHead}>
+                <View>
+                  <Text style={{ fontSize: 10, fontWeight: 700 }}>{ch.toUpperCase()}</Text>
+                  <Text style={{ fontSize: 7, color: C.muted, marginTop: 2 }}>{hg.status}</Text>
+                </View>
+                <Text style={{ fontSize: 14, fontWeight: 700 }}>{hg.score}</Text>
+              </View>
+              {hg.checks.map((ck) => (
+                <View key={ck.key} style={styles.row}>
+                  <Text style={{ fontSize: 8, flex: 1, paddingRight: 8 }} wrap>
+                    {ck.name}
+                  </Text>
+                  <Text style={{ fontSize: 7, fontWeight: 700, color: ck.passed ? C.go : C.no }}>
+                    {ck.passed ? 'PASS' : 'FAIL'}
+                  </Text>
+                </View>
+              ))}
+              {hg.fix_summary?.length ? (
+                <Text style={[styles.chInsight, { borderTopWidth: 1, borderTopColor: C.border }]} wrap>
+                  Fixes: {hg.fix_summary.slice(0, 4).join(' · ')}
+                </Text>
+              ) : null}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.interp}>No Healthgate snapshots.</Text>
+        )}
+        <Text style={styles.foot} fixed>
+          LaunchLense · Page {4 + channelPages.length}
         </Text>
       </Page>
 
@@ -764,24 +800,63 @@ function MemoReport({ sprint, benchmark }: { sprint: SprintRecord; benchmark: Re
             <Text wrap>{memo.recommendation.justification}</Text>
           </View>
           <Text style={styles.invNote} wrap>
-            Genome alignment: {memo.genome_comparison.alignment ? 'Yes' : 'No'} — {memo.genome_comparison.analysis}
+            Genome alignment: {memo.genome_comparison.alignment ? 'Yes' : 'No'} - {memo.genome_comparison.analysis}
           </Text>
         </View>
 
-        <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Benchmark · counterfactual · outreach · 09–11</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Benchmark · counterfactual · outreach · 09-11</Text>
+
+        <Text style={{ fontSize: 8, fontWeight: 700, color: C.ink, marginTop: 4 }}>09 Benchmark vs market</Text>
         <Text style={styles.bullet} wrap>
           CTR {memo.benchmark_comparison.ctr_position} · Conv {memo.benchmark_comparison.conversion_position} · CPC{' '}
           {memo.benchmark_comparison.cpc_position}
         </Text>
+        {bench ? (
+          <Text style={styles.interp} wrap>
+            Observed weighted CTR {fmtPct(memo.aggregate_metrics.average_ctr)} vs market {marketCtr}; landing conversion{' '}
+            {fmtPct(memo.aggregate_metrics.average_conversion_rate)} vs ref {marketCvr}; avg CPC{' '}
+            {fmtUsd(memo.aggregate_metrics.average_cpc)} vs ref {marketCpc}.
+          </Text>
+        ) : null}
         <Text style={styles.interp} wrap>
-          Flip condition: {memo.counterfactual_analysis.condition_for_positive_verdict}
+          {memo.benchmark_comparison.interpretation}
+        </Text>
+
+        <Text style={{ fontSize: 8, fontWeight: 700, color: C.ink, marginTop: 10 }}>10 Counterfactual</Text>
+        <Text style={styles.interp} wrap>
+          To strengthen verdict: {memo.counterfactual_analysis.condition_for_positive_verdict}
         </Text>
         <Text style={styles.interp} wrap>
-          Outreach: {sprint.post_sprint?.outreach ? sprint.post_sprint.outreach.subjectLine : 'Not executed'} · Contacts{' '}
-          {sprint.post_sprint?.spreadsheet?.validContacts ?? 0} validated
+          Gap vs threshold: {memo.counterfactual_analysis.gap_to_threshold}
         </Text>
+
+        <Text style={{ fontSize: 8, fontWeight: 700, color: C.ink, marginTop: 10 }}>Signal timing</Text>
+        <Text style={styles.interp} wrap>
+          Spend when signal interpreted: {fmtUsd(memo.signal_timing.spend_at_signal)} - {memo.signal_timing.interpretation}
+        </Text>
+
+        <Text style={{ fontSize: 8, fontWeight: 700, color: C.ink, marginTop: 10 }}>Landing page</Text>
+        <Text style={styles.interp} wrap>{memo.landing_page_analysis.diagnosis}</Text>
+        {memo.landing_page_analysis.friction_points.map((fp, i) => (
+          <Text key={i} style={styles.bullet} wrap>
+            {fp}
+          </Text>
+        ))}
+        <Text style={styles.interp} wrap>
+          Recommended adjustment: {memo.landing_page_analysis.recommended_adjustment}
+        </Text>
+
+        <Text style={{ fontSize: 8, fontWeight: 700, color: C.ink, marginTop: 10 }}>11 Outreach readiness</Text>
+        <Text style={styles.interp} wrap>
+          Status: {sprint.post_sprint?.outreach ? `Executed (${sprint.post_sprint.outreach.totalSent} sends)` : 'Not executed'} ·
+          Contacts validated: {sprint.post_sprint?.spreadsheet?.validContacts ?? 0}
+          {sprint.post_sprint?.outreach?.subjectLine
+            ? ` · Subject: ${sprint.post_sprint.outreach.subjectLine}`
+            : ''}
+        </Text>
+
         <Text style={styles.foot} fixed>
-          LaunchLense · Page {4 + channelPages.length}
+          LaunchLense · Page {5 + channelPages.length}
         </Text>
       </Page>
     </Document>

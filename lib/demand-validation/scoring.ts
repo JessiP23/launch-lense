@@ -83,17 +83,18 @@ export function computeConfidenceScore(
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 
+/** Aggregate GO threshold on confidence_score (0-100), after mandatory CTR gate. */
+export const AGGREGATE_GO_CONFIDENCE_MIN = 70;
+/** Below this confidence (after CTR gate) is terminal NO-GO; between this and GO min is ITERATE. */
+export const AGGREGATE_ITERATE_CONFIDENCE_MIN = 35;
+
 /**
- * Strict aggregate verdict — overrides legacy spend-weighted jury logic.
+ * Aggregate verdict — mandatory CTR gate, then confidence bands (product rule).
  */
-export function deterministicAggregateVerdict(
-  weightedAvgCtr: number,
-  breakdown: DemandValidationScoreBreakdown
-): ChannelVerdict {
+export function deterministicAggregateVerdict(weightedAvgCtr: number, confidenceScore: number): ChannelVerdict {
   if (weightedAvgCtr < 0.008) return 'NO-GO';
-  const { total_score, conversion_strong } = breakdown;
-  if (total_score > 70 && conversion_strong) return 'GO';
-  if (total_score >= 35 && total_score <= 70) return 'ITERATE';
+  if (confidenceScore >= AGGREGATE_GO_CONFIDENCE_MIN) return 'GO';
+  if (confidenceScore >= AGGREGATE_ITERATE_CONFIDENCE_MIN) return 'ITERATE';
   return 'NO-GO';
 }
 
@@ -122,16 +123,17 @@ export function computeDemandValidationScoring(input: ScoringInput): DemandValid
 } {
   const completeness = dataCompletenessFactor(input.spend_ratio_of_budget);
   const breakdown = computeDemandValidationScoreBreakdown(input);
-  const deterministic_verdict = deterministicAggregateVerdict(input.weighted_avg_ctr, breakdown);
   const confidence_score = computeConfidenceScore(
     breakdown.total_score,
     breakdown.consistency_score,
     completeness
   );
+  const deterministic_verdict = deterministicAggregateVerdict(input.weighted_avg_ctr, confidence_score);
   const primary_reason = primaryReasonForVerdict(
     deterministic_verdict,
     input.weighted_avg_ctr,
-    breakdown
+    breakdown,
+    confidence_score
   );
   return {
     ...breakdown,
@@ -145,17 +147,18 @@ export function computeDemandValidationScoring(input: ScoringInput): DemandValid
 function primaryReasonForVerdict(
   v: ChannelVerdict,
   weightedAvgCtr: number,
-  b: DemandValidationScoreBreakdown
+  b: DemandValidationScoreBreakdown,
+  confidenceScore: number
 ): string {
   const ctrPct = (weightedAvgCtr * 100).toFixed(2);
   if (weightedAvgCtr < 0.008) {
     return `Spend-weighted blended CTR ${ctrPct}% is below the 0.80% gate; classification follows the mandatory NO-GO threshold.`;
   }
   if (v === 'GO') {
-    return `Total score ${b.total_score} exceeds 70 with conversion tier score ${b.conversion_score} (≥5% observed landing conversion tier), satisfying GO criteria at ${ctrPct}% blended CTR.`;
+    return `Aggregate confidence ${confidenceScore} clears the GO threshold (>=${AGGREGATE_GO_CONFIDENCE_MIN}) at ${ctrPct}% blended CTR with total_score ${b.total_score}/100 — scale despite any single-axis gaps if channels support it.`;
   }
   if (v === 'ITERATE') {
-    return `Total score ${b.total_score} falls in the 35–70 band at ${ctrPct}% blended CTR; conversion tier score ${b.conversion_score} and consistency score ${b.consistency_score} indicate mixed but non-terminal signal.`;
+    return `Aggregate confidence ${confidenceScore} sits in the ${AGGREGATE_ITERATE_CONFIDENCE_MIN}-${AGGREGATE_GO_CONFIDENCE_MIN - 1} iterate band at ${ctrPct}% blended CTR (total_score ${b.total_score}); refine messaging before scaling.`;
   }
-  return `Total score ${b.total_score} is outside the GO band or conversion tier score ${b.conversion_score} fails the ≥20-point requirement at ${ctrPct}% blended CTR.`;
+  return `Aggregate confidence ${confidenceScore} is below ${AGGREGATE_ITERATE_CONFIDENCE_MIN} at ${ctrPct}% blended CTR (total_score ${b.total_score}); paid validation does not clear the terminal threshold.`;
 }
