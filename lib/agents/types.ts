@@ -288,6 +288,127 @@ export interface AggregateMetrics {
   avg_cpc_cents: number;
 }
 
+export interface DemandValidationMemo {
+  report_metadata: {
+    analysis_type: 'Startup Demand Validation';
+    methodology: 'Multi-channel paid acquisition test';
+    duration_hours: number;
+    total_spend: number;
+  };
+  verdict: {
+    decision: ChannelVerdict;
+    confidence_score: number;
+    market_signal_strength: 'WEAK' | 'MODERATE' | 'STRONG';
+    time_to_signal_spend: number;
+    primary_reason: string;
+  };
+  executive_summary: {
+    key_findings: [string, string, string];
+    primary_constraint: string;
+    highest_performing_channel: string;
+    lowest_performing_channel: string;
+    recommended_next_step: string;
+  };
+  aggregate_metrics: {
+    average_ctr: number;
+    average_cpc: number;
+    average_conversion_rate: number;
+    best_ctr: number;
+    worst_ctr: number;
+  };
+  channel_analysis: Array<{
+    channel: string;
+    spend: number;
+    ctr: number;
+    cpc: number;
+    conversion_rate: number;
+    cpa: number;
+    interpretation: string;
+  }>;
+  creative_analysis: {
+    winning_angle: {
+      headline: string;
+      ctr: number;
+      conversion_rate: number;
+      reason: string;
+    };
+    underperforming_angle: {
+      headline: string;
+      ctr: number;
+      conversion_rate: number;
+      reason: string;
+    };
+    pattern_summary: string;
+  };
+  audience_insights: {
+    observations: string[];
+    anomalies: string[];
+  };
+  landing_page_analysis: {
+    conversion_rate: number;
+    diagnosis: string;
+    friction_points: string[];
+    recommended_adjustment: string;
+  };
+  genome_comparison: {
+    initial_prediction: ChannelVerdict;
+    observed_outcome: ChannelVerdict;
+    alignment: boolean;
+    analysis: string;
+  };
+  decision_framework: {
+    rules_applied: string[];
+    reasoning_steps: string[];
+  };
+  recommendation: {
+    action: 'SCALE' | 'ITERATE' | 'TERMINATE';
+    justification: string;
+    next_test_budget: number;
+    focus_area: string;
+  };
+  benchmark_comparison: {
+    ctr_position: 'BELOW' | 'WITHIN' | 'ABOVE';
+    conversion_position: 'BELOW' | 'WITHIN' | 'ABOVE';
+    cpc_position: 'HIGH' | 'NORMAL' | 'LOW';
+    interpretation: string;
+  };
+  counterfactual_analysis: {
+    condition_for_positive_verdict: string;
+    gap_to_threshold: string;
+  };
+  signal_timing: {
+    spend_at_signal: number;
+    interpretation: string;
+  };
+  data_tables: {
+    channels: Record<string, unknown>[];
+    angles: Record<string, unknown>[];
+  };
+}
+
+export interface DemandValidationScoreBreakdown {
+  ctr_score: number;
+  conversion_score: number;
+  consistency_score: number;
+  efficiency_score: number;
+  total_score: number;
+  market_signal_strength: 'WEAK' | 'MODERATE' | 'STRONG';
+  conversion_strong: boolean;
+}
+
+/** Optional sprint facts threaded into VerdictAgent for deterministic scoring + memo JSON. */
+export interface VerdictAgentRunContext {
+  genome?: GenomeAgentOutput | null;
+  angles?: AngleAgentOutput | null;
+  sprint_budget_cents?: number;
+  sprint_created_at?: string;
+  /** Landing-page conversion rate (0–1). Omit when not measured. */
+  landing_conversion_rate?: number | null;
+  benchmark_avg_ctr?: number | null;
+  benchmark_avg_cvr?: number | null;
+  benchmark_avg_cpc_cents?: number | null;
+}
+
 export interface VerdictAgentOutput {
   verdict: ChannelVerdict;
   confidence: number;
@@ -297,6 +418,11 @@ export interface VerdictAgentOutput {
   cross_channel_winning_angle: 'angle_A' | 'angle_B' | 'angle_C' | null;
   reasoning: string;   // 3 sentences
   recommended_channel: Platform | null;
+  demand_validation?: {
+    scores: DemandValidationScoreBreakdown;
+    data_completeness_factor: number;
+    memo: DemandValidationMemo;
+  };
 }
 
 // ── Agent 7: ReportAgent ──────────────────────────────────────────────────

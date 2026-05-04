@@ -233,7 +233,13 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
   }
 
   try {
-    const verdict = await runVerdictAgent(completedCampaigns);
+    const verdict = await runVerdictAgent(completedCampaigns, {
+      genome: sprint.genome,
+      angles: sprint.angles,
+      sprint_budget_cents: sprint.budget_cents,
+      sprint_created_at: sprint.created_at,
+      landing_conversion_rate: null,
+    });
     await patchSprint(sprint_id, { verdict, state: 'COMPLETE', campaign: completedCampaigns });
   } catch (err) {
     await blockSprint(sprint_id, `VerdictAgent failed: ${String(err)}`);

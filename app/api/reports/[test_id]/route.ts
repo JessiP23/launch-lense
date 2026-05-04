@@ -14,6 +14,10 @@ import {
   Font,
 } from '@react-pdf/renderer';
 import type { SprintRecord } from '@/lib/agents/types';
+import {
+  SprintValidationReportDocument,
+  type ReportBenchmarkSnapshot,
+} from '@/lib/reports/sprint-validation-pdf';
 
 // Register Geist-like font (fallback to Helvetica for reliability)
 Font.register({
@@ -196,188 +200,6 @@ interface Benchmark {
 }
 
 type DbSprintRecord = SprintRecord & { id?: string };
-
-function SprintVerdictPDF({ sprint }: { sprint: SprintRecord }) {
-  const verdict = sprint.verdict;
-  const metrics = verdict?.aggregate_metrics;
-  const verdictLabel = verdict?.verdict ?? 'PENDING';
-  const verdictColor =
-    verdictLabel === 'GO' ? colors.success : verdictLabel === 'NO-GO' ? colors.danger : colors.warning;
-
-  const waId = verdict?.cross_channel_winning_angle;
-  let winningAngleStr = '—';
-  if (waId && sprint.angles?.angles) {
-    const ang = sprint.angles.angles.find((a) => a.id === waId);
-    const letter = waId === 'angle_A' ? 'A' : waId === 'angle_B' ? 'B' : 'C';
-    const arche = ang?.archetype.replace(/_/g, ' ') ?? '';
-    winningAngleStr = ang ? `Angle ${letter} — ${arche}` : `Angle ${letter}`;
-  }
-
-  const scores = sprint.genome?.scores;
-  const axisRows = scores
-    ? ([
-        ['Demand', scores.demand],
-        ['Competition', scores.competition],
-        ['ICP clarity', scores.icp],
-        ['Timing', scores.timing],
-        ['Moat', scores.moat],
-      ] as const)
-    : [];
-
-  const ps = sprint.post_sprint;
-  const spreadsheetSummary = ps?.spreadsheet
-    ? `${ps.spreadsheet.validContacts} validated contacts · ${ps.spreadsheet.totalRows} rows scanned · ICP filter ${ps.spreadsheet.icpFilterApplied ? 'on' : 'off'}`
-    : 'SpreadsheetAgent not run';
-  const outreachSummary = ps?.outreach
-    ? `${ps.outreach.totalSent} sends logged · ${ps.outreach.angleUsed} · ${ps.outreach.subjectLine}`
-    : 'OutreachAgent not run';
-  const slackSummary = ps?.slack?.posted
-    ? 'Slack summary delivered'
-    : ps?.slack?.skippedReason ?? 'SlackAgent not run or skipped';
-
-  const page1 = React.createElement(
-    Page,
-    { size: 'A4', style: styles.page },
-    React.createElement(
-      View,
-      { style: styles.header },
-      React.createElement(
-        View,
-        null,
-        React.createElement(Text, { style: styles.logo }, 'LaunchLense'),
-        React.createElement(Text, { style: styles.logoSub }, `Sprint ${sprint.sprint_id.slice(0, 8)}`)
-      ),
-      React.createElement(
-        Text,
-        { style: [styles.verdictBadge, { backgroundColor: verdictColor, color: colors.bg }] },
-        verdictLabel
-      )
-    ),
-    React.createElement(
-      View,
-      { style: styles.section },
-      React.createElement(Text, { style: styles.sectionTitle }, 'Executive Summary'),
-      React.createElement(Text, { style: { fontSize: 12, lineHeight: 1.5, marginBottom: 8 } }, sprint.idea),
-      React.createElement(
-        Text,
-        { style: { color: colors.muted, lineHeight: 1.5 } },
-        verdict?.reasoning ?? sprint.blocked_reason ?? 'Sprint is still in progress. Complete the canvas workflow to generate the final verdict.'
-      )
-    ),
-    React.createElement(
-      View,
-      { style: styles.kpiGrid },
-      React.createElement(
-        View,
-        { style: styles.kpiCard },
-        React.createElement(Text, { style: styles.kpiLabel }, 'Spend'),
-        React.createElement(Text, { style: styles.kpiValue }, `$${((metrics?.total_spend_cents ?? 0) / 100).toFixed(0)}`)
-      ),
-      React.createElement(
-        View,
-        { style: styles.kpiCard },
-        React.createElement(Text, { style: styles.kpiLabel }, 'Clicks'),
-        React.createElement(Text, { style: styles.kpiValue }, String(metrics?.total_clicks ?? 0))
-      ),
-      React.createElement(
-        View,
-        { style: styles.kpiCard },
-        React.createElement(Text, { style: styles.kpiLabel }, 'Weighted CTR'),
-        React.createElement(Text, { style: styles.kpiValue }, `${(((metrics?.weighted_blended_ctr ?? 0) * 100)).toFixed(2)}%`)
-      )
-    ),
-    React.createElement(
-      View,
-      { style: styles.section },
-      React.createElement(Text, { style: styles.sectionTitle }, 'Channel Verdicts'),
-      ...(verdict?.per_channel ?? []).map((channel) =>
-        React.createElement(
-          View,
-          { key: channel.channel, style: styles.verdictRow },
-          React.createElement(Text, { style: styles.rowLabel }, channel.channel.toUpperCase()),
-          React.createElement(
-            Text,
-            {
-              style: [
-                styles.rowValue,
-                {
-                  color:
-                    channel.verdict === 'GO'
-                      ? colors.success
-                      : channel.verdict === 'NO-GO'
-                        ? colors.danger
-                        : colors.warning,
-                },
-              ],
-            },
-            `${channel.verdict} · ${(channel.blended_ctr * 100).toFixed(2)}% CTR · $${((channel.total_spend_cents ?? 0) / 100).toFixed(0)} spent`,
-          ),
-        ),
-      ),
-    ),
-    React.createElement(
-      View,
-      { style: styles.section },
-      React.createElement(Text, { style: styles.sectionTitle }, 'Genome snapshot'),
-      React.createElement(Text, { style: styles.rowLabel }, `Signal: ${sprint.genome?.signal ?? 'Not run'} · Composite: ${sprint.genome?.composite ?? 0}/100`),
-      React.createElement(Text, { style: { color: colors.muted, marginTop: 6, lineHeight: 1.5 } }, sprint.genome?.proceed_note ?? sprint.genome?.pivot_brief ?? 'No Genome notes available.'),
-      React.createElement(Text, { style: { marginTop: 10, fontSize: 9, color: colors.muted } }, 'Axis breakdown continues on page 2.'),
-    ),
-    React.createElement(Text, { style: styles.footer }, 'LaunchLense · Page 1 of 2'),
-  );
-
-  const page2 = React.createElement(
-    Page,
-    { size: 'A4', style: styles.page },
-    React.createElement(
-      View,
-      { style: styles.section },
-      React.createElement(Text, { style: styles.sectionTitle }, 'Genome axis scores'),
-      ...(axisRows.length > 0
-        ? axisRows.map(([label, val]) =>
-            React.createElement(
-              View,
-              { key: label, style: styles.verdictRow },
-              React.createElement(Text, { style: styles.rowLabel }, label),
-              React.createElement(Text, { style: styles.rowValue }, `${val}/100`),
-            ),
-          )
-        : [
-            React.createElement(
-              Text,
-              { key: 'na', style: { color: colors.muted, fontSize: 10 } },
-              'Genome axis scores not available for this export.',
-            ),
-          ]),
-    ),
-    React.createElement(
-      View,
-      { style: styles.section },
-      React.createElement(Text, { style: styles.sectionTitle }, 'Message & distribution'),
-      React.createElement(View, { style: styles.verdictRow },
-        React.createElement(Text, { style: styles.rowLabel }, 'Winning angle'),
-        React.createElement(Text, { style: styles.rowValue }, winningAngleStr),
-      ),
-      React.createElement(View, { style: styles.verdictRow },
-        React.createElement(Text, { style: styles.rowLabel }, 'Recommended channel'),
-        React.createElement(Text, { style: styles.rowValue }, verdict?.recommended_channel ? verdict.recommended_channel.toUpperCase() : '—'),
-      ),
-      React.createElement(Text, { style: { color: colors.muted, marginTop: 10, fontSize: 9, lineHeight: 1.45 } }, 'Subject lines and bodies flow directly from the winning angle — no separate copywriting hop between verdict and outreach.'),
-    ),
-    React.createElement(
-      View,
-      { style: styles.section },
-      React.createElement(Text, { style: styles.sectionTitle }, 'Post-sprint orchestration'),
-      React.createElement(Text, { style: { fontSize: 9, color: colors.muted, marginBottom: 8 } }, 'Counts and operational summaries only — recipient identities stay session-scoped.'),
-      React.createElement(Text, { style: { marginBottom: 6, lineHeight: 1.45 } }, `Spreadsheet / list prep: ${spreadsheetSummary}`),
-      React.createElement(Text, { style: { marginBottom: 6, lineHeight: 1.45 } }, `Gmail outreach: ${outreachSummary}`),
-      React.createElement(Text, { style: { lineHeight: 1.45 } }, `Slack: ${slackSummary}`),
-    ),
-    React.createElement(Text, { style: styles.footer }),
-  );
-
-  return React.createElement(Document, null, page1, page2);
-}
 
 function VerdictPDF({
   test,
@@ -636,7 +458,25 @@ export async function GET(
         ...rawSprint,
         sprint_id: rawSprint.sprint_id ?? rawSprint.id ?? test_id,
       };
-      const doc = SprintVerdictPDF({ sprint });
+
+      const { data: benchRow } = await supabase
+        .from('benchmarks')
+        .select('*')
+        .eq('vertical', 'saas')
+        .maybeSingle();
+
+      const benchmark: ReportBenchmarkSnapshot | null = benchRow
+        ? {
+            avg_ctr: Number((benchRow as { avg_ctr?: number }).avg_ctr ?? 0.012),
+            avg_cvr: Number((benchRow as { avg_cvr?: number }).avg_cvr ?? 0.025),
+            avg_cpa_cents: Number((benchRow as { avg_cpa_cents?: number }).avg_cpa_cents ?? 4500),
+          }
+        : null;
+
+      const doc = React.createElement(SprintValidationReportDocument, {
+        sprint,
+        benchmark,
+      });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stream = await renderToStream(doc as any);
 

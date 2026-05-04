@@ -1,8 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// VerdictAgent — Per-channel verdicts + aggregate scoring
-// Thresholds are channel-normalized — DO NOT average CTRs across channels.
-// Per-channel: GO | ITERATE | NO-GO
-// Aggregate: spend-weighted scoring, GO=2pts ITERATE=1pt NO-GO=0pts
+// VerdictAgent — Per-channel verdicts + deterministic aggregate demand-validation model
+// Per-channel: GO | ITERATE | NO-GO (channel-normalized CTR thresholds).
+// Aggregate: mandatory CTR gate + weighted scoring rubric (see lib/demand-validation/scoring.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -10,11 +9,13 @@ import type {
   VerdictAgentOutput,
   ChannelVerdictOutput,
   ChannelVerdict,
-  AngleMetrics,
   AggregateMetrics,
   CampaignAgentOutput,
+  VerdictAgentRunContext,
+  DemandValidationScoreBreakdown,
 } from './types';
-import { callGroqJSON } from '@/lib/groq';
+import { computeDemandValidationScoring } from '@/lib/demand-validation/scoring';
+import { buildDemandValidationMemo } from '@/lib/demand-validation/build-memo';
 
 // ── Channel-specific CTR thresholds ───────────────────────────────────────
 
@@ -27,7 +28,8 @@ type ThresholdDef = {
   nogo_all_below: number;
 };
 
-const THRESHOLDS: Record<Platform, ThresholdDef> = {
+/** Channel-normalized CTR gates (for report copy + VerdictAgent). */
+export const CHANNEL_CTR_THRESHOLDS: Record<Platform, ThresholdDef> = {
   meta: {
     go_min_angles_above: 2,
     go_ctr_threshold: 0.02,      // 2.0%
@@ -68,7 +70,7 @@ function scoreChannel(
   channel: Platform,
   campaign: CampaignAgentOutput
 ): ChannelVerdictOutput {
-  const t = THRESHOLDS[channel];
+  const t = CHANNEL_CTR_THRESHOLDS[channel];
   const angles = campaign.angle_metrics;
 
   // Blended CTR weighted by spend
@@ -151,12 +153,9 @@ function scoreChannel(
   };
 }
 
-// ── Aggregate ──────────────────────────────────────────────────────────────
-
-const VERDICT_SCORE: Record<ChannelVerdict, number> = { GO: 2, ITERATE: 1, 'NO-GO': 0 };
-
 export async function runVerdictAgent(
-  campaigns: Partial<Record<Platform, CampaignAgentOutput>>
+  campaigns: Partial<Record<Platform, CampaignAgentOutput>>,
+  context?: VerdictAgentRunContext | null
 ): Promise<VerdictAgentOutput> {
   const channelEntries = Object.entries(campaigns) as [Platform, CampaignAgentOutput][];
   const completed = channelEntries.filter(([, c]) => c.status === 'COMPLETE');
@@ -187,18 +186,11 @@ export async function runVerdictAgent(
     avg_cpc_cents: avgCPC,
   };
 
-  // Aggregate verdict
-  const totalScore = perChannel.reduce((s, c) => s + VERDICT_SCORE[c.verdict], 0);
-  const hasGo      = perChannel.some((c) => c.verdict === 'GO');
-  const allNoGo    = perChannel.every((c) => c.verdict === 'NO-GO');
-
-  let aggregateVerdict: ChannelVerdict;
-  if (totalScore >= 3 && hasGo) {
-    aggregateVerdict = 'GO';
-  } else if (allNoGo) {
-    aggregateVerdict = 'NO-GO';
-  } else {
-    aggregateVerdict = 'ITERATE';
+  let earliestStart: string | null = null;
+  for (const [, camp] of completed) {
+    const t = camp.campaign_start_time;
+    if (!t) continue;
+    if (!earliestStart || Date.parse(t) < Date.parse(earliestStart)) earliestStart = t;
   }
 
   // Cross-channel winning angle (spend-weighted CTR/CPC score)
@@ -206,14 +198,13 @@ export async function runVerdictAgent(
   for (const c of perChannel) {
     for (const a of c.angle_breakdown) {
       const key = a.id;
-      const score = a.cpc_cents > 0 ? a.ctr / a.cpc_cents * a.spend_cents : 0;
+      const score = a.cpc_cents > 0 ? (a.ctr / a.cpc_cents) * a.spend_cents : 0;
       angleScores[key] = (angleScores[key] ?? 0) + score;
     }
   }
   const crossChannelWinner = (Object.entries(angleScores).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null) as
     'angle_A' | 'angle_B' | 'angle_C' | null;
 
-  // Recommended channel (best CTR/CPC ratio)
   const bestChannel = perChannel
     .filter((c) => c.verdict !== 'NO-GO')
     .sort((a, b) => {
@@ -222,20 +213,50 @@ export async function runVerdictAgent(
       return scoreB - scoreA;
     })[0];
 
+  const budgetCents = context?.sprint_budget_cents ?? totalSpend;
+  const spendRatio = budgetCents > 0 ? totalSpend / budgetCents : 1;
+
+  const dvScoring = computeDemandValidationScoring({
+    weighted_avg_ctr: weightedCTR,
+    landing_conversion_rate: context?.landing_conversion_rate ?? null,
+    per_channel_verdicts: perChannel.map((c) => c.verdict),
+    avg_cpc_cents: avgCPC,
+    benchmark_avg_cpc_cents: context?.benchmark_avg_cpc_cents ?? null,
+    spend_ratio_of_budget: spendRatio,
+  });
+
+  const aggregateVerdict = dvScoring.deterministic_verdict;
+
+  const scoreBreakdown: DemandValidationScoreBreakdown = {
+    ctr_score: dvScoring.ctr_score,
+    conversion_score: dvScoring.conversion_score,
+    consistency_score: dvScoring.consistency_score,
+    efficiency_score: dvScoring.efficiency_score,
+    total_score: dvScoring.total_score,
+    market_signal_strength: dvScoring.market_signal_strength,
+    conversion_strong: dvScoring.conversion_strong,
+  };
+
+  const memo = buildDemandValidationMemo({
+    perChannel,
+    aggregateMetrics,
+    scoreBreakdown,
+    deterministicVerdict: aggregateVerdict,
+    confidenceScore: dvScoring.confidence_score,
+    primaryReason: dvScoring.primary_reason,
+    dataCompletenessFactor: dvScoring.data_completeness_factor,
+    context: context ?? undefined,
+    crossChannelWinningAngle: crossChannelWinner,
+    recommendedChannel: bestChannel?.channel ?? null,
+    earliestCampaignStartIso: earliestStart,
+  });
+
   // Channel verdicts map
   const channelVerdicts = Object.fromEntries(
     perChannel.map((c) => [c.channel, c.verdict])
   ) as Record<Platform, ChannelVerdict>;
 
-  // Aggregate confidence
-  const confidence = Math.min(
-    100,
-    Math.round(
-      aggregateVerdict === 'GO' ? 72 + Math.min(28, totalScore * 5) :
-      aggregateVerdict === 'ITERATE' ? 45 + totalScore * 8 :
-      20
-    )
-  );
+  const confidence = dvScoring.confidence_score;
 
   // 3-sentence aggregate reasoning
   const goChannels   = perChannel.filter((c) => c.verdict === 'GO').map((c) => c.channel.toUpperCase());
@@ -245,12 +266,15 @@ export async function runVerdictAgent(
   const totalSpendDollars = (totalSpend / 100).toFixed(2);
 
   const reasoningParts: string[] = [];
+  reasoningParts.push(
+    `Deterministic aggregate verdict ${aggregateVerdict} (total_score ${dvScoring.total_score}/100, ${dvScoring.market_signal_strength} signal, confidence ${confidence}).`
+  );
   if (goChannels.length) reasoningParts.push(`${goChannels.join(' and ')} returned GO verdicts — ${crossChannelWinner ?? 'angle_A'} was the cross-channel winning angle with the best CTR/CPC ratio.`);
   if (iterChannels.length) reasoningParts.push(`${iterChannels.join(' and ')} returned ITERATE — demand signal exists but messaging needs refinement.`);
   if (nogoChannels.length) reasoningParts.push(`${nogoChannels.join(' and ')} returned NO-GO — no angle resonated above threshold.`);
   reasoningParts.push(`Overall spend-weighted blended CTR was ${weightedCTRPct}% across $${totalSpendDollars} total spend — ${bestChannel ? `scale ${bestChannel.channel.toUpperCase()} first` : 'revisit Genome before scaling'}.`);
 
-  const reasoning = reasoningParts.slice(0, 3).join(' ');
+  const reasoning = reasoningParts.slice(0, 4).join(' ');
 
   return {
     verdict: aggregateVerdict,
@@ -261,5 +285,10 @@ export async function runVerdictAgent(
     cross_channel_winning_angle: crossChannelWinner,
     reasoning,
     recommended_channel: bestChannel?.channel ?? null,
+    demand_validation: {
+      scores: scoreBreakdown,
+      data_completeness_factor: dvScoring.data_completeness_factor,
+      memo,
+    },
   };
 }

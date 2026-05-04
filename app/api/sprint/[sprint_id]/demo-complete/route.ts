@@ -127,7 +127,13 @@ export async function POST(
 
   const landing = buildLanding(sprint);
   const campaign = buildCampaigns(sprint);
-  const verdict = await runVerdictAgent(campaign);
+  const verdict = await runVerdictAgent(campaign, {
+    genome: sprint.genome,
+    angles: sprint.angles,
+    sprint_budget_cents: sprint.budget_cents,
+    sprint_created_at: sprint.created_at,
+    landing_conversion_rate: 0.048,
+  });
   const report = {
     sprint_id,
     pdf_url: null,
