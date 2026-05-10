@@ -13,6 +13,7 @@ import type {
   SpreadsheetAgentOutput,
 } from '@/lib/agents/types';
 import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
+import { MIN_CHANNEL_USD, MAX_CHANNEL_USD, PLATFORM_FEE_USD } from '@/lib/budget';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -21,7 +22,7 @@ const C = {
 };
 
 export type PanelId =
-  | 'accounts' | 'genome' | 'healthgate' | 'angles'
+  | 'accounts' | 'genome' | 'healthgate' | 'budget' | 'angles'
   | 'creative' | 'landing' | 'campaign' | 'verdict' | 'report'
   | 'integrations'
   /** Dedicated containers opened from canvas nodes — not the toolbar integrations overview */
@@ -113,6 +114,7 @@ function Pill({ value }: { value: string }) {
 }
 
 function workflowActionLabel(sprint: SprintRecord): string {
+  if (sprint.state === 'PAYMENT_PENDING') return 'Payment pending';
   if (sprint.state === 'BLOCKED' && sprint.genome?.signal === 'STOP') return 'Override STOP';
   if (sprint.state === 'ANGLES_DONE') return 'Edit Creative Nodes';
   if (sprint.state === 'LANDING_DONE') return 'Open Campaign Gate';
@@ -864,6 +866,13 @@ function CreativePreviewPanel({
   const [drafts, setDrafts] = useState<Record<string, Angle>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [videoBrief, setVideoBrief] = useState<{
+    script_30s: string;
+    hook: string;
+    broll_ideas: string[];
+    spark_ad_notes: string;
+  } | null>(null);
+  const [videoBriefLoading, setVideoBriefLoading] = useState(false);
 
   useEffect(() => {
     const savedSelected = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id;
@@ -1035,6 +1044,62 @@ function CreativePreviewPanel({
         </button>
         {message && <p style={{ margin: 0, color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>{message}</p>}
       </div>
+      {activeChannel === 'tiktok' && sprint && (
+        <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+          <Label>TikTok video brief (VideoCreativeAgent)</Label>
+          <p style={{ fontSize: '0.75rem', color: C.muted, margin: '0 0 10px', lineHeight: 1.45 }}>
+            Generates a 30s script, B-roll ideas, and Spark Ads notes from your TikTok hook using Groq.
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              setVideoBriefLoading(true);
+              try {
+                const res = await fetch(`/api/sprint/${sprint.sprint_id}/video-brief`, { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Brief failed');
+                setVideoBrief((data as { brief: typeof videoBrief }).brief ?? null);
+              } catch (e) {
+                setMessage(e instanceof Error ? e.message : 'Video brief failed');
+              } finally {
+                setVideoBriefLoading(false);
+              }
+            }}
+            disabled={videoBriefLoading}
+            style={{ ...btnPrimary(), width: '100%', background: C.ink, color: '#FFF' }}
+          >
+            {videoBriefLoading ? 'Generating…' : 'Generate TikTok brief'}
+          </button>
+          {videoBrief && (
+            <div style={{ marginTop: 12, fontSize: '0.8125rem', lineHeight: 1.5, color: C.ink }}>
+              <p style={{ margin: '0 0 8px', fontWeight: 800 }}>Hook: {videoBrief.hook}</p>
+              <pre style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{videoBrief.script_30s}</pre>
+              <p style={{ margin: '0 0 4px', fontWeight: 700 }}>B-roll</p>
+              <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                {videoBrief.broll_ideas.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <p style={{ margin: 0, color: C.muted }}>{videoBrief.spark_ad_notes}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    void navigator.clipboard.writeText(
+                      `${videoBrief.hook}\n\n${videoBrief.script_30s}\n\n${videoBrief.broll_ideas.join('\n')}\n\n${videoBrief.spark_ad_notes}`,
+                    );
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                style={{ marginTop: 10, height: 32, padding: '0 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
+              >
+                Copy full brief
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
         <Label>Creative Gate</Label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 12px' }}>
@@ -2925,6 +2990,152 @@ function btnPrimary(): CSSProperties {
   };
 }
 
+function channelSpendBlocked(sprint: SprintRecord, ch: Platform): boolean {
+  return sprint.healthgate?.[ch]?.status === 'BLOCKED';
+}
+
+function BudgetPanel({
+  sprint,
+}: {
+  sprint?: SprintRecord | null;
+}) {
+  const active = sprint?.active_channels ?? [];
+  const [amounts, setAmounts] = useState<Partial<Record<Platform, number>>>({});
+  const [toggled, setToggled] = useState<Partial<Record<Platform, boolean>>>({});
+
+  useEffect(() => {
+    if (!sprint) return;
+    setAmounts((prev) => {
+      const next = { ...prev };
+      for (const ch of active) {
+        if (next[ch] == null) next[ch] = 100;
+      }
+      return next;
+    });
+    setToggled((prev) => {
+      const next = { ...prev };
+      for (const ch of active) {
+        if (next[ch] === undefined) next[ch] = !channelSpendBlocked(sprint, ch);
+      }
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- seed when sprint id / channel list changes only
+  }, [sprint?.sprint_id, active.join(',')]);
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!sprint) {
+    return <p style={{ fontSize: '0.8125rem', color: C.muted }}>Select a sprint.</p>;
+  }
+
+  let adSpend = 0;
+  for (const ch of active) {
+    if (toggled[ch] === false || channelSpendBlocked(sprint, ch)) continue;
+    adSpend += amounts[ch] ?? MIN_CHANNEL_USD;
+  }
+  const totalWithFee = adSpend + PLATFORM_FEE_USD;
+
+  const onPay = async () => {
+    setLoading(true);
+    setError(null);
+    const budgets: Partial<Record<Platform, number>> = {};
+    for (const ch of active) {
+      if (toggled[ch] === false || channelSpendBlocked(sprint, ch)) continue;
+      const usd = amounts[ch] ?? MIN_CHANNEL_USD;
+      if (usd < MIN_CHANNEL_USD || usd > MAX_CHANNEL_USD) {
+        setError(`${ch}: use $${MIN_CHANNEL_USD}–$${MAX_CHANNEL_USD}`);
+        setLoading(false);
+        return;
+      }
+      budgets[ch] = usd;
+    }
+    try {
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budgets }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { checkout_url?: string; error?: string };
+      if (!res.ok) {
+        setError(data.error ?? 'Could not start checkout');
+        setLoading(false);
+        return;
+      }
+      if (data.checkout_url) window.location.href = data.checkout_url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Checkout failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <SectionTitle>Budget & payment</SectionTitle>
+      <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14, lineHeight: 1.45 }}>
+        Allocate at least ${MIN_CHANNEL_USD} per channel. Platform fee ${PLATFORM_FEE_USD} is included in checkout.
+        Payment unlocks AngleAgent — confirmation is server-side via Stripe webhook.
+      </p>
+      <div style={{ ...cardStyle(), marginBottom: 12 }}>
+        {active.map((ch) => {
+          const blocked = channelSpendBlocked(sprint, ch);
+          const on = toggled[ch] !== false && !blocked;
+          return (
+            <div key={ch} style={{ marginBottom: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={blocked}
+                  onChange={(e) => setToggled((prev) => ({ ...prev, [ch]: e.target.checked }))}
+                />
+                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{ch}</span>
+                {blocked && <span style={{ color: C.stop, fontSize: '0.6875rem' }}>BLOCKED (Healthgate)</span>}
+              </label>
+              <input
+                type="range"
+                min={MIN_CHANNEL_USD}
+                max={MAX_CHANNEL_USD}
+                step={5}
+                disabled={!on}
+                value={amounts[ch] ?? MIN_CHANNEL_USD}
+                onChange={(e) => setAmounts((prev) => ({ ...prev, [ch]: Number(e.target.value) }))}
+                style={{ width: '100%' }}
+              />
+              <div style={{ fontSize: '0.75rem', color: C.muted, marginTop: 2 }}>
+                ${amounts[ch] ?? MIN_CHANNEL_USD} ad spend
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, marginTop: 6 }}>
+          <div style={{ fontSize: '0.8125rem', color: C.muted }}>Ad spend subtotal</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 800, color: C.ink }}>${adSpend}</div>
+          <div style={{ fontSize: '0.8125rem', color: C.muted, marginTop: 6 }}>+ Platform fee</div>
+          <div style={{ fontSize: '0.9375rem', fontWeight: 700 }}>${PLATFORM_FEE_USD}</div>
+          <div style={{ fontSize: '0.6875rem', color: C.muted, marginTop: 10 }}>Total charged today</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 900, color: C.ink }}>${totalWithFee}</div>
+        </div>
+        {error && <p style={{ color: C.stop, fontSize: '0.8125rem', marginTop: 10 }}>{error}</p>}
+        <button
+          type="button"
+          onClick={() => void onPay()}
+          disabled={loading || sprint.state !== 'HEALTHGATE_DONE' || adSpend < MIN_CHANNEL_USD}
+          style={{ ...btnPrimary(), width: '100%', marginTop: 12, height: 40 }}
+        >
+          {loading ? 'Redirecting to Stripe…' : 'Proceed to Stripe Checkout'}
+        </button>
+        {sprint.state === 'PAYMENT_PENDING' && (
+          <p style={{ fontSize: '0.75rem', color: C.muted, marginTop: 10 }}>
+            Checkout started — finish payment in Stripe. This sprint advances when the webhook confirms.
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Panel Shell  
 // ════════════════════════════════════════════════════════════════════════════
@@ -2957,6 +3168,8 @@ export function NodePanel({
       ? 820
       : panel === 'integrations_sheet'
         ? 920
+      : panel === 'budget'
+        ? 440
       : isIntegrationSurface
         ? 440
         : 380;
@@ -2966,6 +3179,7 @@ export function NodePanel({
       case 'accounts':   return <AccountsPanel />;
       case 'genome':     return <GenomePanel sprint={sprint} />;
       case 'healthgate': return <HealthgatePanel sprint={sprint} channel={channel} />;
+      case 'budget':     return <BudgetPanel sprint={sprint} />;
       case 'angles':     return <AnglesPanel sprint={sprint} onContinue={onContinueAfterAngles} onSprintPatched={onSprintPatched} workflowRunning={workflowRunning} />;
       case 'creative':   return <CreativePreviewPanel sprint={sprint} channel={channel} creativeDraft={creativeDraft} onCreativeDraftChange={onCreativeDraftChange} onSprintPatched={onSprintPatched} onContinue={onContinueAfterCreatives} workflowRunning={workflowRunning} />;
       case 'landing':    return <LandingPanel sprint={sprint} landingDraft={landingDraft} onLandingDraftChange={onLandingDraftChange} />;

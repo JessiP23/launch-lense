@@ -7,6 +7,7 @@ import { GOOGLE_WORKSPACE_SCOPES } from '@/lib/google/scopes';
 import { requestAppOrigin } from '@/lib/google/public-url';
 import { signOAuthState } from '@/lib/google/oauth-state';
 import { oauthScopeKeyFromSprint } from '@/lib/google/sprint-scope';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 export async function GET(req: NextRequest) {
   const sprintId = req.nextUrl.searchParams.get('sprint_id');
@@ -45,6 +46,11 @@ export async function GET(req: NextRequest) {
   url.searchParams.set('access_type', 'offline');
   url.searchParams.set('prompt', 'consent');
   url.searchParams.set('state', state);
+
+  await captureServerEvent(sprintId, 'oauth_google_initiated', {
+    sprint_id: sprintId,
+    agent: 'workspace',
+  });
 
   return Response.redirect(url.toString(), 302);
 }

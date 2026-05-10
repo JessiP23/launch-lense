@@ -266,6 +266,20 @@ export const HealthgateNode = memo(({ data, selected }: NodeProps<HealthgateNode
 ));
 HealthgateNode.displayName = 'HealthgateNode';
 
+export type BudgetNodeData = { stage: NodeStage };
+export type BudgetNodeType = Node<BudgetNodeData, 'budget'>;
+export const BudgetNode = memo(({ data, selected }: NodeProps<BudgetNodeType>) => (
+  <NodeCard
+    label="Budget & pay"
+    stage={data.stage}
+    selected={!!selected}
+    metric={data.stage === 'running' ? '…' : data.stage === 'done' ? '✓' : '—'}
+    metricLabel="Stripe gate"
+    sublabel={data.stage === 'warn' ? 'Allocate spend' : undefined}
+  />
+));
+BudgetNode.displayName = 'BudgetNode';
+
 export type AnglesNodeData  = { angleCount?: number; archetypes?: string[]; stage: NodeStage };
 export type AnglesNodeType  = Node<AnglesNodeData, 'angles'>;
 export const AnglesNode = memo(({ data, selected }: NodeProps<AnglesNodeType>) => (

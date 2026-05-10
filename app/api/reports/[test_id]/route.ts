@@ -18,6 +18,7 @@ import {
   SprintValidationReportDocument,
   type ReportBenchmarkSnapshot,
 } from '@/lib/reports/sprint-validation-pdf';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 // Register Geist-like font (fallback to Helvetica for reliability)
 Font.register({
@@ -486,6 +487,12 @@ export async function GET(
           stream.on('end', () => controller.close());
           stream.on('error', (err: Error) => controller.error(err));
         },
+      });
+
+      void captureServerEvent(test_id, 'report_downloaded', {
+        sprint_id: test_id,
+        verdict: sprint.verdict?.verdict,
+        format: 'pdf',
       });
 
       return new Response(webStream, {

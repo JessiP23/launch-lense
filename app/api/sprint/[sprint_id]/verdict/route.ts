@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { dispatchVerdict, patchSprint } from '@/lib/sprint-machine';
 import type { Platform, CampaignAgentOutput } from '@/lib/agents/types';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 export async function POST(
   req: NextRequest,
@@ -51,6 +52,18 @@ export async function POST(
       winning_angle: updated.verdict?.cross_channel_winning_angle,
     },
   });
+
+  if (updated.verdict && updated.state === 'COMPLETE') {
+    await captureServerEvent(sprint_id, 'verdict_generated', {
+      sprint_id,
+      verdict: updated.verdict.verdict,
+      confidence_score: updated.verdict.confidence,
+      channels_tested: sprint.active_channels,
+      weighted_ctr: updated.verdict.aggregate_metrics.weighted_blended_ctr,
+      total_spend: updated.verdict.aggregate_metrics.total_spend_cents / 100,
+      winning_angle_archetype: updated.verdict.cross_channel_winning_angle,
+    });
+  }
 
   return Response.json({
     sprint_id,

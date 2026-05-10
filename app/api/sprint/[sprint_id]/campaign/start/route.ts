@@ -7,6 +7,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { dispatchCampaignStart } from '@/lib/sprint-machine';
 import type { Platform, CampaignAgentOutput } from '@/lib/agents/types';
+import { createServiceClient } from '@/lib/supabase';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 export async function POST(
   req: NextRequest,
@@ -29,6 +31,16 @@ export async function POST(
     }
 
     const sprint = await dispatchCampaignStart(sprint_id, campaignData);
+    const db = createServiceClient();
+    const { data: row } = await db.from('sprints').select('active_channels, budget_cents, angles').eq('id', sprint_id).single();
+    await captureServerEvent(sprint_id, 'campaign_launched', {
+      sprint_id,
+      channel: 'multi',
+      budget_usd: (row?.budget_cents ?? 0) / 100,
+      angle_count: Array.isArray((row?.angles as { angles?: unknown[] } | null)?.angles)
+        ? (row!.angles as { angles: unknown[] }).angles.length
+        : 0,
+    });
     return Response.json({ sprint });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'Campaign launch failed' }, { status: 500 });

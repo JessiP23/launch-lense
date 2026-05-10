@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { dispatchGenome } from '@/lib/sprint-machine';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 export async function POST(
   _req: NextRequest,
@@ -48,6 +49,15 @@ export async function POST(
       elapsed_ms: updated.genome?.elapsed_ms,
     },
   });
+
+  if (updated.genome) {
+    await captureServerEvent(sprint_id, 'genome_completed', {
+      sprint_id,
+      composite_score: updated.genome.composite,
+      signal: updated.genome.signal,
+      run_time_seconds: (updated.genome.elapsed_ms ?? 0) / 1000,
+    });
+  }
 
   return Response.json({
     sprint_id,

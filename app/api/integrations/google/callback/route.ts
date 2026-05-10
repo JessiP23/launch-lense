@@ -8,9 +8,25 @@ import { requestAppOrigin } from '@/lib/google/public-url';
 import { verifyOAuthState } from '@/lib/google/oauth-state';
 import { fetchGoogleUserEmail } from '@/lib/google/userinfo';
 import { saveGoogleRefreshToken } from '@/lib/google/token-store';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 function redirect(req: NextRequest, path: string) {
   return Response.redirect(`${requestAppOrigin(req)}${path}`, 302);
+}
+
+/** Prefer /canvas/:sprintId when OAuth state is still present and valid (Google often returns `state` even on error). */
+function canvasIntegrationsPath(
+  stateStr: string | null,
+  stateSecret: string | undefined,
+  querySuffix: string,
+): string {
+  if (stateStr && stateSecret) {
+    const parsed = verifyOAuthState(stateStr, stateSecret);
+    if (parsed?.sprint_id) {
+      return `/canvas/${encodeURIComponent(parsed.sprint_id)}?panel=integrations${querySuffix}`;
+    }
+  }
+  return `/canvas?panel=integrations${querySuffix}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -19,18 +35,31 @@ export async function GET(req: NextRequest) {
   const stateStr = url.searchParams.get('state');
   const oauthErr = url.searchParams.get('error');
 
+  const stateSecret = process.env.GOOGLE_OAUTH_STATE_SECRET;
+
   if (oauthErr) {
-    return redirect(req, `/canvas?panel=integrations&google_error=${encodeURIComponent(oauthErr)}`);
+    return redirect(
+      req,
+      canvasIntegrationsPath(
+        stateStr,
+        stateSecret,
+        `&google_error=${encodeURIComponent(oauthErr)}`,
+      ),
+    );
   }
   if (!code || !stateStr) {
-    return redirect(req, '/canvas?panel=integrations&google_error=missing_params');
+    return redirect(
+      req,
+      canvasIntegrationsPath(stateStr, stateSecret, '&google_error=missing_params'),
+    );
   }
-
-  const stateSecret = process.env.GOOGLE_OAUTH_STATE_SECRET;
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!stateSecret || !clientId || !clientSecret) {
-    return redirect(req, '/canvas?panel=integrations&google_error=oauth_not_configured');
+    return redirect(
+      req,
+      canvasIntegrationsPath(stateStr, stateSecret, '&google_error=oauth_not_configured'),
+    );
   }
 
   const parsed = verifyOAuthState(stateStr, stateSecret);
@@ -108,6 +137,12 @@ export async function GET(req: NextRequest) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', parsed.sprint_id);
+
+  await captureServerEvent(parsed.sprint_id, 'oauth_google_completed', {
+    sprint_id: parsed.sprint_id,
+    agent: 'workspace',
+    success: true,
+  });
 
   return redirect(req, `/canvas/${encodeURIComponent(parsed.sprint_id)}?panel=integrations&google_connected=1`);
 }

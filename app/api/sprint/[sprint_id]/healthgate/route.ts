@@ -10,6 +10,7 @@ import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { dispatchHealthgate } from '@/lib/sprint-machine';
 import type { Platform } from '@/lib/agents/types';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 export async function POST(
   req: NextRequest,
@@ -54,6 +55,18 @@ export async function POST(
       },
     }));
     if (events.length) await db.from('sprint_events').insert(events);
+  }
+
+  if (updated.healthgate) {
+    for (const h of Object.values(updated.healthgate)) {
+      await captureServerEvent(sprint_id, 'healthgate_completed', {
+        sprint_id,
+        channel: h.channel,
+        score: h.score,
+        status: h.status,
+        failing_checks_count: h.checks?.filter((c) => !c.passed).length ?? 0,
+      });
+    }
   }
 
   return Response.json({

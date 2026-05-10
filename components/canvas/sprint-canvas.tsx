@@ -15,18 +15,22 @@ import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode,
   SpreadsheetNode, OutreachNode, SlackNode, SettingsNode,
+  BudgetNode,
 } from './canvas-nodes';
 import { useAppStore } from '@/lib/store';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { captureEvent } from '@/lib/analytics/client';
+import { useSprintRealtime } from '@/lib/use-sprint-realtime';
 
 // ── Node & Edge type registries ──────────────────────────────────────────────
 const NODE_TYPES: NodeTypes = {
   accounts:   AccountsNode,
   genome:     GenomeNode,
   healthgate: HealthgateNode,
+  budget:     BudgetNode,
   angles:     AnglesNode,
   creative:   CreativeNode,
   landing:    LandingNode,
@@ -77,6 +81,10 @@ function canvasWorkflowLogEnabled(): boolean {
   return process.env.NODE_ENV === 'development';
 }
 
+function stripePaymentGateFromEnv(): boolean {
+  return process.env.NEXT_PUBLIC_STRIPE_PAYMENT_GATE === '1' || process.env.NEXT_PUBLIC_STRIPE_PAYMENT_GATE === 'true';
+}
+
 /** Horizontal gap after column `leftW` before column `rightW` — separated enough that each edge reads as its own step. */
 function horizontalGapBetween(leftW: number, rightW: number): number {
   const wideThreshold = Math.min(NODE_SIZE.creative.width, NODE_SIZE.landing.width) - 12;
@@ -89,19 +97,21 @@ function horizontalGapBetween(leftW: number, rightW: number): number {
 }
 
 /** X positions derived from actual column widths so spacing scales with card size (dynamic packing) */
-function computeColumnLeftEdges(): Record<string, number> {
-  const columns = [
+function computeColumnLeftEdges(includeBudget: boolean): Record<string, number> {
+  const columns: [string, number][] = [
     ['accounts', NODE_SIZE.standard.width],
     ['genome', NODE_SIZE.standard.width],
     ['hg', NODE_SIZE.standard.width],
+  ];
+  if (includeBudget) columns.push(['budget', NODE_SIZE.standard.width]);
+  columns.push(
     ['angles', NODE_SIZE.standard.width],
     ['creative', NODE_SIZE.creative.width],
     ['campaign', NODE_SIZE.standard.width],
     ['verdict', NODE_SIZE.standard.width],
     ['landing', NODE_SIZE.landing.width],
     ['report', NODE_SIZE.standard.width],
-    // Integration nodes are positioned separately (floating below the workflow)
-  ] as const;
+  );
 
   let cursor = LAYOUT.left;
   const acc: Record<string, number> = {};
@@ -114,8 +124,6 @@ function computeColumnLeftEdges(): Record<string, number> {
   }
   return acc;
 }
-
-const X = computeColumnLeftEdges();
 
 type CreativeDraft = {
   channel: Platform;
@@ -152,7 +160,7 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState, sprint?: Spri
   if (nodeId === 'accounts') return 'done';
   if (nodeId === 'genome') {
     if (s === 'GENOME_RUNNING') return 'running';
-    if (['GENOME_DONE','HEALTHGATE_RUNNING','HEALTHGATE_DONE','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    if (['GENOME_DONE','HEALTHGATE_RUNNING','HEALTHGATE_DONE','PAYMENT_PENDING','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     if (s === 'BLOCKED') return 'blocked';
     return 'done'; // any non-IDLE state means accounts are done
   }
@@ -160,7 +168,13 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState, sprint?: Spri
     const channel = nodeId.replace('hg-', '') as Platform;
     if (sprint && !sprint.active_channels.includes(channel)) return 'idle';
     if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
-    if (['HEALTHGATE_DONE','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    if (['HEALTHGATE_DONE','PAYMENT_PENDING','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    return 'idle';
+  }
+  if (nodeId === 'budget') {
+    if (s === 'PAYMENT_PENDING') return 'running';
+    if (['ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
+    if (s === 'HEALTHGATE_DONE') return 'warn';
     return 'idle';
   }
   if (nodeId === 'angles') {
@@ -235,7 +249,7 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
   const hasVerdict    = Boolean(sprint?.verdict);
 
   const CAMPAIGN_STATES = ['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'] as SprintState[];
-  const POST_HG = ['HEALTHGATE_DONE','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
+  const POST_HG = ['HEALTHGATE_DONE','PAYMENT_PENDING','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
   const POST_ANGLES = ['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
 
   if (edgeId === 'e-accounts-genome') {
@@ -246,9 +260,20 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
     if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
     if (POST_HG.includes(s) || (s === 'BLOCKED' && hasHealthgate)) return 'done';
   }
+  if (edgeId.startsWith('e-hg-') && edgeId.endsWith('-budget')) {
+    if (POST_HG.includes(s) || (s === 'BLOCKED' && hasHealthgate)) return 'done';
+    if (s === 'HEALTHGATE_RUNNING') return 'running';
+    return 'pending';
+  }
+  if (edgeId === 'e-budget-angles') {
+    if (s === 'PAYMENT_PENDING' || s === 'ANGLES_RUNNING') return 'running';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
+    return 'pending';
+  }
   if (edgeId.startsWith('e-hg-') && edgeId.endsWith('-angles')) {
     if (s === 'ANGLES_RUNNING') return 'running';
     if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
+    return 'pending';
   }
   if (edgeId.startsWith('e-angles-creative-')) {
     if (s === 'ANGLES_RUNNING') return 'running';
@@ -336,6 +361,7 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
       const ok = Boolean(sprint?.report);
       return { visible: ok, reason: ok ? 'blocked+report' : 'blocked: no report blob' };
     }
+    if (nodeId === 'budget') return { visible: false, reason: 'blocked: budget hidden' };
     if (nodeId === 'spreadsheet') {
       const ok = Boolean(sprint?.integrations?.canvas_sheet);
       return { visible: ok, reason: ok ? 'blocked+spreadsheet flag' : 'blocked: canvas_sheet false' };
@@ -352,17 +378,22 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
   }
 
   const healthgateStates: SprintState[] = [
-    'GENOME_DONE', 'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE', 'ANGLES_RUNNING', 'ANGLES_DONE',
+    'GENOME_DONE', 'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING', 'ANGLES_DONE',
     'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
   ];
   const angleStates: SprintState[] = [
-    'HEALTHGATE_DONE', 'ANGLES_RUNNING', 'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE',
+    'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING', 'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE',
     'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
   ];
   const creativeStates: SprintState[] = [
     'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
   ];
 
+  if (nodeId === 'budget') {
+    if (!stripePaymentGateFromEnv()) return { visible: false, reason: 'stripe gate off' };
+    const ok = ['HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING'].includes(s);
+    return { visible: ok, reason: ok ? 'budget: payment gate window' : `budget: hidden in state ${s}` };
+  }
   if (nodeId.startsWith('hg-')) {
     const ok = healthgateStates.includes(s);
     return { visible: ok, reason: ok ? `hg: state ${s} in healthgate window` : `hg: state ${s} before healthgate window` };
@@ -617,6 +648,7 @@ function isWorkflowAutoLayoutNode(id: string): boolean {
     'spreadsheet',
     'outreach',
     'slack',
+    'budget',
   ].includes(id) ||
     id.startsWith('hg-') ||
     id.startsWith('creative-') ||
@@ -696,6 +728,8 @@ function meaningfulNodeChanges(changes: NodeChange[], currentNodes: Node[]) {
 
 // ── Build static node list ───────────────────────────────────────────────────
 function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts, landingDraft: LandingDraft | null): Node[] {
+  const includeBudget = stripePaymentGateFromEnv();
+  const X = computeColumnLeftEdges(includeBudget);
   const s  = sprint?.state;
   const g  = sprint?.genome;
   const hg = sprint?.healthgate;
@@ -720,6 +754,15 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
       id: `hg-${ch}`, type: 'healthgate', position: { x: X.hg, y: layout.laneTop(i) },
       data: { channel: ch, score: hg?.[ch]?.score, status: hg?.[ch]?.status, stage: sprintStageFor(`hg-${ch}`, s, sprint) },
     })),
+
+    ...(includeBudget
+      ? [{
+          id: 'budget',
+          type: 'budget',
+          position: { x: X.budget, y: layout.standardTop },
+          data: { stage: sprintStageFor('budget', s, sprint) },
+        }]
+      : []),
 
     // Angles
     { id: 'angles', type: 'angles', position: { x: X.angles, y: layout.standardTop },
@@ -824,9 +867,39 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   return resolveNodeOverlaps(raw.filter((node) => isNodeDiscovered(node.id, sprint)));
 }
 
-function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): Edge[] {
+function buildEdges(
+  sprint: SprintRecord | null,
+  visibleNodeIds: Set<string> | undefined,
+  insertBudget: boolean,
+): Edge[] {
   const s = sprint?.state;
   const activeChannels = activeChannelsFor(sprint);
+
+  const hgEdges: Edge[] = insertBudget
+    ? activeChannels.map((ch) => ({
+        id: `e-hg-${ch}-budget`,
+        type: 'pipeline' as const,
+        source: `hg-${ch}`,
+        target: 'budget',
+        data: { state: channelEdgeState(`e-hg-${ch}-budget`, ch, sprint, 'pending') },
+      }))
+    : activeChannels.map((ch) => ({
+        id: `e-hg-${ch}-angles`,
+        type: 'pipeline' as const,
+        source: `hg-${ch}`,
+        target: 'angles',
+        data: { state: channelEdgeState(`e-hg-${ch}-angles`, ch, sprint, 'pending') },
+      }));
+
+  const budgetBridge: Edge[] = insertBudget
+    ? [{
+        id: 'e-budget-angles',
+        type: 'pipeline' as const,
+        source: 'budget',
+        target: 'angles',
+        data: { state: edgeStageFor('e-budget-angles', s, sprint) },
+      }]
+    : [];
 
   const edges: Edge[] = [
     { id: 'e-accounts-genome', type: 'pipeline', source: 'accounts', target: 'genome', data: { state: edgeStageFor('e-accounts-genome', s, sprint) } },
@@ -834,10 +907,8 @@ function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): 
       id: `e-genome-hg-${ch}`, type: 'pipeline', source: 'genome', target: `hg-${ch}`,
       data: { state: channelEdgeState(`e-genome-hg-${ch}`, ch, sprint, 'pending') },
     })),
-    ...activeChannels.map((ch) => ({
-      id: `e-hg-${ch}-angles`, type: 'pipeline', source: `hg-${ch}`, target: 'angles',
-      data: { state: channelEdgeState(`e-hg-${ch}-angles`, ch, sprint, 'pending') },
-    })),
+    ...hgEdges,
+    ...budgetBridge,
     ...activeChannels.map((ch) => ({
       id: `e-angles-creative-${ch}`, type: 'pipeline', source: 'angles', target: `creative-${ch}`,
       data: { state: channelEdgeState(`e-angles-creative-${ch}`, ch, sprint, 'pending') },
@@ -852,7 +923,6 @@ function buildEdges(sprint: SprintRecord | null, visibleNodeIds?: Set<string>): 
     })),
     { id: 'e-verdict-landing', type: 'pipeline', source: 'verdict', target: 'landing', data: { state: edgeStageFor('e-verdict-landing', s, sprint) } },
     { id: 'e-verdict-report', type: 'pipeline', source: 'verdict', target: 'report', data: { state: edgeStageFor('e-verdict-report', s, sprint) } },
-    // Integration nodes are floating/disconnected — no edges link them
   ];
   const filtered = visibleNodeIds
     ? edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
@@ -1086,10 +1156,11 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
 // ── Sprint state label ───────────────────────────────────────────────────────
 function StateLabel({ state }: { state?: SprintState }) {
   if (!state || state === 'IDLE') return null;
-  const running = ['GENOME_RUNNING','HEALTHGATE_RUNNING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(state);
+  const running = ['GENOME_RUNNING','HEALTHGATE_RUNNING','PAYMENT_PENDING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(state);
   const label: Record<string, string> = {
     GENOME_RUNNING: 'GenomeAgent running…', GENOME_DONE: 'Genome complete',
     HEALTHGATE_RUNNING: 'HealthgateAgent running…', HEALTHGATE_DONE: 'Healthgate complete',
+    PAYMENT_PENDING: 'Awaiting Stripe payment…',
     ANGLES_RUNNING: 'AngleAgent running…', ANGLES_DONE: 'Angles generated',
     LANDING_RUNNING: 'Landing page generating…', LANDING_DONE: 'Landing page ready',
     CAMPAIGN_RUNNING: 'Campaigns launching…', CAMPAIGN_MONITORING: 'Monitoring campaigns…',
@@ -1224,7 +1295,10 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
 
   const visibleNodeIds = useMemo(() => new Set(baseNodes.map((node) => node.id)), [baseNodes]);
-  const edges = useMemo(() => buildEdges(sprintData, visibleNodeIds), [sprintData, visibleNodeIds]);
+  const edges = useMemo(
+    () => buildEdges(sprintData, visibleNodeIds, stripePaymentGateFromEnv()),
+    [sprintData, visibleNodeIds],
+  );
 
   useEffect(() => {
     setNodes((current) => mergeCanvasNodes(current, baseNodes));
@@ -1233,8 +1307,8 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   // Re-fit only when the visible node count changes (new nodes discovered).
   // Use two rAF ticks so React Flow has applied layout before we read bounding boxes.
   useEffect(() => {
-    let frame1: number, frame2: number;
-    frame1 = window.requestAnimationFrame(() => {
+    let frame2 = 0;
+    const frame1 = window.requestAnimationFrame(() => {
       frame2 = window.requestAnimationFrame(() => {
         void fitView({ padding: 0.22, maxZoom: 1.8, duration: 320 });
       });
@@ -1347,19 +1421,100 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (activeSprint) loadSprintDetail(activeSprint);
   }, [activeSprint, loadSprintDetail]);
 
+  const paymentReturn = searchParams.get('payment');
+  useEffect(() => {
+    if (!paymentReturn || !activeSprint) return;
+
+    // Clean the URL immediately so a refresh doesn't re-trigger
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('payment');
+      window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+    }
+
+    captureEvent('canvas_payment_return', { sprint_id: activeSprint, payment: paymentReturn });
+
+    if (paymentReturn === 'success') {
+      // Attempt to advance the sprint via our fallback endpoint.
+      // This confirms payment directly with Stripe so the sprint progresses
+      // even if the webhook was slow, duplicated, or had a transient failure.
+      (async () => {
+        try {
+          const res = await fetch(`/api/sprint/${encodeURIComponent(activeSprint)}/advance-after-payment`, {
+            method: 'POST',
+          });
+          const json = await res.json() as { state?: string; advanced?: boolean };
+          if (json.advanced) {
+            await loadSprintDetail(activeSprint);
+          } else {
+            // Webhook may have already advanced it — reload to sync
+            await loadSprintDetail(activeSprint);
+          }
+        } catch {
+          // Non-fatal — Realtime / polling will catch the state change
+          void loadSprintDetail(activeSprint);
+        }
+      })();
+    } else {
+      void loadSprintDetail(activeSprint);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentReturn, activeSprint]);
+
   useEffect(() => {
     setCreativeDrafts({});
     setLandingDraft(null);
   }, [activeSprint]);
 
-  // ── Poll active sprint ───────────────────────────────────────────────────
+  // ── Supabase Realtime — primary live update path ──────────────────────────
+  // When the sprint row is updated server-side (any agent write), we get the
+  // full new row via Postgres changes and re-normalise it directly into state.
+  // No round-trip fetch required. `isLive` drives whether we also keep a
+  // slower polling fallback running.
+  const { isLive: realtimeLive } = useSprintRealtime(
+    activeSprint,
+    useCallback(
+      (raw) => {
+        const normalized = normalizeSprint(raw as RawSprintRecord);
+        if (!normalized) return;
+        setSprintData((prev) => {
+          if (!prev) return normalized;
+          // Never regress state from an optimistic local advance
+          const order: SprintState[] = [
+            'IDLE', 'GENOME_RUNNING', 'GENOME_DONE',
+            'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE',
+            'PAYMENT_PENDING',
+            'ANGLES_RUNNING', 'ANGLES_DONE',
+            'LANDING_RUNNING', 'LANDING_DONE',
+            'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+            'VERDICT_GENERATING', 'COMPLETE',
+          ];
+          const prevIdx = order.indexOf(prev.state);
+          const nextIdx = order.indexOf(normalized.state);
+          const state = prevIdx > nextIdx ? prev.state : normalized.state;
+          return { ...normalized, state };
+        });
+      },
+      [],
+    ),
+  );
+
+  // ── Polling fallback (only when Realtime is not subscribed) ──────────────
+  // Keeps the canvas alive during Vercel cold starts or Supabase Realtime
+  // connectivity gaps. Once Realtime takes over this interval does nothing
+  // because `realtimeLive` becomes true.
   useEffect(() => {
     if (!activeSprint) return;
-    const running = sprintData?.state && ['GENOME_RUNNING','HEALTHGATE_RUNNING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(sprintData.state);
+    if (realtimeLive) return; // Realtime is active — no need to poll
+    const running =
+      sprintData?.state &&
+      ['GENOME_RUNNING','HEALTHGATE_RUNNING','PAYMENT_PENDING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(
+        sprintData.state,
+      );
     if (!running) return;
     const interval = setInterval(() => loadSprintDetail(activeSprint), 8000);
     return () => clearInterval(interval);
-  }, [activeSprint, sprintData?.state, loadSprintDetail]);
+  }, [activeSprint, sprintData?.state, loadSprintDetail, realtimeLive]);
 
   // ── Node click handler ───────────────────────────────────────────────────
   const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
@@ -1370,6 +1525,13 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (id.startsWith('hg-')) {
       setActivePanel('healthgate');
       setPanelChannel(id.replace('hg-', ''));
+      captureEvent('canvas_node_clicked', { sprint_id: sprintData?.sprint_id, node_id: id, node_type: 'healthgate', node_status: sprintData?.state });
+      return;
+    }
+    if (id === 'budget') {
+      setActivePanel('budget');
+      setPanelChannel(undefined);
+      captureEvent('canvas_node_clicked', { sprint_id: sprintData?.sprint_id, node_id: id, node_type: 'budget', node_status: sprintData?.state });
       return;
     }
     if (id === 'angles')     { setActivePanel('angles');     setPanelChannel(undefined); return; }
@@ -1403,7 +1565,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     }
     if (id === 'benchmarks') { setActivePanel('benchmarks'); setPanelChannel(undefined); return; }
     if (id === 'settings')   { setActivePanel('settings');   setPanelChannel(undefined); return; }
-  }, []);
+  }, [sprintData?.sprint_id, sprintData?.state]);
 
   const runSprintPipeline = useCallback(async (id: string, options: { overrideStop?: boolean; continueAfterAngles?: boolean } = {}) => {
     setPipelineError(null);
@@ -1450,6 +1612,12 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       }
 
       if (current.state === 'HEALTHGATE_DONE') {
+        const payRes = await fetch(`/api/sprint/${id}/payment-status`);
+        const pay = payRes.ok ? await payRes.json() : { gate_enabled: false, completed: true };
+        if (pay.gate_enabled && !pay.completed) {
+          setActivePanel('budget');
+          return;
+        }
         setActivePanel('angles');
         setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'ANGLES_RUNNING' } : prev);
         await wait(450);
@@ -1458,6 +1626,25 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         current = await loadSprintDetail(id);
         if (!current || current.state === 'BLOCKED') return;
         setActivePanel('angles');
+        return;
+      }
+
+      if (current.state === 'PAYMENT_PENDING') {
+        setActivePanel('budget');
+        const payRes = await fetch(`/api/sprint/${id}/payment-status`);
+        const pay = payRes.ok ? await payRes.json() : { completed: false };
+        if (pay.completed) {
+          current = await loadSprintDetail(id);
+          if (current?.state === 'ANGLES_DONE') {
+            setActivePanel('angles');
+            return;
+          }
+          if (current?.state === 'ANGLES_RUNNING') {
+            setActivePanel('angles');
+            return;
+          }
+        }
+        setPipelineError('Finish payment in Stripe, or wait for confirmation. This page polls automatically.');
         return;
       }
 
@@ -1508,6 +1695,12 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   }, [loadSprintDetail]);
 
   const handleCreated = (sprint: SprintRecord) => {
+    captureEvent('sprint_created', {
+      sprint_id: sprint.sprint_id,
+      idea_length_chars: sprint.idea?.length ?? 0,
+      genome_enabled: true,
+      channels_selected: sprint.active_channels,
+    });
     setSprints((prev) => [{ id: sprint.sprint_id, name: sprint.idea, status: 'idle' }, ...prev]);
     setActiveSprint(sprint.sprint_id);
     setSprintData(sprint);
@@ -1538,6 +1731,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       const order: SprintState[] = [
         'IDLE', 'GENOME_RUNNING', 'GENOME_DONE',
         'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE',
+        'PAYMENT_PENDING',
         'ANGLES_RUNNING', 'ANGLES_DONE',
         'LANDING_RUNNING', 'LANDING_DONE',
         'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
@@ -1646,7 +1840,24 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
         {sprintData?.state && (
           <Panel position="bottom-center" style={{ marginBottom: 16 }}>
-            <StateLabel state={sprintData.state} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <StateLabel state={sprintData.state} />
+              {realtimeLive && (
+                <div
+                  title="Live via Supabase Realtime"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '5px 10px',
+                    background: '#FFFFFF', border: '1px solid #E8E4DC',
+                    borderRadius: 99, fontSize: '0.6875rem', fontWeight: 600, color: '#16A34A',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A' }} className="animate-pulse" />
+                  Live
+                </div>
+              )}
+            </div>
           </Panel>
         )}
 

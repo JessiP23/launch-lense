@@ -14,6 +14,8 @@ import type {
   Platform,
   CampaignAgentOutput,
 } from '@/lib/agents/types';
+import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
+import { hasCompletedPayment } from '@/lib/payments/db';
 
 // ── State helpers ──────────────────────────────────────────────────────────
 
@@ -114,7 +116,29 @@ export async function dispatchHealthgate(
 
 // ── Step 3: Run AngleAgent ─────────────────────────────────────────────────
 
-export async function dispatchAngles(sprint_id: string): Promise<SprintRecord> {
+export async function dispatchAngles(
+  sprint_id: string,
+  opts?: { bypassPaymentCheck?: boolean },
+): Promise<SprintRecord> {
+  const pre = await getSprint(sprint_id);
+  if (!pre) throw new Error(`Sprint ${sprint_id} not found`);
+
+  if (pre.state === 'ANGLES_RUNNING' || pre.state === 'ANGLES_DONE') {
+    return pre;
+  }
+
+  if (isStripePaymentGateEnabled() && !opts?.bypassPaymentCheck) {
+    const paid = await hasCompletedPayment(sprint_id);
+    if (!paid) {
+      throw new Error('Payment required before running angles');
+    }
+    if (!['HEALTHGATE_DONE', 'PAYMENT_PENDING'].includes(pre.state)) {
+      throw new Error(`Cannot run AngleAgent from state ${pre.state}`);
+    }
+  } else if (!isStripePaymentGateEnabled() && pre.state !== 'HEALTHGATE_DONE') {
+    throw new Error(`Cannot run AngleAgent from state ${pre.state}`);
+  }
+
   await transitionState(sprint_id, 'ANGLES_RUNNING');
 
   const sprint = await getSprint(sprint_id);

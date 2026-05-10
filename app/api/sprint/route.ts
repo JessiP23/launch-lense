@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import type { Platform } from '@/lib/agents/types';
+import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 const ALL_CHANNELS: Platform[] = ['meta', 'google', 'linkedin', 'tiktok'];
 
@@ -52,6 +53,13 @@ export async function POST(request: NextRequest) {
       agent: 'orchestrator',
       event_type: 'created',
       payload: { idea: idea.trim(), channels: active_channels, budget_cents },
+    });
+
+    await captureServerEvent(data.id, 'sprint_created', {
+      sprint_id: data.id,
+      idea_length_chars: idea.trim().length,
+      genome_enabled: true,
+      channels_selected: active_channels,
     });
 
     return Response.json({ sprint_id: data.id, ...data }, { status: 201 });

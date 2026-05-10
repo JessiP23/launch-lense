@@ -8,6 +8,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { dispatchAngles } from '@/lib/sprint-machine';
+import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
+import { hasCompletedPayment } from '@/lib/payments/db';
 
 export async function POST(
   _req: NextRequest,
@@ -18,8 +20,18 @@ export async function POST(
 
   const { data: sprint } = await db.from('sprints').select('*').eq('id', sprint_id).single();
   if (!sprint) return Response.json({ error: 'Sprint not found' }, { status: 404 });
-  if (sprint.state !== 'HEALTHGATE_DONE') {
-    return Response.json({ error: `Sprint is in ${sprint.state} — Healthgate must complete first` }, { status: 409 });
+  if (!['HEALTHGATE_DONE', 'PAYMENT_PENDING'].includes(sprint.state)) {
+    return Response.json(
+      { error: `Sprint is in ${sprint.state} — Healthgate (or payment) must complete first` },
+      { status: 409 },
+    );
+  }
+
+  if (isStripePaymentGateEnabled()) {
+    const paid = await hasCompletedPayment(sprint_id);
+    if (!paid) {
+      return Response.json({ error: 'Payment required', code: 'payment_required' }, { status: 402 });
+    }
   }
 
   await db.from('sprint_events').insert({
