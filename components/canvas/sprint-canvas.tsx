@@ -314,13 +314,39 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
   return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
 }
 
-/** States where the main pipeline tail (landing → campaign → verdict → report) should stay on-canvas together with creatives. */
-const PIPELINE_TAIL_VISIBLE: SprintState[] = [
+// ── Strict per-stage node revelation ─────────────────────────────────────────
+// Nodes are ONLY shown once the workflow has entered that stage.
+// No "upcoming preview" nodes — this prevents the post-payment node explosion.
+
+/** Creative nodes appear as soon as angles are done (they ARE the angle output). */
+const CREATIVE_VISIBLE: SprintState[] = [
   'ANGLES_DONE',
   'LANDING_RUNNING', 'LANDING_DONE',
   'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
   'VERDICT_GENERATING', 'COMPLETE',
 ];
+
+/** Landing page node: only visible once landing actually starts. */
+const LANDING_VISIBLE: SprintState[] = [
+  'LANDING_RUNNING', 'LANDING_DONE',
+  'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+  'VERDICT_GENERATING', 'COMPLETE',
+];
+
+/** Campaign nodes: only visible once campaign starts. */
+const CAMPAIGN_VISIBLE: SprintState[] = [
+  'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+  'VERDICT_GENERATING', 'COMPLETE',
+];
+
+/** Verdict node: only visible once verdict is being generated. */
+const VERDICT_VISIBLE: SprintState[] = ['VERDICT_GENERATING', 'COMPLETE'];
+
+/** Report / post-sprint nodes: only after sprint is fully complete. */
+const REPORT_VISIBLE: SprintState[] = ['COMPLETE'];
+
+/** Keep PIPELINE_TAIL_VISIBLE for edge state helpers that still reference it. */
+const PIPELINE_TAIL_VISIBLE: SprintState[] = CREATIVE_VISIBLE;
 
 type NodeDiscovery = { visible: boolean; reason: string };
 
@@ -385,10 +411,6 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
     'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING', 'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE',
     'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
   ];
-  const creativeStates: SprintState[] = [
-    'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
-  ];
-
   if (nodeId === 'budget') {
     if (!stripePaymentGateFromEnv()) return { visible: false, reason: 'stripe gate off' };
     const ok = ['HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING'].includes(s);
@@ -403,62 +425,54 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
     return { visible: ok, reason: ok ? `angles: state ${s} ok` : `angles: state ${s} before angle window` };
   }
   if (nodeId.startsWith('creative-')) {
-    const ok = creativeStates.includes(s);
-    return { visible: ok, reason: ok ? `creative: state ${s} in creative window` : `creative: state ${s} before ANGLES_DONE` };
+    const ok = CREATIVE_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `creative: state ${s} in CREATIVE_VISIBLE` : `creative: hidden — workflow not yet at ANGLES_DONE (current: ${s})` };
   }
   if (nodeId === 'landing') {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    const ok = LANDING_VISIBLE.includes(s);
     return {
       visible: ok,
-      reason: ok ? `landing: state ${s} in PIPELINE_TAIL (ANGLES_DONE+)` : `landing: state ${s} not in tail (${PIPELINE_TAIL_VISIBLE.join(', ')})`,
+      reason: ok ? `landing: state ${s} in LANDING_VISIBLE` : `landing: hidden — workflow not yet at LANDING_RUNNING (current: ${s})`,
     };
   }
   if (nodeId.startsWith('campaign-')) {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    const ok = CAMPAIGN_VISIBLE.includes(s);
     return {
       visible: ok,
-      reason: ok ? `campaign: state ${s} in PIPELINE_TAIL` : `campaign: state ${s} not in PIPELINE_TAIL`,
+      reason: ok ? `campaign: state ${s} in CAMPAIGN_VISIBLE` : `campaign: hidden — workflow not yet at CAMPAIGN_RUNNING (current: ${s})`,
     };
   }
   if (nodeId === 'verdict') {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
-    return { visible: ok, reason: ok ? `verdict: state ${s} in PIPELINE_TAIL` : `verdict: state ${s} not in PIPELINE_TAIL` };
+    const ok = VERDICT_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `verdict: state ${s}` : `verdict: hidden — workflow not yet at VERDICT_GENERATING (current: ${s})` };
   }
   if (nodeId === 'report') {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
-    return { visible: ok, reason: ok ? `report: state ${s} in PIPELINE_TAIL` : `report: state ${s} not in PIPELINE_TAIL` };
+    const ok = REPORT_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `report: COMPLETE` : `report: hidden — workflow not yet COMPLETE (current: ${s})` };
   }
 
   if (nodeId === 'spreadsheet') {
     const flag = Boolean(sprint?.integrations?.canvas_sheet);
-    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
+    const complete = REPORT_VISIBLE.includes(s);
     if (!flag) {
-      return {
-        visible: false,
-        reason: 'spreadsheet: not in graph — integrations.canvas_sheet is false (enable sheet on canvas / slot)',
-      };
+      return { visible: false, reason: 'spreadsheet: integrations.canvas_sheet is false' };
     }
-    if (!tail) {
-      return {
-        visible: false,
-        reason: `spreadsheet: canvas_sheet true but state ${s} before PIPELINE_TAIL (need ANGLES_DONE+); integration node still filtered`,
-      };
+    if (!complete) {
+      return { visible: false, reason: `spreadsheet: hidden — sprint not yet COMPLETE (current: ${s})` };
     }
-    return { visible: true, reason: 'spreadsheet: canvas_sheet + PIPELINE_TAIL state' };
+    return { visible: true, reason: 'spreadsheet: COMPLETE + canvas_sheet flag' };
   }
   if (nodeId === 'outreach') {
     const flag = Boolean(sprint?.integrations?.canvas_outreach);
-    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
-    if (!flag) return { visible: false, reason: 'outreach: canvas_outreach false — node never added to candidates' };
-    if (!tail) return { visible: false, reason: `outreach: state ${s} before PIPELINE_TAIL` };
-    return { visible: true, reason: 'outreach: flag + tail' };
+    if (!flag) return { visible: false, reason: 'outreach: canvas_outreach false' };
+    if (!REPORT_VISIBLE.includes(s)) return { visible: false, reason: `outreach: hidden — sprint not yet COMPLETE (current: ${s})` };
+    return { visible: true, reason: 'outreach: COMPLETE + flag' };
   }
   if (nodeId === 'slack') {
     const flag = Boolean(sprint?.integrations?.canvas_slack);
-    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
     if (!flag) return { visible: false, reason: 'slack: canvas_slack false' };
-    if (!tail) return { visible: false, reason: `slack: state ${s} before PIPELINE_TAIL` };
-    return { visible: true, reason: 'slack: flag + tail' };
+    if (!REPORT_VISIBLE.includes(s)) return { visible: false, reason: `slack: hidden — sprint not yet COMPLETE (current: ${s})` };
+    return { visible: true, reason: 'slack: COMPLETE + flag' };
   }
 
   return { visible: false, reason: `unclassified node id: ${nodeId}` };
@@ -1458,8 +1472,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     } else {
       void loadSprintDetail(activeSprint);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentReturn, activeSprint]);
+  }, [paymentReturn, activeSprint, loadSprintDetail]);
 
   useEffect(() => {
     setCreativeDrafts({});
