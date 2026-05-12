@@ -191,3 +191,206 @@ export async function deleteMetaObject(
 ) {
   return metaFetch(`/${objectId}`, accessToken, { method: 'DELETE' });
 }
+
+// ── Managed account helpers ───────────────────────────────────────────────
+// LaunchLense-owned system user token — never expose to client.
+
+export function getSystemToken(): string {
+  const token = process.env.SYSTEM_META_ACCESS_TOKEN;
+  if (!token) throw new Error('SYSTEM_META_ACCESS_TOKEN not configured');
+  return token;
+}
+
+export function getSystemAdAccountId(): string {
+  const id = process.env.SYSTEM_META_AD_ACCOUNT_ID;
+  if (!id) throw new Error('SYSTEM_META_AD_ACCOUNT_ID not configured');
+  return id;
+}
+
+export function getSystemPageId(): string {
+  const id = process.env.SYSTEM_META_PAGE_ID;
+  if (!id) throw new Error('SYSTEM_META_PAGE_ID not configured');
+  return id;
+}
+
+export function getSystemPixelId(): string {
+  const id = process.env.SYSTEM_META_PIXEL_ID ?? '';
+  return id;
+}
+
+// ── Adset-level insights ──────────────────────────────────────────────────
+
+export interface AdsetInsights {
+  adset_id: string;
+  adset_name: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;              // decimal (0.01 = 1%)
+  cpc_cents: number;        // cost per click in USD cents
+  spend_cents: number;      // total spend in USD cents
+  actions: Record<string, number>; // e.g. { lead: 2, link_click: 15 }
+  date_start: string;
+  date_stop: string;
+}
+
+export async function getAdsetInsights(
+  adsetId: string,
+  accessToken: string,
+  dateRange?: { since: string; until: string }
+): Promise<AdsetInsights | null> {
+  try {
+    const fields = 'adset_id,adset_name,impressions,clicks,ctr,cpc,spend,actions';
+    const timeRange = dateRange
+      ? `&time_range={"since":"${dateRange.since}","until":"${dateRange.until}"}`
+      : '';
+    const raw = await metaFetch<{
+      data?: Array<{
+        adset_id: string;
+        adset_name: string;
+        impressions?: string;
+        clicks?: string;
+        ctr?: string;
+        cpc?: string;
+        spend?: string;
+        actions?: Array<{ action_type: string; value: string }>;
+        date_start: string;
+        date_stop: string;
+      }>;
+    }>(
+      `/${adsetId}/insights?fields=${fields}${timeRange}&level=adset`,
+      accessToken
+    );
+
+    const row = raw.data?.[0];
+    if (!row) return null;
+
+    const actions: Record<string, number> = {};
+    for (const a of row.actions ?? []) {
+      actions[a.action_type] = parseFloat(a.value);
+    }
+
+    const spendUsd = parseFloat(row.spend ?? '0');
+    const clicks = parseInt(row.clicks ?? '0', 10);
+    const impressions = parseInt(row.impressions ?? '0', 10);
+    const cpc = parseFloat(row.cpc ?? '0');
+
+    return {
+      adset_id: row.adset_id ?? adsetId,
+      adset_name: row.adset_name ?? '',
+      impressions,
+      clicks,
+      ctr: parseFloat(row.ctr ?? '0') / 100,  // Meta returns ctr as percent string
+      cpc_cents: Math.round(cpc * 100),
+      spend_cents: Math.round(spendUsd * 100),
+      actions,
+      date_start: row.date_start ?? '',
+      date_stop: row.date_stop ?? '',
+    };
+  } catch (err) {
+    console.error(`[getAdsetInsights] adset ${adsetId}:`, err);
+    return null;
+  }
+}
+
+export async function getMultiAdsetInsights(
+  adsetIds: string[],
+  accessToken: string,
+  dateRange?: { since: string; until: string }
+): Promise<AdsetInsights[]> {
+  const results = await Promise.allSettled(
+    adsetIds.map((id) => getAdsetInsights(id, accessToken, dateRange))
+  );
+  return results
+    .filter((r): r is PromiseFulfilledResult<AdsetInsights> => r.status === 'fulfilled' && r.value !== null)
+    .map((r) => r.value);
+}
+
+// ── Budget reallocation ───────────────────────────────────────────────────
+
+/** Update the daily budget cap for an adset (in USD cents). */
+export async function updateAdsetDailyBudget(
+  adsetId: string,
+  accessToken: string,
+  dailyBudgetCents: number
+): Promise<void> {
+  await metaFetch(`/${adsetId}`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ daily_budget: dailyBudgetCents }),
+  });
+}
+
+/** Pause a specific adset — used to stop underperforming angles. */
+export async function pauseAdset(adsetId: string, accessToken: string): Promise<void> {
+  await metaFetch(`/${adsetId}`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ status: 'PAUSED' }),
+  });
+}
+
+/** Activate a paused adset. */
+export async function activateAdset(adsetId: string, accessToken: string): Promise<void> {
+  await metaFetch(`/${adsetId}`, accessToken, {
+    method: 'POST',
+    body: JSON.stringify({ status: 'ACTIVE' }),
+  });
+}
+
+// ── Full per-angle metrics fetch for a sprint campaign ────────────────────
+
+export interface AngleCampaignMetrics {
+  angle_id: 'angle_A' | 'angle_B' | 'angle_C';
+  adset_id: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpc_cents: number;
+  spend_cents: number;
+  leads: number;
+  status: 'ACTIVE' | 'PAUSED' | 'UNDERPERFORM';
+}
+
+/** Decision thresholds — tune these as signal data accumulates. */
+const CTR_PAUSE_THRESHOLD = 0.003;          // pause if CTR < 0.3% after 500 impressions
+const IMPRESSION_MIN_FOR_PAUSE = 500;        // don't pause before minimum exposure
+
+export async function fetchAndEvaluateAngles(
+  angleAdsetMap: Record<'angle_A' | 'angle_B' | 'angle_C', string>,
+  accessToken: string,
+  autoActions = false
+): Promise<AngleCampaignMetrics[]> {
+  const ids = Object.entries(angleAdsetMap) as [
+    'angle_A' | 'angle_B' | 'angle_C',
+    string,
+  ][];
+  const insights = await getMultiAdsetInsights(ids.map(([, id]) => id), accessToken);
+  const insightMap = new Map(insights.map((i) => [i.adset_id, i]));
+
+  const results: AngleCampaignMetrics[] = [];
+
+  for (const [angleId, adsetId] of ids) {
+    const insight = insightMap.get(adsetId);
+    const impressions = insight?.impressions ?? 0;
+    const clicks = insight?.clicks ?? 0;
+    const ctr = insight?.ctr ?? 0;
+    const cpc_cents = insight?.cpc_cents ?? 0;
+    const spend_cents = insight?.spend_cents ?? 0;
+    const leads = insight?.actions['lead'] ?? insight?.actions['offsite_conversion.lead'] ?? 0;
+
+    let status: AngleCampaignMetrics['status'] = 'ACTIVE';
+    if (impressions >= IMPRESSION_MIN_FOR_PAUSE && ctr < CTR_PAUSE_THRESHOLD) {
+      status = 'UNDERPERFORM';
+      if (autoActions) {
+        try {
+          await pauseAdset(adsetId, accessToken);
+          console.log(`[meta] Paused underperforming adset ${adsetId} (CTR ${(ctr * 100).toFixed(2)}%)`);
+        } catch (err) {
+          console.warn(`[meta] Failed to pause adset ${adsetId}:`, err);
+        }
+      }
+    }
+
+    results.push({ angle_id: angleId, adset_id: adsetId, impressions, clicks, ctr, cpc_cents, spend_cents, leads, status });
+  }
+
+  return results;
+}

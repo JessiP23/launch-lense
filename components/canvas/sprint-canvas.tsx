@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant, applyNodeChanges,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
@@ -17,7 +17,6 @@ import {
   SpreadsheetNode, OutreachNode, SlackNode, SettingsNode,
   BudgetNode,
 } from './canvas-nodes';
-import { useAppStore } from '@/lib/store';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
@@ -98,10 +97,10 @@ function horizontalGapBetween(leftW: number, rightW: number): number {
 
 /** X positions derived from actual column widths so spacing scales with card size (dynamic packing) */
 function computeColumnLeftEdges(includeBudget: boolean): Record<string, number> {
+  // v9: managed-account architecture — healthgate lane removed from default path
   const columns: [string, number][] = [
     ['accounts', NODE_SIZE.standard.width],
     ['genome', NODE_SIZE.standard.width],
-    ['hg', NODE_SIZE.standard.width],
   ];
   if (includeBudget) columns.push(['budget', NODE_SIZE.standard.width]);
   columns.push(
@@ -160,21 +159,14 @@ function sprintStageFor(nodeId: string, sprintState?: SprintState, sprint?: Spri
   if (nodeId === 'accounts') return 'done';
   if (nodeId === 'genome') {
     if (s === 'GENOME_RUNNING') return 'running';
-    if (['GENOME_DONE','HEALTHGATE_RUNNING','HEALTHGATE_DONE','PAYMENT_PENDING','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
     if (s === 'BLOCKED') return 'blocked';
-    return 'done'; // any non-IDLE state means accounts are done
-  }
-  if (nodeId.startsWith('hg-')) {
-    const channel = nodeId.replace('hg-', '') as Platform;
-    if (sprint && !sprint.active_channels.includes(channel)) return 'idle';
-    if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
-    if (['HEALTHGATE_DONE','PAYMENT_PENDING','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
-    return 'idle';
+    return 'done'; // any non-IDLE, non-BLOCKED state means genome is done
   }
   if (nodeId === 'budget') {
     if (s === 'PAYMENT_PENDING') return 'running';
     if (['ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'].includes(s)) return 'done';
-    if (s === 'HEALTHGATE_DONE') return 'warn';
+    // GENOME_DONE or legacy HEALTHGATE_DONE both unlock budget selection
+    if (s === 'GENOME_DONE' || s === 'HEALTHGATE_DONE') return 'warn';
     return 'idle';
   }
   if (nodeId === 'angles') {
@@ -243,35 +235,30 @@ function edgeStageFor(edgeId: string, sprintState?: SprintState, sprint?: Sprint
   const s = sprintState;
 
   // For BLOCKED, treat completed stages as done based on persisted data
-  const hasHealthgate = Boolean(sprint?.healthgate);
-  const hasAngles     = Boolean(sprint?.angles);
-  const hasCampaign   = Boolean(sprint?.campaign);
-  const hasVerdict    = Boolean(sprint?.verdict);
+  const hasAngles   = Boolean(sprint?.angles);
+  const hasCampaign = Boolean(sprint?.campaign);
+  const hasVerdict  = Boolean(sprint?.verdict);
 
   const CAMPAIGN_STATES = ['CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING','COMPLETE'] as SprintState[];
-  const POST_HG = ['HEALTHGATE_DONE','PAYMENT_PENDING','ANGLES_RUNNING','ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
   const POST_ANGLES = ['ANGLES_DONE','LANDING_RUNNING','LANDING_DONE',...CAMPAIGN_STATES] as SprintState[];
 
   if (edgeId === 'e-accounts-genome') {
     if (s === 'GENOME_RUNNING') return 'running';
     return 'done';
   }
-  if (edgeId.startsWith('e-genome-hg-')) {
-    if (s === 'GENOME_DONE' || s === 'HEALTHGATE_RUNNING') return 'running';
-    if (POST_HG.includes(s) || (s === 'BLOCKED' && hasHealthgate)) return 'done';
+  // v9 managed path: genome connects directly to budget or angles — no healthgate
+  if (edgeId === 'e-genome-budget') {
+    if (s === 'GENOME_DONE' || s === 'PAYMENT_PENDING' || s === 'ANGLES_RUNNING') return 'running';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
+    return 'pending';
   }
-  if (edgeId.startsWith('e-hg-') && edgeId.endsWith('-budget')) {
-    if (POST_HG.includes(s) || (s === 'BLOCKED' && hasHealthgate)) return 'done';
-    if (s === 'HEALTHGATE_RUNNING') return 'running';
+  if (edgeId === 'e-genome-angles') {
+    if (s === 'GENOME_DONE' || s === 'ANGLES_RUNNING') return 'running';
+    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
     return 'pending';
   }
   if (edgeId === 'e-budget-angles') {
     if (s === 'PAYMENT_PENDING' || s === 'ANGLES_RUNNING') return 'running';
-    if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
-    return 'pending';
-  }
-  if (edgeId.startsWith('e-hg-') && edgeId.endsWith('-angles')) {
-    if (s === 'ANGLES_RUNNING') return 'running';
     if (POST_ANGLES.includes(s) || (s === 'BLOCKED' && hasAngles)) return 'done';
     return 'pending';
   }
@@ -314,13 +301,39 @@ function activeChannelsFor(sprint: SprintRecord | null): Platform[] {
   return sprint?.active_channels?.length ? sprint.active_channels : [...CHANNELS];
 }
 
-/** States where the main pipeline tail (landing → campaign → verdict → report) should stay on-canvas together with creatives. */
-const PIPELINE_TAIL_VISIBLE: SprintState[] = [
+// ── Strict per-stage node revelation ─────────────────────────────────────────
+// Nodes are ONLY shown once the workflow has entered that stage.
+// No "upcoming preview" nodes — this prevents the post-payment node explosion.
+
+/** Creative nodes appear as soon as angles are done (they ARE the angle output). */
+const CREATIVE_VISIBLE: SprintState[] = [
   'ANGLES_DONE',
   'LANDING_RUNNING', 'LANDING_DONE',
   'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
   'VERDICT_GENERATING', 'COMPLETE',
 ];
+
+/** Landing page node: only visible once landing actually starts. */
+const LANDING_VISIBLE: SprintState[] = [
+  'LANDING_RUNNING', 'LANDING_DONE',
+  'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+  'VERDICT_GENERATING', 'COMPLETE',
+];
+
+/** Campaign nodes: only visible once campaign starts. */
+const CAMPAIGN_VISIBLE: SprintState[] = [
+  'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+  'VERDICT_GENERATING', 'COMPLETE',
+];
+
+/** Verdict node: only visible once verdict is being generated. */
+const VERDICT_VISIBLE: SprintState[] = ['VERDICT_GENERATING', 'COMPLETE'];
+
+/** Report / post-sprint nodes: only after sprint is fully complete. */
+const REPORT_VISIBLE: SprintState[] = ['COMPLETE'];
+
+/** Keep PIPELINE_TAIL_VISIBLE for edge state helpers that still reference it. */
+const PIPELINE_TAIL_VISIBLE: SprintState[] = CREATIVE_VISIBLE;
 
 type NodeDiscovery = { visible: boolean; reason: string };
 
@@ -333,10 +346,6 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
 
   if (nodeId === 'genome') return { visible: true, reason: 'genome: always once past IDLE' };
   if (s === 'BLOCKED') {
-    if (nodeId.startsWith('hg-')) {
-      const ok = Boolean(sprint?.healthgate);
-      return { visible: ok, reason: ok ? 'blocked+healthgate: show hg' : 'blocked: no healthgate blob yet' };
-    }
     if (nodeId === 'angles') {
       const ok = Boolean(sprint?.angles);
       return { visible: ok, reason: ok ? 'blocked+angles' : 'blocked: no angles blob' };
@@ -377,88 +386,70 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
     return { visible: false, reason: 'blocked: unhandled node id' };
   }
 
-  const healthgateStates: SprintState[] = [
-    'GENOME_DONE', 'HEALTHGATE_RUNNING', 'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING', 'ANGLES_DONE',
+  // v9: angles appear as soon as genome clears — no healthgate wait
+  const angleStates: SprintState[] = [
+    'GENOME_DONE', 'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING', 'ANGLES_DONE',
     'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
   ];
-  const angleStates: SprintState[] = [
-    'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING', 'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE',
-    'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
-  ];
-  const creativeStates: SprintState[] = [
-    'ANGLES_DONE', 'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING', 'VERDICT_GENERATING', 'COMPLETE',
-  ];
-
   if (nodeId === 'budget') {
     if (!stripePaymentGateFromEnv()) return { visible: false, reason: 'stripe gate off' };
-    const ok = ['HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING'].includes(s);
+    // Budget unlocks right after genome (or legacy healthgate) clears
+    const ok = ['GENOME_DONE', 'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING'].includes(s);
     return { visible: ok, reason: ok ? 'budget: payment gate window' : `budget: hidden in state ${s}` };
-  }
-  if (nodeId.startsWith('hg-')) {
-    const ok = healthgateStates.includes(s);
-    return { visible: ok, reason: ok ? `hg: state ${s} in healthgate window` : `hg: state ${s} before healthgate window` };
   }
   if (nodeId === 'angles') {
     const ok = angleStates.includes(s);
     return { visible: ok, reason: ok ? `angles: state ${s} ok` : `angles: state ${s} before angle window` };
   }
   if (nodeId.startsWith('creative-')) {
-    const ok = creativeStates.includes(s);
-    return { visible: ok, reason: ok ? `creative: state ${s} in creative window` : `creative: state ${s} before ANGLES_DONE` };
+    const ok = CREATIVE_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `creative: state ${s} in CREATIVE_VISIBLE` : `creative: hidden — workflow not yet at ANGLES_DONE (current: ${s})` };
   }
   if (nodeId === 'landing') {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    const ok = LANDING_VISIBLE.includes(s);
     return {
       visible: ok,
-      reason: ok ? `landing: state ${s} in PIPELINE_TAIL (ANGLES_DONE+)` : `landing: state ${s} not in tail (${PIPELINE_TAIL_VISIBLE.join(', ')})`,
+      reason: ok ? `landing: state ${s} in LANDING_VISIBLE` : `landing: hidden — workflow not yet at LANDING_RUNNING (current: ${s})`,
     };
   }
   if (nodeId.startsWith('campaign-')) {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
+    const ok = CAMPAIGN_VISIBLE.includes(s);
     return {
       visible: ok,
-      reason: ok ? `campaign: state ${s} in PIPELINE_TAIL` : `campaign: state ${s} not in PIPELINE_TAIL`,
+      reason: ok ? `campaign: state ${s} in CAMPAIGN_VISIBLE` : `campaign: hidden — workflow not yet at CAMPAIGN_RUNNING (current: ${s})`,
     };
   }
   if (nodeId === 'verdict') {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
-    return { visible: ok, reason: ok ? `verdict: state ${s} in PIPELINE_TAIL` : `verdict: state ${s} not in PIPELINE_TAIL` };
+    const ok = VERDICT_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `verdict: state ${s}` : `verdict: hidden — workflow not yet at VERDICT_GENERATING (current: ${s})` };
   }
   if (nodeId === 'report') {
-    const ok = PIPELINE_TAIL_VISIBLE.includes(s);
-    return { visible: ok, reason: ok ? `report: state ${s} in PIPELINE_TAIL` : `report: state ${s} not in PIPELINE_TAIL` };
+    const ok = REPORT_VISIBLE.includes(s);
+    return { visible: ok, reason: ok ? `report: COMPLETE` : `report: hidden — workflow not yet COMPLETE (current: ${s})` };
   }
 
   if (nodeId === 'spreadsheet') {
     const flag = Boolean(sprint?.integrations?.canvas_sheet);
-    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
+    const complete = REPORT_VISIBLE.includes(s);
     if (!flag) {
-      return {
-        visible: false,
-        reason: 'spreadsheet: not in graph — integrations.canvas_sheet is false (enable sheet on canvas / slot)',
-      };
+      return { visible: false, reason: 'spreadsheet: integrations.canvas_sheet is false' };
     }
-    if (!tail) {
-      return {
-        visible: false,
-        reason: `spreadsheet: canvas_sheet true but state ${s} before PIPELINE_TAIL (need ANGLES_DONE+); integration node still filtered`,
-      };
+    if (!complete) {
+      return { visible: false, reason: `spreadsheet: hidden — sprint not yet COMPLETE (current: ${s})` };
     }
-    return { visible: true, reason: 'spreadsheet: canvas_sheet + PIPELINE_TAIL state' };
+    return { visible: true, reason: 'spreadsheet: COMPLETE + canvas_sheet flag' };
   }
   if (nodeId === 'outreach') {
     const flag = Boolean(sprint?.integrations?.canvas_outreach);
-    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
-    if (!flag) return { visible: false, reason: 'outreach: canvas_outreach false — node never added to candidates' };
-    if (!tail) return { visible: false, reason: `outreach: state ${s} before PIPELINE_TAIL` };
-    return { visible: true, reason: 'outreach: flag + tail' };
+    if (!flag) return { visible: false, reason: 'outreach: canvas_outreach false' };
+    if (!REPORT_VISIBLE.includes(s)) return { visible: false, reason: `outreach: hidden — sprint not yet COMPLETE (current: ${s})` };
+    return { visible: true, reason: 'outreach: COMPLETE + flag' };
   }
   if (nodeId === 'slack') {
     const flag = Boolean(sprint?.integrations?.canvas_slack);
-    const tail = PIPELINE_TAIL_VISIBLE.includes(s);
     if (!flag) return { visible: false, reason: 'slack: canvas_slack false' };
-    if (!tail) return { visible: false, reason: `slack: state ${s} before PIPELINE_TAIL` };
-    return { visible: true, reason: 'slack: flag + tail' };
+    if (!REPORT_VISIBLE.includes(s)) return { visible: false, reason: `slack: hidden — sprint not yet COMPLETE (current: ${s})` };
+    return { visible: true, reason: 'slack: COMPLETE + flag' };
   }
 
   return { visible: false, reason: `unclassified node id: ${nodeId}` };
@@ -650,7 +641,6 @@ function isWorkflowAutoLayoutNode(id: string): boolean {
     'slack',
     'budget',
   ].includes(id) ||
-    id.startsWith('hg-') ||
     id.startsWith('creative-') ||
     id.startsWith('campaign-');
 }
@@ -732,7 +722,6 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   const X = computeColumnLeftEdges(includeBudget);
   const s  = sprint?.state;
   const g  = sprint?.genome;
-  const hg = sprint?.healthgate;
   const a  = sprint?.angles;
   const c  = sprint?.campaign;
   const v  = sprint?.verdict;
@@ -741,19 +730,13 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
   const layout = buildLayout(activeChannels.length);
 
   const raw: Node[] = [
-    // Accounts
+    // Accounts — LaunchLense managed platforms (always ready, no user OAuth needed)
     { id: 'accounts', type: 'accounts', position: { x: X.accounts, y: layout.standardTop },
-      data: { connectedCount: 0, stage: sprintStageFor('accounts', s, sprint) } },
+      data: { connectedCount: activeChannels.length, managed: true, stage: sprintStageFor('accounts', s, sprint) } },
 
     // Genome
     { id: 'genome', type: 'genome', position: { x: X.genome, y: layout.standardTop },
       data: { composite: g?.composite, signal: g?.signal, stage: sprintStageFor('genome', s, sprint) } },
-
-    // Healthgate per selected channel
-    ...activeChannels.map((ch, i) => ({
-      id: `hg-${ch}`, type: 'healthgate', position: { x: X.hg, y: layout.laneTop(i) },
-      data: { channel: ch, score: hg?.[ch]?.score, status: hg?.[ch]?.status, stage: sprintStageFor(`hg-${ch}`, s, sprint) },
-    })),
 
     ...(includeBudget
       ? [{
@@ -875,21 +858,22 @@ function buildEdges(
   const s = sprint?.state;
   const activeChannels = activeChannelsFor(sprint);
 
-  const hgEdges: Edge[] = insertBudget
-    ? activeChannels.map((ch) => ({
-        id: `e-hg-${ch}-budget`,
+  // v9 managed path: genome connects directly to budget (if payment gate) or straight to angles
+  const genomeForward: Edge[] = insertBudget
+    ? [{
+        id: 'e-genome-budget',
         type: 'pipeline' as const,
-        source: `hg-${ch}`,
+        source: 'genome',
         target: 'budget',
-        data: { state: channelEdgeState(`e-hg-${ch}-budget`, ch, sprint, 'pending') },
-      }))
-    : activeChannels.map((ch) => ({
-        id: `e-hg-${ch}-angles`,
+        data: { state: edgeStageFor('e-genome-budget', s, sprint) },
+      }]
+    : [{
+        id: 'e-genome-angles',
         type: 'pipeline' as const,
-        source: `hg-${ch}`,
+        source: 'genome',
         target: 'angles',
-        data: { state: channelEdgeState(`e-hg-${ch}-angles`, ch, sprint, 'pending') },
-      }));
+        data: { state: edgeStageFor('e-genome-angles', s, sprint) },
+      }];
 
   const budgetBridge: Edge[] = insertBudget
     ? [{
@@ -903,11 +887,7 @@ function buildEdges(
 
   const edges: Edge[] = [
     { id: 'e-accounts-genome', type: 'pipeline', source: 'accounts', target: 'genome', data: { state: edgeStageFor('e-accounts-genome', s, sprint) } },
-    ...activeChannels.map((ch) => ({
-      id: `e-genome-hg-${ch}`, type: 'pipeline', source: 'genome', target: `hg-${ch}`,
-      data: { state: channelEdgeState(`e-genome-hg-${ch}`, ch, sprint, 'pending') },
-    })),
-    ...hgEdges,
+    ...genomeForward,
     ...budgetBridge,
     ...activeChannels.map((ch) => ({
       id: `e-angles-creative-${ch}`, type: 'pipeline', source: 'angles', target: `creative-${ch}`,
@@ -980,52 +960,6 @@ function normalizeSprint(raw: RawSprintRecord | null): SprintRecord | null {
   } as SprintRecord;
 }
 
-const DEMO_HEALTHGATE_DATA: Record<Platform, Record<string, unknown>> = {
-  meta: {
-    account_status: 'ACTIVE',
-    balance: 50000,
-    disapproved_90d: 0,
-    funding_source: true,
-    policy_violations: 0,
-    pixel_active: true,
-    two_factor_enabled: true,
-    domain_verified: 'VERIFIED',
-    page_quality: 0.82,
-  },
-  google: {
-    account_status: 'ENABLED',
-    past_due_invoices: false,
-    policy_violations: 0,
-    payment_method: true,
-    conversion_tracking_active: true,
-    search_network: true,
-    account_age_days: 45,
-    landing_page_policy: true,
-    quality_score: 5,
-  },
-  linkedin: {
-    account_status: 'ACTIVE',
-    failed_payments: false,
-    restricted_ads_90d: 0,
-    payment_method: true,
-    insight_tag_active: true,
-    company_page_verified: true,
-    review_status: 'CLEAR',
-    sponsored_content_access: true,
-    projected_audience: 1200,
-  },
-  tiktok: {
-    account_status: 'APPROVED',
-    failed_charges: false,
-    rejected_creatives_90d: 0,
-    pixel_active: true,
-    identity_verified: true,
-    business_center_access: true,
-    region_eligible: true,
-    content_category_status: 'APPROVED',
-    flag_count: 0,
-  },
-};
 
 async function readApiError(res: Response, fallback: string): Promise<string> {
   const text = await res.text().catch(() => '');
@@ -1156,10 +1090,9 @@ function NewSprintModal({ onClose, onCreated }: { onClose: () => void; onCreated
 // ── Sprint state label ───────────────────────────────────────────────────────
 function StateLabel({ state }: { state?: SprintState }) {
   if (!state || state === 'IDLE') return null;
-  const running = ['GENOME_RUNNING','HEALTHGATE_RUNNING','PAYMENT_PENDING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(state);
+  const running = ['GENOME_RUNNING','PAYMENT_PENDING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(state);
   const label: Record<string, string> = {
     GENOME_RUNNING: 'GenomeAgent running…', GENOME_DONE: 'Genome complete',
-    HEALTHGATE_RUNNING: 'HealthgateAgent running…', HEALTHGATE_DONE: 'Healthgate complete',
     PAYMENT_PENDING: 'Awaiting Stripe payment…',
     ANGLES_RUNNING: 'AngleAgent running…', ANGLES_DONE: 'Angles generated',
     LANDING_RUNNING: 'Landing page generating…', LANDING_DONE: 'Landing page ready',
@@ -1177,9 +1110,9 @@ function StateLabel({ state }: { state?: SprintState }) {
 
 function AgentRunPanel({ state }: { state?: SprintState }) {
   if (!state) return null;
+  // v9: 5-step progress bar — Healthgate removed from managed-account path
   const steps: { state: SprintState; label: string }[] = [
     { state: 'GENOME_RUNNING', label: 'Genome' },
-    { state: 'HEALTHGATE_RUNNING', label: 'Healthgate' },
     { state: 'ANGLES_RUNNING', label: 'Angles' },
     { state: 'LANDING_RUNNING', label: 'Landing' },
     { state: 'CAMPAIGN_RUNNING', label: 'Campaign' },
@@ -1226,7 +1159,6 @@ interface CanvasProps {
 
 function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const { fitView } = useReactFlow();
-  const { connectedPlatforms } = useAppStore();
   const nodeTypes = useMemo(() => NODE_TYPES, []);
   const edgeTypes = useMemo(() => EDGE_TYPES, []);
 
@@ -1285,13 +1217,11 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
 
   const baseNodes = useMemo(() => {
     const built = buildNodes(sprintData, creativeDrafts, landingDraft);
-    if (!built[0]) return built;
-    built[0] = { ...built[0], data: { ...built[0].data, connectedCount: connectedPlatforms.length } };
     return built.map((node) => {
       const position = nodePositions[node.id];
       return position && !isWorkflowAutoLayoutNode(node.id) ? { ...node, position } : node;
     });
-  }, [sprintData, creativeDrafts, landingDraft, connectedPlatforms.length, nodePositions]);
+  }, [sprintData, creativeDrafts, landingDraft, nodePositions]);
   const [nodes, setNodes] = useState<Node[]>(() => baseNodes);
 
   const visibleNodeIds = useMemo(() => new Set(baseNodes.map((node) => node.id)), [baseNodes]);
@@ -1458,8 +1388,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     } else {
       void loadSprintDetail(activeSprint);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentReturn, activeSprint]);
+  }, [paymentReturn, activeSprint, loadSprintDetail]);
 
   useEffect(() => {
     setCreativeDrafts({});
@@ -1499,6 +1428,37 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     ),
   );
 
+  // ── Auto-advance pipeline on Realtime state transitions ──────────────────
+  // Each /run call executes one stage. When Realtime signals a transition to
+  // GENOME_DONE or HEALTHGATE_DONE, we auto-call /run again for the next stage.
+  // This keeps each function call under 10s (Vercel Hobby compatible).
+  const prevStateRef = useRef<SprintState | undefined>(undefined);
+  useEffect(() => {
+    const state = sprintData?.state;
+    const id = sprintData?.sprint_id;
+    if (!state || !id || state === prevStateRef.current) return;
+    prevStateRef.current = state;
+
+    // Update active panel to match server state
+    if (state === 'GENOME_RUNNING')     setActivePanel('genome');
+    if (state === 'HEALTHGATE_RUNNING') setActivePanel('genome');
+    if (state === 'ANGLES_RUNNING')     setActivePanel('angles');
+    if (state === 'PAYMENT_PENDING')    { setActivePanel('budget'); setPipelineRunning(false); }
+    if (state === 'ANGLES_DONE') {
+      setActivePanel('angles');
+      setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
+      setPipelineRunning(false);
+    }
+    if (state === 'BLOCKED')  setPipelineRunning(false);
+    if (state === 'COMPLETE') setPipelineRunning(false);
+
+    // Auto-continue: trigger next stage when intermediate states land
+    if (state === 'GENOME_DONE' || state === 'HEALTHGATE_DONE') {
+      fetch(`/api/sprint/${id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .catch((err) => console.warn('[canvas] auto-continue /run failed:', err));
+    }
+  }, [sprintData?.state, sprintData?.sprint_id, sprintData?.active_channels]);
+
   // ── Polling fallback (only when Realtime is not subscribed) ──────────────
   // Keeps the canvas alive during Vercel cold starts or Supabase Realtime
   // connectivity gaps. Once Realtime takes over this interval does nothing
@@ -1508,7 +1468,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (realtimeLive) return; // Realtime is active — no need to poll
     const running =
       sprintData?.state &&
-      ['GENOME_RUNNING','HEALTHGATE_RUNNING','PAYMENT_PENDING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(
+      ['GENOME_RUNNING','PAYMENT_PENDING','ANGLES_RUNNING','LANDING_RUNNING','CAMPAIGN_RUNNING','CAMPAIGN_MONITORING','VERDICT_GENERATING'].includes(
         sprintData.state,
       );
     if (!running) return;
@@ -1522,12 +1482,6 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     const id = node.id;
     if (id === 'accounts')   { setActivePanel('accounts');   setPanelChannel(undefined); return; }
     if (id === 'genome')     { setActivePanel('genome');     setPanelChannel(undefined); return; }
-    if (id.startsWith('hg-')) {
-      setActivePanel('healthgate');
-      setPanelChannel(id.replace('hg-', ''));
-      captureEvent('canvas_node_clicked', { sprint_id: sprintData?.sprint_id, node_id: id, node_type: 'healthgate', node_status: sprintData?.state });
-      return;
-    }
     if (id === 'budget') {
       setActivePanel('budget');
       setPanelChannel(undefined);
@@ -1574,6 +1528,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       let current = await loadSprintDetail(id);
       if (!current) throw new Error('Sprint could not be loaded');
 
+      // Handle override-stop for BLOCKED sprints
       if (current.state === 'BLOCKED') {
         if (!options.overrideStop || !current.genome) {
           throw new Error(current.blocked_reason ?? 'Sprint is blocked');
@@ -1584,84 +1539,48 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         if (!current) throw new Error('Sprint could not be loaded after override');
       }
 
-      if (current.state === 'IDLE') {
-        setActivePanel('genome');
-        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'GENOME_RUNNING' } : prev);
-        await wait(450);
-        const res = await fetch(`/api/sprint/${id}/genome`, { method: 'POST' });
-        if (!res.ok) throw new Error(await readApiError(res, 'Genome failed'));
-        current = await loadSprintDetail(id);
-        if (!current || current.state === 'BLOCKED') return;
-      }
-
-      if (current.state === 'GENOME_DONE') {
-        setActivePanel('healthgate');
-        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'HEALTHGATE_RUNNING' } : prev);
-        await wait(450);
-        const selectedChannelData = Object.fromEntries(
-          current.active_channels.map((channel) => [channel, DEMO_HEALTHGATE_DATA[channel]])
-        );
-        const res = await fetch(`/api/sprint/${id}/healthgate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channel_data: selectedChannelData }),
-        });
-        if (!res.ok) throw new Error(await readApiError(res, 'Healthgate failed'));
-        current = await loadSprintDetail(id);
-        if (!current || current.state === 'BLOCKED') return;
-      }
-
-      if (current.state === 'HEALTHGATE_DONE') {
-        const payRes = await fetch(`/api/sprint/${id}/payment-status`);
-        const pay = payRes.ok ? await payRes.json() : { gate_enabled: false, completed: true };
-        if (pay.gate_enabled && !pay.completed) {
-          setActivePanel('budget');
-          return;
-        }
-        setActivePanel('angles');
-        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'ANGLES_RUNNING' } : prev);
-        await wait(450);
-        const res = await fetch(`/api/sprint/${id}/angles`, { method: 'POST' });
-        if (!res.ok) throw new Error(await readApiError(res, 'Angles failed'));
-        current = await loadSprintDetail(id);
-        if (!current || current.state === 'BLOCKED') return;
-        setActivePanel('angles');
-        return;
-      }
-
+      // Handle payment gate — cannot auto-advance
       if (current.state === 'PAYMENT_PENDING') {
         setActivePanel('budget');
         const payRes = await fetch(`/api/sprint/${id}/payment-status`);
         const pay = payRes.ok ? await payRes.json() : { completed: false };
-        if (pay.completed) {
-          current = await loadSprintDetail(id);
-          if (current?.state === 'ANGLES_DONE') {
-            setActivePanel('angles');
-            return;
-          }
-          if (current?.state === 'ANGLES_RUNNING') {
-            setActivePanel('angles');
-            return;
-          }
+        if (!pay.completed) {
+          setPipelineError('Finish payment in Stripe, or wait for confirmation. This page polls automatically.');
+          return;
         }
-        setPipelineError('Finish payment in Stripe, or wait for confirmation. This page polls automatically.');
-        return;
+        current = await loadSprintDetail(id);
       }
 
+      if (!current) throw new Error('Sprint could not be loaded');
+
+      // Terminal display states — just navigate the UI panel
       if (current.state === 'ANGLES_DONE') {
         setActivePanel(options.continueAfterAngles ? 'creative' : 'angles');
         setPanelChannel(current.active_channels?.[0] ?? 'meta');
         return;
       }
-
-      if (current.state === 'LANDING_RUNNING') {
-        setActivePanel('landing');
+      if (current.state === 'LANDING_RUNNING') { setActivePanel('landing'); return; }
+      if (current.state === 'LANDING_DONE') {
+        setActivePanel('campaign');
+        setPipelineError('Landing page is deployed. Campaign launch is the next gated step.');
         return;
       }
 
-      if (current.state === 'LANDING_DONE') {
-        setActivePanel('campaign');
-        setPipelineError('Landing page is deployed. Campaign launch is the next gated step; verdict generation will wait for live spend or the 48-hour window.');
+      // ── Server-orchestrated pipeline ────────────────────────────────────
+      // Single call to /run — server drives Genome → Healthgate → Angles.
+      // Canvas observes state transitions via Supabase Realtime subscription.
+      // The Realtime handler below (useSprintRealtime) updates sprintData & panels.
+      if (['IDLE', 'GENOME_DONE', 'GENOME_RUNNING', 'HEALTHGATE_DONE', 'HEALTHGATE_RUNNING'].includes(current.state)) {
+        setActivePanel('genome');
+        const res = await fetch(`/api/sprint/${id}/run`, { method: 'POST' });
+        if (res.status === 402) { setActivePanel('budget'); return; }
+        if (res.status === 409) {
+          // Already running or in terminal state — load latest
+          current = await loadSprintDetail(id);
+        } else if (!res.ok) {
+          throw new Error(await readApiError(res, 'Pipeline start failed'));
+        }
+        // Realtime subscription drives the rest — no sequential polling needed
         return;
       }
     } catch (err) {

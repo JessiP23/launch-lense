@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { dispatchAngles } from '@/lib/sprint-machine';
 import { stripeEventProcessed, markStripeEventProcessed } from '@/lib/payments/db';
-import { captureServerEvent } from '@/lib/analytics/server-posthog';
+import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import { requireStripe } from '@/lib/stripe-server';
 import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
 import type { Platform } from '@/lib/agents/types';
@@ -155,12 +155,14 @@ export async function POST(req: NextRequest) {
     });
 
   // ── 5. PostHog analytics ─────────────────────────────────────────────────
-  const amountUsd = session.amount_total != null ? session.amount_total / 100 : null;
-  captureServerEvent(sprintId, 'payment_completed', {
-    sprint_id: sprintId,
-    amount_usd: amountUsd,
+  const amountTotal = session.amount_total ?? 0;
+  const adSpendFee = adSpendCents;
+  const platformFee = amountTotal - adSpendFee;
+  emitSprintEvent(sprintId, SprintEventName.PaymentCompleted, {
     stripe_session_id: session.id,
-    channels_paid_for: channels ?? [],
+    total_amount_cents: amountTotal,
+    ad_spend_cents: adSpendFee,
+    platform_fee_cents: platformFee,
   }).catch((e) => console.warn('[stripe webhook] posthog:', String(e)));
 
   // ── 6. Mark event processed so retries are de-duped ──────────────────────
