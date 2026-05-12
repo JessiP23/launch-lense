@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/nextjs';
 import { LANDING_EASE } from '@/components/landing/motion-variants';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -18,6 +19,7 @@ const navLinks = [
 export function LandingNavbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isSignedIn } = useAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY >= 24);
@@ -70,6 +72,48 @@ export function LandingNavbar() {
               </a>
             ))}
           </nav>
+
+          {/* Desktop auth buttons */}
+          <div className="hidden items-center gap-3 md:flex">
+            {isSignedIn ? (
+              <>
+                <Link
+                  href="/canvas"
+                  className="flex h-8 items-center rounded-full bg-[var(--color-ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-80"
+                >
+                  Dashboard
+                </Link>
+                <UserButton />
+              </>
+            ) : (
+              <>
+                <SignInButton mode="redirect">
+                  <button className="text-[14px] text-[var(--color-muted)] transition-colors hover:text-[var(--color-ink)]">
+                    Sign in
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="redirect">
+                  <button className="flex h-8 items-center rounded-full bg-[var(--color-ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-80">
+                    Start free
+                  </button>
+                </SignUpButton>
+              </>
+            )}
+          </div>
+
+          {/* Mobile menu toggle */}
+          <button
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--color-faint)] md:hidden"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+          >
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect y="0" width="16" height="1.5" rx="0.75" fill="currentColor" />
+              <rect y="5.25" width="16" height="1.5" rx="0.75" fill="currentColor" />
+              <rect y="10.5" width="16" height="1.5" rx="0.75" fill="currentColor" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -118,20 +162,39 @@ export function LandingNavbar() {
                 ))}
               </div>
               <div className="mt-auto flex flex-col gap-3 border-t border-[var(--color-border)] pt-6">
-                <Link
-                  href="/canvas?panel=accounts"
-                  className="rounded-lg px-4 py-3 text-[16px] text-[var(--color-muted)]"
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Sign in
-                </Link>
-                <Link
-                  href="/canvas?new=1"
-                  className="flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] text-[15px] font-semibold text-white"
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Start free
-                </Link>
+                {isSignedIn ? (
+                  <>
+                    <Link
+                      href="/canvas"
+                      className="flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] text-[15px] font-semibold text-white"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      Dashboard
+                    </Link>
+                    <div className="flex justify-center">
+                      <UserButton />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <SignInButton mode="redirect">
+                      <button
+                        className="rounded-lg px-4 py-3 text-[16px] text-[var(--color-muted)]"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        Sign in
+                      </button>
+                    </SignInButton>
+                    <SignUpButton mode="redirect">
+                      <button
+                        className="flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] text-[15px] font-semibold text-white"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        Start free
+                      </button>
+                    </SignUpButton>
+                  </>
+                )}
               </div>
             </motion.nav>
           </motion.div>

@@ -18,7 +18,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/canvas"
+      signUpFallbackRedirectUrl="/canvas"
+      afterSignOutUrl="/"
+    >
       <html lang="en" className="h-full antialiased">
         <body className="min-h-full flex flex-col bg-[#FAFAF8] text-[#111110]">
           <PosthogProvider>{children}</PosthogProvider>

@@ -10,7 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
-      router.replace('/');
+      router.replace('/sign-in');
     }
   }, [isLoaded, isSignedIn, router]);
 
