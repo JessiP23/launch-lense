@@ -124,9 +124,72 @@ async function runAnglesStage(
 // ── Main pipeline runner ───────────────────────────────────────────────────
 
 /**
- * Advance a sprint from its current state as far as possible.
- * Stops at BLOCKED, PAYMENT_PENDING, ANGLES_DONE, or terminal states.
- * Safe to call from after() — all errors are caught and persisted to the DB.
+ * Run exactly ONE pipeline stage based on the sprint's current state.
+ * This is the Hobby-safe entry point — each call fits within the 10s limit.
+ *
+ * IDLE             → GenomeAgent
+ * GENOME_DONE      → HealthgateAgent
+ * HEALTHGATE_DONE  → AngleAgent
+ * Anything else    → no-op, returns current state
+ */
+export async function runNextStage(
+  sprint_id: string,
+  currentState: SprintState,
+  opts: OrchestratorOptions = {}
+): Promise<OrchestratorResult> {
+  const db = createServiceClient();
+
+  try {
+    if (currentState === 'IDLE') {
+      const updated = await runGenomeStage(sprint_id);
+      return {
+        sprint_id,
+        final_state: updated.state as SprintState,
+        stages_run: ['genome'],
+        blocked_reason: updated.blocked_reason ?? undefined,
+      };
+    }
+
+    if (currentState === 'GENOME_DONE') {
+      const updated = await runHealthgateStage(sprint_id, opts.channelData ?? {});
+      return {
+        sprint_id,
+        final_state: updated.state as SprintState,
+        stages_run: ['healthgate'],
+        blocked_reason: updated.blocked_reason ?? undefined,
+      };
+    }
+
+    if (currentState === 'HEALTHGATE_DONE') {
+      const updated = await runAnglesStage(sprint_id, { bypassPaymentCheck: opts.bypassPaymentCheck });
+      return {
+        sprint_id,
+        final_state: updated.state as SprintState,
+        stages_run: ['angles'],
+        blocked_reason: updated.blocked_reason ?? undefined,
+      };
+    }
+
+    // No actionable stage for this state
+    return { sprint_id, final_state: currentState, stages_run: [] };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[orchestrator] runNextStage error for sprint ${sprint_id} (${currentState}):`, message);
+
+    await db
+      .from('sprints')
+      .update({ state: 'BLOCKED', blocked_reason: `Stage error: ${message}`, updated_at: new Date().toISOString() })
+      .eq('id', sprint_id);
+
+    await logEvent(sprint_id, 'orchestrator', 'stage_failed', { state: currentState, error: message });
+
+    return { sprint_id, final_state: 'BLOCKED', stages_run: [], error: message };
+  }
+}
+
+/**
+ * Run the full pipeline from current state (Pro/local use).
+ * Stops at BLOCKED, PAYMENT_PENDING, or ANGLES_DONE.
  */
 export async function runSprintPipeline(
   sprint_id: string,

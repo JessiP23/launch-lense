@@ -1428,28 +1428,36 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     ),
   );
 
-  // ── Auto-advance UI panel when server pipeline transitions state ─────────
-  // The server-side /run endpoint drives state; canvas just observes via Realtime.
+  // ── Auto-advance pipeline on Realtime state transitions ──────────────────
+  // Each /run call executes one stage. When Realtime signals a transition to
+  // GENOME_DONE or HEALTHGATE_DONE, we auto-call /run again for the next stage.
+  // This keeps each function call under 10s (Vercel Hobby compatible).
   const prevStateRef = useRef<SprintState | undefined>(undefined);
   useEffect(() => {
     const state = sprintData?.state;
-    if (!state || state === prevStateRef.current) return;
+    const id = sprintData?.sprint_id;
+    if (!state || !id || state === prevStateRef.current) return;
     prevStateRef.current = state;
 
+    // Update active panel to match server state
     if (state === 'GENOME_RUNNING')     setActivePanel('genome');
-    if (state === 'GENOME_DONE')        setActivePanel('genome');
     if (state === 'HEALTHGATE_RUNNING') setActivePanel('genome');
-    if (state === 'HEALTHGATE_DONE')    setActivePanel('genome');
-    if (state === 'PAYMENT_PENDING')    setActivePanel('budget');
     if (state === 'ANGLES_RUNNING')     setActivePanel('angles');
+    if (state === 'PAYMENT_PENDING')    { setActivePanel('budget'); setPipelineRunning(false); }
     if (state === 'ANGLES_DONE') {
       setActivePanel('angles');
       setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
       setPipelineRunning(false);
     }
-    if (state === 'BLOCKED')            setPipelineRunning(false);
-    if (state === 'COMPLETE')           setPipelineRunning(false);
-  }, [sprintData?.state, sprintData?.active_channels]);
+    if (state === 'BLOCKED')  setPipelineRunning(false);
+    if (state === 'COMPLETE') setPipelineRunning(false);
+
+    // Auto-continue: trigger next stage when intermediate states land
+    if (state === 'GENOME_DONE' || state === 'HEALTHGATE_DONE') {
+      fetch(`/api/sprint/${id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .catch((err) => console.warn('[canvas] auto-continue /run failed:', err));
+    }
+  }, [sprintData?.state, sprintData?.sprint_id, sprintData?.active_channels]);
 
   // ── Polling fallback (only when Realtime is not subscribed) ──────────────
   // Keeps the canvas alive during Vercel cold starts or Supabase Realtime

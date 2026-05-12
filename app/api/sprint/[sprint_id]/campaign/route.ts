@@ -16,7 +16,6 @@
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
 
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
