@@ -89,13 +89,46 @@ export async function dispatchHealthgate(
     if (!sprint) throw new Error(`Sprint ${sprint_id} not found`);
 
     const selectedChannels = sprint.active_channels.length ? sprint.active_channels : (Object.keys(channelAccountData) as Platform[]);
-    const healthgate = await runAllHealthgateAgents(channelAccountData, selectedChannels);
+
+    // ── Managed account mode ─────────────────────────────────────────────────
+    // In the v9 managed-account architecture LaunchLense owns all the ad
+    // accounts, so there is nothing user-side to healthcheck. When no real
+    // per-channel account data is supplied we auto-pass every channel at a
+    // high score rather than running checks against undefined values (which
+    // would cause every CRITICAL check to fail and block the sprint).
+    const hasRealData = selectedChannels.some(
+      (ch) => channelAccountData[ch] && Object.keys(channelAccountData[ch]!).length > 0,
+    );
+
+    type HealthgateMap = Record<Platform, import('@/lib/agents/types').HealthgateAgentOutput>;
+
+    let healthgate: HealthgateMap;
+    if (!hasRealData) {
+      const managed = Object.fromEntries(
+        selectedChannels.map((ch) => [
+          ch,
+          {
+            channel: ch,
+            score: 95,
+            status: 'HEALTHY' as const,
+            checks: [] as import('@/lib/agents/types').HealthCheck[],
+            blocking_issues: [] as string[],
+            fix_summary: [] as string[],
+            estimated_unblock_hours: 0,
+          },
+        ]),
+      );
+      healthgate = managed as unknown as HealthgateMap;
+    } else {
+      healthgate = await runAllHealthgateAgents(channelAccountData, selectedChannels) as HealthgateMap;
+    }
+
     await patchSprint(sprint_id, { healthgate, state: 'HEALTHGATE_DONE' });
 
     // Check if at least one channel is not BLOCKED
-    const passedChannels = (Object.values(healthgate) as ReturnType<typeof Object.values>)
-      .filter((h: { status: string }) => h.status !== 'BLOCKED')
-      .map((h: { channel: Platform }) => h.channel) as Platform[];
+    const passedChannels = (Object.values(healthgate) as { status: string; channel: Platform }[])
+      .filter((h) => h.status !== 'BLOCKED')
+      .map((h) => h.channel);
 
     if (passedChannels.length === 0) {
       await blockSprint(
@@ -130,7 +163,12 @@ export async function dispatchAngles(
   if (isStripePaymentGateEnabled() && !opts?.bypassPaymentCheck) {
     const paid = await hasCompletedPayment(sprint_id);
     if (!paid) {
-      throw new Error('Payment required before running angles');
+      // Set state to PAYMENT_PENDING so the canvas shows the budget node
+      // and the run route returns a clean 402 instead of throwing.
+      if (pre.state !== 'PAYMENT_PENDING') {
+        await transitionState(sprint_id, 'PAYMENT_PENDING');
+      }
+      return (await getSprint(sprint_id))!;
     }
     if (!['HEALTHGATE_DONE', 'PAYMENT_PENDING'].includes(pre.state)) {
       throw new Error(`Cannot run AngleAgent from state ${pre.state}`);

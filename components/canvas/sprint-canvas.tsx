@@ -393,9 +393,12 @@ function nodeDiscovery(nodeId: string, sprint: SprintRecord | null): NodeDiscove
   ];
   if (nodeId === 'budget') {
     if (!stripePaymentGateFromEnv()) return { visible: false, reason: 'stripe gate off' };
-    // Budget unlocks right after genome (or legacy healthgate) clears
-    const ok = ['GENOME_DONE', 'HEALTHGATE_DONE', 'PAYMENT_PENDING', 'ANGLES_RUNNING'].includes(s);
-    return { visible: ok, reason: ok ? 'budget: payment gate window' : `budget: hidden in state ${s}` };
+    // Budget is visible from GENOME_DONE onward — it persists as a historical
+    // record of the payment step even after the sprint fully completes.
+    // Hidden only while genome is still running (GENOME_RUNNING, HEALTHGATE_RUNNING).
+    // IDLE and BLOCKED are already handled by the early-returns above.
+    const hidden = (s === 'GENOME_RUNNING' || s === 'HEALTHGATE_RUNNING');
+    return { visible: !hidden, reason: !hidden ? `budget: visible in ${s}` : `budget: hidden while genome/hg running (${s})` };
   }
   if (nodeId === 'angles') {
     const ok = angleStates.includes(s);
@@ -1177,6 +1180,10 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const sprintFromQuery = searchParams.get('sprint');
+
+  // Persists the last-loaded sprint id so OAuth redirects that lose the URL
+  // (e.g. invalid_state → /canvas?panel=integrations) can restore it.
+  const LAST_SPRINT_KEY = 'launchlense_last_sprint_id';
   const panelFromQuery = searchParams.get('panel');
 
   // Keep the active sprint aligned with the URL (path, ?sprint=, or manual host fix after OAuth).
@@ -1194,6 +1201,25 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     }
     if (!id && sprintFromQuery?.trim()) id = sprintFromQuery.trim();
 
+    // ── OAuth fallback: restore last sprint when URL has no sprint id ────────
+    // Happens when Google OAuth returns invalid_state → /canvas?panel=integrations
+    if (!id && normalizedPath === '/canvas') {
+      const hasOAuthReturn = searchParams.get('google_connected') || searchParams.get('google_error') || searchParams.get('panel') === 'integrations';
+      if (hasOAuthReturn) {
+        try {
+          const saved = localStorage.getItem(LAST_SPRINT_KEY);
+          if (saved) {
+            id = saved;
+            // Restore the sprint ID into the URL so refreshes also work
+            window.history.replaceState(null, '', `/canvas/${encodeURIComponent(saved)}?${searchParams.toString()}`);
+            if (canvasWorkflowLogEnabled()) {
+              console.log(`${LOG_PREFIX} urlSync · restored sprint from localStorage after OAuth return`, { sprintId: id });
+            }
+          }
+        } catch { /* localStorage unavailable */ }
+      }
+    }
+
     if (!id && normalizedPath === '/canvas') {
       if (canvasWorkflowLogEnabled()) {
         console.log(`${LOG_PREFIX} urlSync · cleared canvas (no sprint in path/query)`);
@@ -1209,7 +1235,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       }
       setActiveSprint((prev) => (prev === id ? prev : id));
     }
-  }, [pathname, sprintFromQuery]);
+  }, [pathname, sprintFromQuery, searchParams]);
 
   useEffect(() => {
     if (panelFromQuery) setActivePanel(panelFromQuery as PanelId);
@@ -1338,6 +1364,10 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         });
       }
       setSprintData(data);
+      // Persist so OAuth redirects back to /canvas (without sprint id) can recover
+      if (data) {
+        try { localStorage.setItem(LAST_SPRINT_KEY, id); } catch { /* ok */ }
+      }
       return data;
     } catch (e) {
       if (canvasWorkflowLogEnabled()) {
@@ -1625,6 +1655,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     setSprintData(sprint);
     setActivePanel('genome');
     setShowNew(false);
+    try { localStorage.setItem(LAST_SPRINT_KEY, sprint.sprint_id); } catch { /* ok */ }
     // Push URL without triggering a Next.js navigation — keeps this component alive
     // so runSprintPipeline's setSprintData / setActivePanel calls still work.
     // On refresh the browser lands on /canvas/[id] which loads correctly.

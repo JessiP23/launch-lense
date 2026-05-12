@@ -83,6 +83,15 @@ export async function POST(
     bypassPaymentCheck: false,
   });
 
+  // Payment gate — Healthgate ran, angles need payment first
+  if (result.final_state === 'PAYMENT_PENDING') {
+    return Response.json({
+      sprint_id,
+      state: result.final_state,
+      message: 'Payment required to continue',
+    }, { status: 402 });
+  }
+
   return Response.json({
     sprint_id,
     state: result.final_state,

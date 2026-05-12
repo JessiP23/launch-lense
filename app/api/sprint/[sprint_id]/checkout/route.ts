@@ -26,11 +26,48 @@ export async function POST(
 
   const { data: sprint, error: sprintErr } = await db.from('sprints').select('*').eq('id', sprint_id).single();
   if (sprintErr || !sprint) return Response.json({ error: 'Sprint not found' }, { status: 404 });
-  if (sprint.state !== 'HEALTHGATE_DONE') {
+  const allowedStates = ['HEALTHGATE_DONE', 'PAYMENT_PENDING'];
+  if (!allowedStates.includes(sprint.state)) {
     return Response.json(
-      { error: `Budget checkout is only available after Healthgate (${sprint.state})` },
+      { error: `Budget checkout is only available after Healthgate (current state: ${sprint.state})` },
       { status: 409 },
     );
+  }
+
+  // ── Resume existing pending session ──────────────────────────────────────
+  // If a Stripe session was already created for this sprint, return it so the
+  // user can resume the same checkout rather than creating a duplicate charge.
+  if (sprint.state === 'PAYMENT_PENDING') {
+    const { data: existing } = await db
+      .from('sprint_payments')
+      .select('stripe_session_id, status')
+      .eq('sprint_id', sprint_id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.stripe_session_id) {
+      let stripe;
+      try { stripe = requireStripe(); } catch {
+        return Response.json({ error: 'Stripe is not configured' }, { status: 503 });
+      }
+      try {
+        const session = await stripe.checkout.sessions.retrieve(existing.stripe_session_id);
+        if (session.url && session.status === 'open') {
+          return Response.json({ checkout_url: session.url, session_id: session.id, resumed: true });
+        }
+        // Session expired — fall through to create a new one below
+      } catch {
+        // Session retrieval failed — fall through to create a new one
+      }
+    }
+
+    // Reset state back to HEALTHGATE_DONE so a fresh session can be created
+    await db
+      .from('sprints')
+      .update({ state: 'HEALTHGATE_DONE', updated_at: new Date().toISOString() })
+      .eq('id', sprint_id);
   }
 
   const body = await req.json().catch(() => ({})) as { budgets?: ChannelBudgetUsd };

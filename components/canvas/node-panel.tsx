@@ -2991,7 +2991,12 @@ function btnPrimary(): CSSProperties {
 }
 
 function channelSpendBlocked(sprint: SprintRecord, ch: Platform): boolean {
-  return sprint.healthgate?.[ch]?.status === 'BLOCKED';
+  // In managed-account mode there is no healthgate data — never block.
+  // Only block when we have real user-supplied healthgate data that explicitly
+  // returned BLOCKED (i.e. the user connected their own account and it failed).
+  const hg = sprint.healthgate?.[ch];
+  if (!hg || hg.checks.length === 0) return false;
+  return hg.status === 'BLOCKED';
 }
 
 function BudgetPanel({
@@ -3062,10 +3067,14 @@ function BudgetPanel({
         setLoading(false);
         return;
       }
-      if (data.checkout_url) window.location.href = data.checkout_url;
+      if (data.checkout_url) {
+        // Keep loading=true while Stripe redirects — avoids double-click
+        window.location.href = data.checkout_url;
+        return; // don't reset loading; the page navigates away
+      }
+      setLoading(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Checkout failed');
-    } finally {
       setLoading(false);
     }
   };
@@ -3121,14 +3130,18 @@ function BudgetPanel({
         <button
           type="button"
           onClick={() => void onPay()}
-          disabled={loading || sprint.state !== 'HEALTHGATE_DONE' || adSpend < MIN_CHANNEL_USD}
+          disabled={loading || !['HEALTHGATE_DONE', 'PAYMENT_PENDING'].includes(sprint.state) || adSpend < MIN_CHANNEL_USD}
           style={{ ...btnPrimary(), width: '100%', marginTop: 12, height: 40 }}
         >
-          {loading ? 'Redirecting to Stripe…' : 'Proceed to Stripe Checkout'}
+          {loading
+            ? 'Redirecting to Stripe…'
+            : sprint.state === 'PAYMENT_PENDING'
+            ? 'Resume Stripe Checkout'
+            : 'Proceed to Stripe Checkout'}
         </button>
         {sprint.state === 'PAYMENT_PENDING' && (
           <p style={{ fontSize: '0.75rem', color: C.muted, marginTop: 10 }}>
-            Checkout started — finish payment in Stripe. This sprint advances when the webhook confirms.
+            Checkout started — click above to reopen Stripe, or finish payment in the Stripe tab. This sprint advances when the webhook confirms.
           </p>
         )}
       </div>
