@@ -11,6 +11,33 @@
     {
       "path": "/api/cron/verdict",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/sprint-monitor",
+      "schedule": "0 */4 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/sprint/[sprint_id]/run/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/sprint/[sprint_id]/genome/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/sprint/[sprint_id]/angles/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/cron/sprint-monitor/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/health/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/cron/metrics/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/cron/verdict/route.ts": {
+      "maxDuration": 30
+    }
+  }
 }

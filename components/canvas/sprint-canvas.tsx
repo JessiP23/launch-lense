@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ReactFlow, Background, BackgroundVariant, applyNodeChanges,
   Controls, type Node, type Edge, type NodeTypes, type EdgeTypes, type NodeMouseHandler, type NodeChange,
@@ -1428,6 +1428,29 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     ),
   );
 
+  // ── Auto-advance UI panel when server pipeline transitions state ─────────
+  // The server-side /run endpoint drives state; canvas just observes via Realtime.
+  const prevStateRef = useRef<SprintState | undefined>(undefined);
+  useEffect(() => {
+    const state = sprintData?.state;
+    if (!state || state === prevStateRef.current) return;
+    prevStateRef.current = state;
+
+    if (state === 'GENOME_RUNNING')     setActivePanel('genome');
+    if (state === 'GENOME_DONE')        setActivePanel('genome');
+    if (state === 'HEALTHGATE_RUNNING') setActivePanel('genome');
+    if (state === 'HEALTHGATE_DONE')    setActivePanel('genome');
+    if (state === 'PAYMENT_PENDING')    setActivePanel('budget');
+    if (state === 'ANGLES_RUNNING')     setActivePanel('angles');
+    if (state === 'ANGLES_DONE') {
+      setActivePanel('angles');
+      setPanelChannel(sprintData?.active_channels?.[0] ?? 'meta');
+      setPipelineRunning(false);
+    }
+    if (state === 'BLOCKED')            setPipelineRunning(false);
+    if (state === 'COMPLETE')           setPipelineRunning(false);
+  }, [sprintData?.state, sprintData?.active_channels]);
+
   // ── Polling fallback (only when Realtime is not subscribed) ──────────────
   // Keeps the canvas alive during Vercel cold starts or Supabase Realtime
   // connectivity gaps. Once Realtime takes over this interval does nothing
@@ -1497,6 +1520,7 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
       let current = await loadSprintDetail(id);
       if (!current) throw new Error('Sprint could not be loaded');
 
+      // Handle override-stop for BLOCKED sprints
       if (current.state === 'BLOCKED') {
         if (!options.overrideStop || !current.genome) {
           throw new Error(current.blocked_reason ?? 'Sprint is blocked');
@@ -1507,69 +1531,48 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         if (!current) throw new Error('Sprint could not be loaded after override');
       }
 
-      if (current.state === 'IDLE') {
-        setActivePanel('genome');
-        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'GENOME_RUNNING' } : prev);
-        await wait(450);
-        const res = await fetch(`/api/sprint/${id}/genome`, { method: 'POST' });
-        if (!res.ok) throw new Error(await readApiError(res, 'Genome failed'));
-        current = await loadSprintDetail(id);
-        if (!current || current.state === 'BLOCKED') return;
-      }
-
-      // v9 managed path: after genome clears, go straight to payment gate or angles —
-      // no healthgate step. HEALTHGATE_DONE handled here too for legacy sprint compat.
-      if (current.state === 'GENOME_DONE' || current.state === 'HEALTHGATE_DONE') {
-        const payRes = await fetch(`/api/sprint/${id}/payment-status`);
-        const pay = payRes.ok ? await payRes.json() : { gate_enabled: false, completed: true };
-        if (pay.gate_enabled && !pay.completed) {
-          setActivePanel('budget');
-          return;
-        }
-        setActivePanel('angles');
-        setSprintData((prev) => prev && prev.sprint_id === id ? { ...prev, state: 'ANGLES_RUNNING' } : prev);
-        await wait(450);
-        const res = await fetch(`/api/sprint/${id}/angles`, { method: 'POST' });
-        if (!res.ok) throw new Error(await readApiError(res, 'Angles failed'));
-        current = await loadSprintDetail(id);
-        if (!current || current.state === 'BLOCKED') return;
-        setActivePanel('angles');
-        return;
-      }
-
+      // Handle payment gate — cannot auto-advance
       if (current.state === 'PAYMENT_PENDING') {
         setActivePanel('budget');
         const payRes = await fetch(`/api/sprint/${id}/payment-status`);
         const pay = payRes.ok ? await payRes.json() : { completed: false };
-        if (pay.completed) {
-          current = await loadSprintDetail(id);
-          if (current?.state === 'ANGLES_DONE') {
-            setActivePanel('angles');
-            return;
-          }
-          if (current?.state === 'ANGLES_RUNNING') {
-            setActivePanel('angles');
-            return;
-          }
+        if (!pay.completed) {
+          setPipelineError('Finish payment in Stripe, or wait for confirmation. This page polls automatically.');
+          return;
         }
-        setPipelineError('Finish payment in Stripe, or wait for confirmation. This page polls automatically.');
-        return;
+        current = await loadSprintDetail(id);
       }
 
+      if (!current) throw new Error('Sprint could not be loaded');
+
+      // Terminal display states — just navigate the UI panel
       if (current.state === 'ANGLES_DONE') {
         setActivePanel(options.continueAfterAngles ? 'creative' : 'angles');
         setPanelChannel(current.active_channels?.[0] ?? 'meta');
         return;
       }
-
-      if (current.state === 'LANDING_RUNNING') {
-        setActivePanel('landing');
+      if (current.state === 'LANDING_RUNNING') { setActivePanel('landing'); return; }
+      if (current.state === 'LANDING_DONE') {
+        setActivePanel('campaign');
+        setPipelineError('Landing page is deployed. Campaign launch is the next gated step.');
         return;
       }
 
-      if (current.state === 'LANDING_DONE') {
-        setActivePanel('campaign');
-        setPipelineError('Landing page is deployed. Campaign launch is the next gated step; verdict generation will wait for live spend or the 48-hour window.');
+      // ── Server-orchestrated pipeline ────────────────────────────────────
+      // Single call to /run — server drives Genome → Healthgate → Angles.
+      // Canvas observes state transitions via Supabase Realtime subscription.
+      // The Realtime handler below (useSprintRealtime) updates sprintData & panels.
+      if (['IDLE', 'GENOME_DONE', 'GENOME_RUNNING', 'HEALTHGATE_DONE', 'HEALTHGATE_RUNNING'].includes(current.state)) {
+        setActivePanel('genome');
+        const res = await fetch(`/api/sprint/${id}/run`, { method: 'POST' });
+        if (res.status === 402) { setActivePanel('budget'); return; }
+        if (res.status === 409) {
+          // Already running or in terminal state — load latest
+          current = await loadSprintDetail(id);
+        } else if (!res.ok) {
+          throw new Error(await readApiError(res, 'Pipeline start failed'));
+        }
+        // Realtime subscription drives the rest — no sequential polling needed
         return;
       }
     } catch (err) {

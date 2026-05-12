@@ -3,23 +3,24 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { parseBody, LpDeploySchema } from '@/lib/schemas';
+import { sanitizeLpHtml } from '@/lib/agents/landing';
+import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 
 // Deploy landing page from editor HTML
 // POST /api/lp/deploy { test_id | sprint_id, html, gjsData }
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { test_id, sprint_id, html, gjsData } = body as {
-      test_id?: string;
-      sprint_id?: string;
-      html?: string;
-      gjsData?: Record<string, unknown>;
-    };
-    const recordId = sprint_id ?? test_id;
+    let rawBody: unknown;
+    try { rawBody = await request.json(); } catch { rawBody = {}; }
 
-    if (!recordId) {
-      return Response.json({ error: 'test_id or sprint_id required' }, { status: 400 });
-    }
+    const { data: body, error: parseError } = parseBody(LpDeploySchema, rawBody);
+    if (parseError) return parseError;
+
+    const { test_id, sprint_id, gjsData } = body;
+    // Sanitize user-provided HTML from editor before storage
+    const html = body.html ? sanitizeLpHtml(body.html) : undefined;
+    const recordId = sprint_id ?? test_id!;
 
     const supabase = createServiceClient();
 
@@ -54,6 +55,12 @@ export async function POST(request: NextRequest) {
       if (updateError) {
         return Response.json({ error: updateError.message }, { status: 500 });
       }
+
+      await emitSprintEvent(sprint_id, SprintEventName.LandingDeployed, {
+        sprint_id,
+        angle_id: selectedAngleId,
+        url: lpUrl,
+      });
 
       return Response.json({ success: true, url: lpUrl, sprint_id });
     }

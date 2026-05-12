@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { parseBody, SprintPatchSchema } from '@/lib/schemas';
 
 const MAX_INLINE_CREATIVE_IMAGE_CHARS = 250_000;
 
@@ -69,22 +70,18 @@ export async function PATCH(
 ) {
   const { sprint_id } = await params;
   const db = createServiceClient();
-  const body = await req.json().catch(() => ({})) as {
-    angles?: unknown;
-    landing?: unknown;
-    integrations?: unknown;
-    post_sprint?: unknown;
-  };
+
+  let rawBody: unknown;
+  try { rawBody = await req.json(); } catch { rawBody = {}; }
+
+  const { data: body, error: parseError } = parseBody(SprintPatchSchema, rawBody);
+  if (parseError) return parseError;
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.angles) patch.angles = sanitizeAnglesPatch(body.angles);
   if (body.landing) patch.landing = body.landing;
   if (body.integrations) patch.integrations = body.integrations;
   if (body.post_sprint) patch.post_sprint = body.post_sprint;
-
-  if (!body.angles && !body.landing && !body.integrations && !body.post_sprint) {
-    return Response.json({ error: 'No supported sprint fields provided' }, { status: 400 });
-  }
 
   const { data, error } = await db
     .from('sprints')

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { PosthogProvider } from "@/components/posthog-provider";
+import { ClerkProvider } from "@clerk/nextjs";
 
 export const metadata: Metadata = {
   title: "LaunchLense",
@@ -17,10 +18,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-[#FAFAF8] text-[#111110]">
-        <PosthogProvider>{children}</PosthogProvider>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" className="h-full antialiased">
+        <body className="min-h-full flex flex-col bg-[#FAFAF8] text-[#111110]">
+          <PosthogProvider>{children}</PosthogProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

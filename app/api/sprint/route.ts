@@ -6,39 +6,33 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { parseBody, SprintCreateSchema } from '@/lib/schemas';
+import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import type { Platform } from '@/lib/agents/types';
-import { captureServerEvent } from '@/lib/analytics/server-posthog';
 
 const ALL_CHANNELS: Platform[] = ['meta', 'google', 'linkedin', 'tiktok'];
 
 export async function POST(request: NextRequest) {
   const db = createServiceClient();
   try {
-    const body = await request.json() as {
-      idea?: string;
-      channels?: Platform[];
-      budget_cents?: number;
-      org_id?: string;
-    };
+    let rawBody: unknown;
+    try { rawBody = await request.json(); } catch { rawBody = {}; }
 
-    const { idea, channels, budget_cents = 50000, org_id } = body;
+    const { data: body, error: parseError } = parseBody(SprintCreateSchema, rawBody);
+    if (parseError) return parseError;
 
-    if (!idea || typeof idea !== 'string' || idea.trim().length < 5) {
-      return Response.json({ error: 'idea must be a non-empty string (min 5 chars)' }, { status: 400 });
-    }
-
-    const active_channels = (channels ?? ALL_CHANNELS).filter((c) =>
+    const active_channels = (body.channels ?? ALL_CHANNELS).filter((c) =>
       ALL_CHANNELS.includes(c)
     );
 
     const { data, error } = await db
       .from('sprints')
       .insert({
-        idea: idea.trim(),
+        idea: body.idea,
         state: 'IDLE',
         active_channels,
-        budget_cents,
-        ...(org_id ? { org_id } : {}),
+        budget_cents: body.budget_cents,
+        ...(body.org_id ? { org_id: body.org_id } : {}),
       })
       .select('id, idea, state, active_channels, budget_cents, created_at')
       .single();
@@ -47,19 +41,18 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: error?.message ?? 'Insert failed' }, { status: 500 });
     }
 
-    // Log sprint creation event
     await db.from('sprint_events').insert({
       sprint_id: data.id,
       agent: 'orchestrator',
       event_type: 'created',
-      payload: { idea: idea.trim(), channels: active_channels, budget_cents },
+      payload: { idea: body.idea, channels: active_channels, budget_cents: body.budget_cents },
     });
 
-    await captureServerEvent(data.id, 'sprint_created', {
-      sprint_id: data.id,
-      idea_length_chars: idea.trim().length,
-      genome_enabled: true,
+    await emitSprintEvent(data.id, SprintEventName.SprintCreated, {
+      idea_length_chars: body.idea.length,
       channels_selected: active_channels,
+      budget_cents: body.budget_cents,
+      org_id: body.org_id,
     });
 
     return Response.json({ sprint_id: data.id, ...data }, { status: 201 });
