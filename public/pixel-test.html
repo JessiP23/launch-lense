@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meta Pixel Test - LaunchLense</title>
+    <!-- Meta Pixel Code -->
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '1510106240565645');
+    fbq('track', 'PageView');
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id=1510106240565645&ev=PageView&noscript=1"
+    /></noscript>
+    <!-- End Meta Pixel Code -->
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0A0A0A; color: #FAFAFA; padding: 40px; text-align: center; }
+        .container { max-width: 600px; margin: 0 auto; }
+        button { background: #FAFAFA; color: #0A0A0A; border: none; padding: 14px 28px; border-radius: 6px; cursor: pointer; font-weight: 600; margin: 10px; }
+        button:hover { opacity: 0.9; }
+        .status { padding: 20px; border-radius: 8px; margin: 20px 0; background: #059669; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Meta Pixel Test Page</h1>
+        <p>Use this URL for Meta Event Testing: <strong>https://launch-lense.vercel.app/pixel-test.html</strong></p>
+        
+        <div class="status">
+            ✅ Pixel Loaded (check Meta Events Manager)
+        </div>
+        
+        <button onclick="testLeadEvent()">Test Lead Event</button>
+        <button onclick="testPurchaseEvent()">Test Purchase Event</button>
+        <button onclick="testCustomEvent()">Test Custom Event</button>
+    </div>
+
+    <script>
+        function testLeadEvent() {
+            if (typeof fbq !== 'undefined') {
+                fbq('track', 'Lead');
+                alert('Lead event fired! Check Meta Events Manager');
+            }
+        }
+
+        function testPurchaseEvent() {
+            if (typeof fbq !== 'undefined') {
+                fbq('track', 'Purchase', {value: 29.99, currency: 'USD'});
+                alert('Purchase event fired! Check Meta Events Manager');
+            }
+        }
+
+        function testCustomEvent() {
+            if (typeof fbq !== 'undefined') {
+                fbq('trackCustom', 'LaunchLenseTest', {test_param: 'working'});
+                alert('Custom event fired! Check Meta Events Manager');
+            }
+        }
+    </script>
+</body>
+</html>
