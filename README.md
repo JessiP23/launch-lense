@@ -34,3 +34,23 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+## Comands to run for testing the meta credentialds
+# 1. Smoke test the credentials (fast, $0 spend, auto-cleans up)
+node --env-file=.env scripts/test-meta-system.mjs --create --cleanup
+
+# 2. Same with full request/response debug output
+node --env-file=.env scripts/test-meta-system.mjs --create --cleanup --debug
+
+# 3. Pull insights for any campaign/adset/ad ID you see in Ads Manager
+node --env-file=.env scripts/test-meta-system.mjs --insights=<id>
+
+# 4. Dry-run the real sprint launcher (no Meta calls — just shows the plan)
+npx tsx --env-file=.env scripts/launch-sprint.ts --sprint=<sprint-uuid> --dry-run
+
+# 5. Live launch — calls launchManagedMetaCampaign() against a real sprint
+npx tsx --env-file=.env scripts/launch-sprint.ts --sprint=<sprint-uuid>
+
+# 6. Launch with a budget override (e.g. $30 across all angles)
+npx tsx --env-file=.env scripts/launch-sprint.ts --sprint=<sprint-uuid> --budget=3000
