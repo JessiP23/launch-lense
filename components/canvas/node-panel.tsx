@@ -15,6 +15,7 @@ import type {
 } from '@/lib/agents/types';
 import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
 import { MIN_CHANNEL_USD, MAX_CHANNEL_USD, PLATFORM_FEE_USD } from '@/lib/budget';
+import { CreativeApprovalWorkspace } from '@/components/canvas/creative/creative-approval-workspace';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -1043,6 +1044,20 @@ function CreativePreviewPanel({
     <div>
       <SectionTitle>Creative · {activeChannel}</SectionTitle>
       <p style={{ color: C.muted, fontSize: '0.875rem', marginBottom: 14 }}>Edit the selected angle for this channel. The preview updates directly inside the canvas node in real time.</p>
+
+      {/* v10 Approval workspace — drives sprint_creatives + deploy gate.
+          Renders only when we already have angles AND a sprint id. */}
+      {sprint?.sprint_id && angles.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <CreativeApprovalWorkspace
+            sprintId={sprint.sprint_id}
+            angles={angles}
+            activeChannels={(sprint.active_channels?.length ? sprint.active_channels : ['meta']) as Platform[]}
+            brandName={brandName}
+            onActivated={() => onContinue?.(sprint.sprint_id)}
+          />
+        </div>
+      )}
       <div style={{ background: C.ink, color: '#FFF', borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
         <Label><span style={{ color: '#FFFFFF80' }}>Selected Angle</span></Label>
         <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 800 }}>{selected.id.replace('angle_', '')} · {selected.archetype}</p>

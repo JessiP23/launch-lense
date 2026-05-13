@@ -20,6 +20,7 @@ import {
   createAdCreative,
   createAd,
   createAdImage,
+  createAdVideo,
   updateCampaignStatus,
   getSystemToken,
   getSystemAdAccountId,
@@ -384,10 +385,35 @@ export async function launchManagedMetaCampaign(
       const description = approved?.description?.trim() ?? null;
       const ctaType = (approved?.cta?.trim() || 'LEARN_MORE').toUpperCase();
 
-      // Upload the asset to Meta's ad image library and capture image_hash.
-      // This step is idempotent at the sprint_creatives level — we cache the
-      // hash so retries don't re-upload.
+      // Upload the asset(s) to Meta's libraries and capture refs. Both
+      // image_hash and video_id are idempotent at the sprint_creatives
+      // level — we cache them so retries skip the upload.
+      // Asset precedence: video_url wins over image_url (video ads use
+      // video_data, with image_url as the still thumbnail when present).
       let imageHash: string | null = approved?.image_hash ?? null;
+      let videoId: string | null = approved?.video_id ?? null;
+
+      if (approved?.video_url && !videoId) {
+        try {
+          const blob = await fetchAsBlob(approved.video_url);
+          const uploaded = await withMetaRetry(
+            () => createAdVideo(adAccountId, accessToken, blob, `${angle.id}.mp4`),
+            { label: `upload-video:${angle.id}` }
+          );
+          videoId = uploaded.video_id;
+          try {
+            await setMetaAssetRefs(sprintId, angle.id, 'meta', {
+              video_id: videoId,
+            });
+          } catch {/* non-fatal */}
+        } catch (err) {
+          console.warn(
+            `[create-campaign] video upload failed for ${angle.id}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+
       if (approved?.image_url && !imageHash) {
         try {
           const blob = await fetchAsBlob(approved.image_url);
@@ -412,23 +438,41 @@ export async function launchManagedMetaCampaign(
         }
       }
 
-      const linkData: Record<string, unknown> = {
-        message,
-        link: lpUrl,
-        name: headline,
-        call_to_action: { type: ctaType },
-      };
-      if (description) linkData.description = description;
-      if (imageHash) linkData.image_hash = imageHash;
+      // Build object_story_spec depending on whether we have a video or
+      // an image. Video ads use video_data; image / link ads use link_data.
+      const objectStorySpec: Record<string, unknown> = { page_id: pageId };
+      if (videoId) {
+        const videoData: Record<string, unknown> = {
+          video_id: videoId,
+          title: headline,
+          message,
+          call_to_action: {
+            type: ctaType,
+            value: { link: lpUrl },
+          },
+        };
+        // Video creatives still want a poster frame; reuse the image hash if
+        // we successfully uploaded one above.
+        if (imageHash) videoData.image_hash = imageHash;
+        if (description) videoData.link_description = description;
+        objectStorySpec.video_data = videoData;
+      } else {
+        const linkData: Record<string, unknown> = {
+          message,
+          link: lpUrl,
+          name: headline,
+          call_to_action: { type: ctaType },
+        };
+        if (description) linkData.description = description;
+        if (imageHash) linkData.image_hash = imageHash;
+        objectStorySpec.link_data = linkData;
+      }
 
       const creativeRes = (await withMetaRetry(
         () =>
           createAdCreative(adAccountId, accessToken, {
             name: `Creative — ${adsetName}`,
-            object_story_spec: {
-              page_id: pageId,
-              link_data: linkData,
-            },
+            object_story_spec: objectStorySpec,
           }),
         { label: `create-creative:${angle.id}` }
       )) as { id: string };
