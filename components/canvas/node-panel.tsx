@@ -15,7 +15,7 @@ import type {
 } from '@/lib/agents/types';
 import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
 import { MIN_CHANNEL_USD, MAX_CHANNEL_USD, PLATFORM_FEE_USD } from '@/lib/budget';
-import { CreativeApprovalWorkspace } from '@/components/canvas/creative/creative-approval-workspace';
+import { CreativeApprovalWorkspace, type CreativeSelectionSnapshot } from '@/components/canvas/creative/creative-approval-workspace';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -1043,49 +1043,103 @@ function CreativePreviewPanel({
   return (
     <div>
       <SectionTitle>Creative · {activeChannel}</SectionTitle>
-      <p style={{ color: C.muted, fontSize: '0.875rem', marginBottom: 14 }}>Edit the selected angle for this channel. The preview updates directly inside the canvas node in real time.</p>
+      <p style={{ color: C.muted, fontSize: '0.8125rem', marginBottom: 14, lineHeight: 1.45 }}>
+        Pick an angle, fine-tune the copy, and approve it. The canvas node preview tracks your selection in real time.
+      </p>
 
-      {/* v10 Approval workspace — drives sprint_creatives + deploy gate.
-          Renders only when we already have angles AND a sprint id. */}
+      {/* Brand + image upload (drives canvas-node live preview + legacy save) */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Label>Brand</Label>
+            <input
+              value={brandName}
+              onChange={(event) => setBrandName(event.target.value)}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                border: `1px solid ${C.border}`, borderRadius: 10,
+                background: C.canvas, color: C.ink,
+                padding: '9px 10px', fontSize: '0.8125rem', outline: 'none',
+              }}
+            />
+          </div>
+          <div style={{ width: 140 }}>
+            <Label>Image</Label>
+            <label style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              height: 36, border: `1px dashed ${C.border}`, borderRadius: 10,
+              background: C.canvas, color: C.ink, cursor: 'pointer',
+              fontSize: '0.75rem', fontWeight: 800,
+            }}>
+              {image ? 'Replace' : 'Upload'}
+              <input type="file" accept="image/*" onChange={uploadImage} style={{ display: 'none' }} />
+            </label>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <button
+            onClick={saveCreative}
+            disabled={saving}
+            style={{
+              height: 30, padding: '0 12px',
+              border: `1px solid ${C.border}`, borderRadius: 8,
+              background: C.surface, color: C.ink,
+              fontSize: 12, fontWeight: 800,
+              cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1,
+            }}>
+            {saving ? 'Saving…' : 'Save brand & image'}
+          </button>
+          {image && (
+            <button type="button" onClick={() => setImage(null)} style={{
+              height: 30, padding: '0 10px', border: 'none', background: 'transparent',
+              color: C.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700,
+            }}>
+              Remove image
+            </button>
+          )}
+        </div>
+        {message && (
+          <p style={{ margin: '6px 0 0', color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>
+            {message}
+          </p>
+        )}
+      </div>
+
+      {/* v10 Approval workspace — single source of truth for copy + status */}
       {sprint?.sprint_id && angles.length > 0 && (
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 14 }}>
           <CreativeApprovalWorkspace
             sprintId={sprint.sprint_id}
             angles={angles}
             activeChannels={(sprint.active_channels?.length ? sprint.active_channels : ['meta']) as Platform[]}
             brandName={brandName}
+            imageUrl={image}
+            initialAngleId={selected.id}
             onActivated={() => onContinue?.(sprint.sprint_id)}
+            onSelectionChange={(snap: CreativeSelectionSnapshot) => {
+              setSelectedId(snap.angle.id);
+              setChannel(snap.channel);
+              // Mirror the user's edits into the legacy draft so the canvas
+              // node preview tracks them. We splice the snapshot into the
+              // current angle so other channels stay untouched.
+              setDrafts((prev) => {
+                const base = prev[snap.angle.id] ?? snap.angle;
+                const channelCopy =
+                  snap.channel === 'meta'
+                    ? { headline: snap.copy.headline, body: snap.copy.primary_text }
+                    : base.copy[snap.channel];
+                return {
+                  ...prev,
+                  [snap.angle.id]: {
+                    ...base,
+                    copy: { ...base.copy, [snap.channel]: channelCopy },
+                  },
+                };
+              });
+            }}
           />
         </div>
       )}
-      <div style={{ background: C.ink, color: '#FFF', borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
-        <Label><span style={{ color: '#FFFFFF80' }}>Selected Angle</span></Label>
-        <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 800 }}>{selected.id.replace('angle_', '')} · {selected.archetype}</p>
-      </div>
-      {!lockedChannel && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-          {channels.map((item) => (
-            <button key={item} onClick={() => setChannel(item)} style={{ height: 30, padding: '0 10px', border: `1px solid ${activeChannel === item ? C.ink : C.border}`, borderRadius: 8, background: activeChannel === item ? C.ink : C.surface, color: activeChannel === item ? '#FFF' : C.muted, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, textTransform: 'capitalize' }}>{item}</button>
-          ))}
-        </div>
-      )}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-        <Label>Brand</Label>
-        <input value={brandName} onChange={(event) => setBrandName(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none', marginBottom: 10 }} />
-        <Label>Creative Image</Label>
-        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 42, border: `1px dashed ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 800 }}>
-          {image ? 'Replace Uploaded Image' : 'Upload Image'}
-          <input type="file" accept="image/*" onChange={uploadImage} style={{ display: 'none' }} />
-        </label>
-        {image && <button type="button" onClick={() => setImage(null)} style={{ marginTop: 8, height: 30, border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, color: C.muted, cursor: 'pointer', fontSize: '0.75rem' }}>Remove image</button>}
-      </div>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {renderCopyEditor()}
-        <button onClick={saveCreative} disabled={saving} style={{ height: 36, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontSize: '0.8125rem', fontWeight: 800, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-          {saving ? 'Saving Creative' : `Save ${activeChannel} Creative`}
-        </button>
-        {message && <p style={{ margin: 0, color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>{message}</p>}
-      </div>
       {activeChannel === 'tiktok' && sprint && (
         <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <Label>TikTok video brief (VideoCreativeAgent)</Label>
@@ -3243,6 +3297,8 @@ export function NodePanel({
       ? 820
       : panel === 'integrations_sheet'
         ? 920
+      : panel === 'creative'
+        ? 460
       : panel === 'budget'
         ? 440
       : isIntegrationSurface

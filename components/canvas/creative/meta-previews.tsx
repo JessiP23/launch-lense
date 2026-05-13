@@ -103,9 +103,10 @@ function PreviewMedia({
     );
   }
   if (imageUrl) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
       <div style={aspectStyle}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- previews
+            often receive `data:` URIs that next/image rejects. */}
         <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </div>
     );
