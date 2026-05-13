@@ -171,6 +171,10 @@ export async function launchManagedMetaCampaign(
         objective: 'OUTCOME_LEADS',
         status: 'PAUSED',
         special_ad_categories: [],
+        // Meta v20+ requires this explicit boolean whenever the campaign
+        // does not carry a campaign-level budget. We use per-adset budgets
+        // for clean per-angle attribution, so it must be `false`.
+        is_adset_budget_sharing_enabled: false,
       }),
     { label: 'create-campaign' }
   )) as { id: string };
@@ -205,14 +209,20 @@ export async function launchManagedMetaCampaign(
         daily_budget: dailyBudgetCents,
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
         billing_event: 'IMPRESSIONS',
-        optimization_goal: 'LEAD_GENERATION',
+        // OUTCOME_LEADS + WEBSITE destination requires OFFSITE_CONVERSIONS
+        // (paired with a pixel via promoted_object). LEAD_GENERATION is for
+        // native Meta Lead Forms only.
+        optimization_goal: 'OFFSITE_CONVERSIONS',
         status: 'PAUSED',
         destination_type: 'WEBSITE',
         targeting: {
-          age_min: 22,
-          age_max: 55,
+          // Advantage+ audience requires age_max >= 65.
+          age_min: 18,
+          age_max: 65,
           publisher_platforms: ['facebook', 'instagram'],
           device_platforms: ['mobile', 'desktop'],
+          // Required by Meta v20+: explicit Advantage Audience opt-in.
+          targeting_automation: { advantage_audience: 1 },
         },
         ...(pixelId
           ? { promoted_object: { pixel_id: pixelId, custom_event_type: 'LEAD' } }

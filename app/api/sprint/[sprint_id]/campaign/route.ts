@@ -161,6 +161,8 @@ export async function POST(
         objective: 'OUTCOME_LEADS',
         status: 'PAUSED',
         special_ad_categories: [],
+        // Meta v20+ requires this whenever there is no campaign-level CBO budget.
+        is_adset_budget_sharing_enabled: false,
       }),
       { label: 'create-campaign' }
     )) as { id: string };
@@ -203,14 +205,19 @@ export async function POST(
         daily_budget: dailyBudget,
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
         billing_event: 'IMPRESSIONS',
-        optimization_goal: 'LEAD_GENERATION',
+        // OUTCOME_LEADS + WEBSITE destination requires OFFSITE_CONVERSIONS,
+        // not LEAD_GENERATION (which is reserved for native Meta Lead Forms).
+        optimization_goal: 'OFFSITE_CONVERSIONS',
         status: 'PAUSED',
         destination_type: 'WEBSITE',
         targeting: {
-          age_min: 22,
-          age_max: 55,
+          // Advantage+ audience requires age_max >= 65.
+          age_min: 18,
+          age_max: 65,
           publisher_platforms: ['facebook', 'instagram'],
           device_platforms: ['mobile', 'desktop'],
+          // Required by Meta v20+: explicit Advantage Audience opt-in.
+          targeting_automation: { advantage_audience: 1 },
         },
         ...(pixelId
           ? {

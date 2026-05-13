@@ -1,10 +1,13 @@
 const API = 'https://graph.facebook.com/v20.0';
 const args = new Set(process.argv.slice(2));
 const insightsArg = process.argv.slice(2).find((a) => a.startsWith('--insights='));
+const objArg = process.argv.slice(2).find((a) => a.startsWith('--objective='));
 const DO_CREATE = args.has('--create');
 const DO_CLEANUP = args.has('--cleanup');
+const DEBUG = args.has('--debug');
 const DO_INSIGHTS = !!insightsArg;
 const INSIGHTS_ID = insightsArg?.split('=')[1];
+const FORCED_OBJECTIVE = objArg?.split('=')[1];
 
 const TOKEN = process.env.SYSTEM_META_ACCESS_TOKEN;
 let AD_ACCOUNT = process.env.SYSTEM_META_AD_ACCOUNT_ID;
@@ -20,13 +23,38 @@ const fail = (s) => console.log(c(31, '✗'), s);
 const head = (s) => console.log('\n' + c(36, `── ${s} ──`));
 
 // ── fetch wrapper ───────────────────────────────────────────────────────────
+class MetaError extends Error {
+  constructor(method, path, err, payload) {
+    const subcode = err.error_subcode ? `/${err.error_subcode}` : '';
+    super(`${method} ${path} → [${err.code}${subcode}] ${err.message}`);
+    this.code = err.code;
+    this.subcode = err.error_subcode;
+    this.userTitle = err.error_user_title;
+    this.userMsg = err.error_user_msg;
+    this.errorData = err.error_data;
+    this.fbtraceId = err.fbtrace_id;
+    this.raw = err;
+    this.payload = payload;
+  }
+  print() {
+    console.log(c(31, `\n  Meta error code ${this.code}${this.subcode ? '/' + this.subcode : ''}`));
+    console.log(c(90, `  message:     ${this.raw.message}`));
+    if (this.userTitle) console.log(c(90, `  user_title:  ${this.userTitle}`));
+    if (this.userMsg)   console.log(c(90, `  user_msg:    ${this.userMsg}`));
+    if (this.errorData) console.log(c(90, `  error_data:  ${JSON.stringify(this.errorData)}`));
+    if (this.fbtraceId) console.log(c(90, `  fbtrace_id:  ${this.fbtraceId}`));
+    if (this.payload)   console.log(c(90, `  sent payload:\n${JSON.stringify(this.payload, null, 2).replace(/^/gm, '    ')}`));
+  }
+}
+
 async function mget(path, params = {}) {
   const url = new URL(`${API}${path}`);
   url.searchParams.set('access_token', TOKEN);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+  if (DEBUG) console.log(c(90, `→ GET ${path}?${[...url.searchParams].filter(([k]) => k !== 'access_token').map(([k, v]) => k + '=' + v).join('&')}`));
   const res = await fetch(url);
   const json = await res.json();
-  if (json.error) throw new Error(`GET ${path} → [${json.error.code}] ${json.error.message}`);
+  if (json.error) throw new MetaError('GET', path, json.error, params);
   return json;
 }
 async function mpost(path, params = {}) {
@@ -36,13 +64,14 @@ async function mpost(path, params = {}) {
   for (const [k, v] of Object.entries(params)) {
     body.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   }
+  if (DEBUG) console.log(c(90, `→ POST ${path}\n  ${[...body.entries()].filter(([k]) => k !== 'access_token').map(([k, v]) => k + '=' + v).join('\n  ')}`));
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   });
   const json = await res.json();
-  if (json.error) throw new Error(`POST ${path} → [${json.error.code}] ${json.error.message}`);
+  if (json.error) throw new MetaError('POST', path, json.error, params);
   return json;
 }
 async function mdelete(path) {
@@ -50,8 +79,59 @@ async function mdelete(path) {
   url.searchParams.set('access_token', TOKEN);
   const res = await fetch(url, { method: 'DELETE' });
   const json = await res.json();
-  if (json.error) throw new Error(`DELETE ${path} → [${json.error.code}] ${json.error.message}`);
+  if (json.error) throw new MetaError('DELETE', path, json.error);
   return json;
+}
+
+// ── Try multiple campaign objectives until one succeeds ───────────────────
+// New / unfunded ad accounts often reject OUTCOME_LEADS but accept OUTCOME_TRAFFIC.
+async function createCampaignSmart(stamp) {
+  const objectives = FORCED_OBJECTIVE
+    ? [FORCED_OBJECTIVE]
+    : ['OUTCOME_LEADS', 'OUTCOME_TRAFFIC', 'OUTCOME_ENGAGEMENT'];
+
+  const errors = [];
+  for (const objective of objectives) {
+    try {
+      const camp = await mpost(`/${ACT}/campaigns`, {
+        name: `LL_SMOKE_${stamp}`,
+        objective,
+        status: 'PAUSED',
+        special_ad_categories: [],
+        buying_type: 'AUCTION',
+        // Required by Meta API v20+ when the campaign is NOT using CBO (no
+        // daily_budget at campaign level). Setting it false means each adset
+        // controls its own budget — which is what LaunchLense wants for
+        // clean per-angle attribution.
+        is_adset_budget_sharing_enabled: false,
+      });
+      ok(`Campaign created with objective=${objective}: ${camp.id}`);
+      return { campaign: camp, objective };
+    } catch (err) {
+      errors.push({ objective, err });
+      warn(`Objective ${objective} rejected:`);
+      if (err instanceof MetaError) err.print();
+    }
+  }
+  console.log(c(31, '\nAll objectives failed. Diagnosis hints:'));
+  console.log(c(90, '  • code 100 with no subcode often means the ad account is missing a payment method or has not completed initial setup'));
+  console.log(c(90, '  • code 100 subcode 33 means an object referenced (e.g. pixel) is not on the account'));
+  console.log(c(90, '  • code 1487749 or similar means special_ad_category required (e.g. housing/employment/credit)'));
+  console.log(c(90, '  • account balance is 0 → go to Ads Manager → Billing → Payment settings → add a payment method'));
+  throw errors[errors.length - 1].err;
+}
+
+// Optimization goals that pair with each campaign objective
+function optimizationGoalFor(objective) {
+  switch (objective) {
+    // For OUTCOME_LEADS + destination_type=WEBSITE you MUST use OFFSITE_CONVERSIONS
+    // (paired with a pixel). LEAD_GENERATION is reserved for native Meta Lead Forms.
+    case 'OUTCOME_LEADS':       return 'OFFSITE_CONVERSIONS';
+    case 'OUTCOME_TRAFFIC':     return 'LINK_CLICKS';
+    case 'OUTCOME_ENGAGEMENT':  return 'POST_ENGAGEMENT';
+    case 'OUTCOME_AWARENESS':   return 'REACH';
+    default:                    return 'LINK_CLICKS';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,38 +269,38 @@ async function main() {
   const created = {};
 
   try {
-    // 7a. Campaign
-    const camp = await mpost(`/${ACT}/campaigns`, {
-      name: `LL_SMOKE_${stamp}`,
-      objective: 'OUTCOME_LEADS',
-      status: 'PAUSED',
-      special_ad_categories: [],
-    });
+    // 7a. Campaign — auto-fallback through OUTCOME_LEADS → OUTCOME_TRAFFIC → ENGAGEMENT
+    const { campaign: camp, objective } = await createCampaignSmart(stamp);
     created.campaign_id = camp.id;
-    ok(`Campaign created: ${camp.id}`);
+    const optGoal = optimizationGoalFor(objective);
 
     // 7b. AdSet — daily $5, paused
     const targeting = {
-      age_min: 25,
-      age_max: 55,
+      // Advantage+ audience requires age_max >= 65; tighter ranges go in
+      // the "suggested audience" field, not as a hard cap.
+      age_min: 18,
+      age_max: 65,
       geo_locations: { countries: ['US'] },
       publisher_platforms: ['facebook'],
       facebook_positions: ['feed'],
       device_platforms: ['mobile', 'desktop'],
+      // Required by Meta v20+: must explicitly opt in or out of Advantage Audience.
+      targeting_automation: { advantage_audience: 1 },
     };
     const adsetParams = {
       name: `LL_SMOKE_${stamp}_adset`,
       campaign_id: camp.id,
       daily_budget: 500, // $5 in cents
       billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LEAD_GENERATION',
+      optimization_goal: optGoal,
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       destination_type: 'WEBSITE',
       status: 'PAUSED',
       targeting,
       start_time: new Date(Date.now() + 3600_000).toISOString(),
     };
-    if (PIXEL_ID) {
+    // Only attach pixel/LEAD promoted object when running the lead objective.
+    if (PIXEL_ID && objective === 'OUTCOME_LEADS') {
       adsetParams.promoted_object = { pixel_id: PIXEL_ID, custom_event_type: 'LEAD' };
     }
     const adset = await mpost(`/${ACT}/adsets`, adsetParams);
@@ -258,6 +338,7 @@ async function main() {
     console.log(c(90, JSON.stringify(created, null, 2)));
   } catch (e) {
     fail(`Create failed: ${e.message}`);
+    if (e && typeof e.print === 'function') e.print();
     console.log(c(90, 'Created so far: ' + JSON.stringify(created, null, 2)));
   }
 
