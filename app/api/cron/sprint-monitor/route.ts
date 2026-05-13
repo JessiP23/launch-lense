@@ -172,6 +172,30 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', sprint.id);
 
+      // 3b. Persist normalized sprint_metrics rows (one per angle per poll).
+      if (updatedMetrics.length > 0) {
+        const { data: campaignRow } = await db
+          .from('sprint_campaigns')
+          .select('id')
+          .eq('sprint_id', sprint.id)
+          .eq('channel', 'meta')
+          .maybeSingle();
+        await db.from('sprint_metrics').insert(
+          updatedMetrics.map((m) => ({
+            sprint_id: sprint.id,
+            sprint_campaign_id: campaignRow?.id ?? null,
+            angle_id: m.id,
+            channel: 'meta',
+            impressions: m.impressions,
+            clicks: m.clicks,
+            ctr: m.ctr,
+            cpc_cents: m.cpc_cents,
+            spend_cents: m.spend_cents,
+            raw: m as unknown as Record<string, unknown>,
+          }))
+        );
+      }
+
       // 4. Emit poll event
       await db.from('sprint_events').insert({
         sprint_id: sprint.id,

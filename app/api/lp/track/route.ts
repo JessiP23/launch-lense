@@ -8,10 +8,12 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+import { createHash } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { parseBody, LpTrackSchema } from '@/lib/schemas';
 import { emitLpEvent, SprintEventName } from '@/lib/analytics/events';
+import { emitLpCapiEvent } from '@/lib/meta/conversions';
 
 const LP_EVENT_TO_POSTHOG: Record<string, string> = {
   page_view: SprintEventName.LpViewed,
@@ -20,6 +22,12 @@ const LP_EVENT_TO_POSTHOG: Record<string, string> = {
   form_submit: SprintEventName.LpFormSubmitted,
   email_capture: SprintEventName.LpEmailCaptured,
 };
+
+function clientIp(req: NextRequest): string | null {
+  const xff = req.headers.get('x-forwarded-for');
+  if (xff) return xff.split(',')[0]!.trim();
+  return req.headers.get('x-real-ip');
+}
 
 export async function POST(request: NextRequest) {
   let rawBody: unknown;
@@ -35,20 +43,34 @@ export async function POST(request: NextRequest) {
   const recordId = body.sprint_id ?? body.test_id!;
   const db = createServiceClient();
 
+  const ip = clientIp(request);
+  const userAgent = request.headers.get('user-agent');
+  const metadata = (body.metadata ?? {}) as Record<string, unknown>;
+  const rawEmail = typeof metadata.email === 'string' ? (metadata.email as string) : null;
+  const emailHash = rawEmail
+    ? createHash('sha256').update(rawEmail.trim().toLowerCase()).digest('hex')
+    : null;
+
   const eventPayload: Record<string, unknown> = {
     event: body.event,
+    event_id: body.event_id,
     angle_id: body.angle_id,
     channel: body.channel,
     utm_source: body.utm_source,
     utm_medium: body.utm_medium,
     utm_campaign: body.utm_campaign,
     utm_content: body.utm_content,
-    metadata: body.metadata,
+    fbclid: body.fbclid,
+    fbc: body.fbc,
+    fbp: body.fbp,
+    page_url: body.page_url,
+    // Never persist the raw email — only the hash, in metadata.email_hash.
+    metadata: { ...metadata, ...(emailHash ? { email_hash: emailHash } : {}), email: undefined },
     ts: body.ts ?? Date.now(),
   };
 
-  // Write to events table (sprint or test)
-  const insertPromise = body.sprint_id
+  // 1. Legacy event row (sprint_events or events) for canvas + back-compat.
+  const legacyInsert = body.sprint_id
     ? db.from('sprint_events').insert({
         sprint_id: body.sprint_id,
         agent: 'lp',
@@ -62,9 +84,48 @@ export async function POST(request: NextRequest) {
         payload: eventPayload,
       });
 
-  // Emit to PostHog
+  // 2. Normalized sprint_lp_events row (preferred going forward).
+  const normalizedInsert = db.from('sprint_lp_events').insert({
+    sprint_id: body.sprint_id ?? null,
+    test_id: body.test_id ?? null,
+    angle_id: body.angle_id ?? null,
+    channel: body.channel ?? null,
+    event_name: body.event,
+    event_id: body.event_id ?? null,
+    utm_source: body.utm_source ?? null,
+    utm_medium: body.utm_medium ?? null,
+    utm_campaign: body.utm_campaign ?? null,
+    utm_content: body.utm_content ?? null,
+    fbclid: body.fbclid ?? null,
+    fbc: body.fbc ?? null,
+    fbp: body.fbp ?? null,
+    ip,
+    user_agent: userAgent,
+    email_hash: emailHash,
+    page_url: body.page_url ?? null,
+    metadata: eventPayload.metadata,
+  });
+
+  // 3. PostHog
   const posthogEventName = LP_EVENT_TO_POSTHOG[body.event] ?? body.event;
-  const emitPromise = emitLpEvent(recordId, posthogEventName as Parameters<typeof emitLpEvent>[1], {
+  const emitPromise = emitLpEvent(
+    recordId,
+    posthogEventName as Parameters<typeof emitLpEvent>[1],
+    {
+      sprint_id: body.sprint_id,
+      test_id: body.test_id,
+      angle_id: body.angle_id,
+      channel: body.channel,
+      utm_source: body.utm_source,
+      utm_medium: body.utm_medium,
+      utm_campaign: body.utm_campaign,
+      utm_content: body.utm_content,
+      ...(body.metadata ?? {}),
+    } as never
+  );
+
+  // 4. Meta Conversions API — server-side mirror with shared event_id for dedup.
+  const capiPromise = emitLpCapiEvent(body.event, {
     sprint_id: body.sprint_id,
     test_id: body.test_id,
     angle_id: body.angle_id,
@@ -73,11 +134,18 @@ export async function POST(request: NextRequest) {
     utm_medium: body.utm_medium,
     utm_campaign: body.utm_campaign,
     utm_content: body.utm_content,
-    ...(body.metadata ?? {}),
-  } as never);
+    source_url: body.page_url,
+    ip,
+    user_agent: userAgent,
+    fbclid: body.fbclid ?? null,
+    fbc: body.fbc ?? null,
+    fbp: body.fbp ?? null,
+    email: rawEmail,
+    event_id: body.event_id,
+  });
 
-  // Fire both in parallel; swallow errors (LP tracking must never break the LP)
-  await Promise.allSettled([insertPromise, emitPromise]);
+  // Fire all in parallel; swallow errors — LP tracking must never break the LP.
+  await Promise.allSettled([legacyInsert, normalizedInsert, emitPromise, capiPromise]);
 
   return Response.json({ ok: true });
 }

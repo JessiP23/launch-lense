@@ -126,12 +126,19 @@ export const LpTrackSchema = z.object({
     'form_submit',
     'email_capture',
   ]),
+  /** Browser-generated UUID shared with the in-page pixel for CAPI deduplication. */
+  event_id: z.string().min(8).max(64).optional(),
   angle_id: z.enum(['angle_A', 'angle_B', 'angle_C']).optional(),
   channel: PlatformSchema.optional(),
   utm_source: z.string().max(100).optional(),
   utm_medium: z.string().max(100).optional(),
   utm_campaign: z.string().max(100).optional(),
   utm_content: z.string().max(100).optional(),
+  /** Meta click ID — never sent client-side beyond the LP. */
+  fbclid: z.string().max(500).optional().nullable(),
+  fbc: z.string().max(500).optional().nullable(),
+  fbp: z.string().max(500).optional().nullable(),
+  page_url: z.string().max(2000).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   ts: z.number().int().positive().optional(),
 }).refine(

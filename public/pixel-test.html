@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meta Pixel Test - LaunchLense</title>
+    <title>Meta Pixel Test - LaunchLense Validation</title>
     <!-- Meta Pixel Code -->
     <script>
     !function(f,b,e,v,n,t,s)
@@ -27,43 +27,84 @@
         button { background: #FAFAFA; color: #0A0A0A; border: none; padding: 14px 28px; border-radius: 6px; cursor: pointer; font-weight: 600; margin: 10px; }
         button:hover { opacity: 0.9; }
         .status { padding: 20px; border-radius: 8px; margin: 20px 0; background: #059669; }
+        .info { padding: 15px; border-radius: 8px; margin: 15px 0; background: #2563eb; font-size: 0.9rem; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Meta Pixel Test Page</h1>
-        <p>Use this URL for Meta Event Testing: <strong>https://launch-lense.vercel.app/pixel-test.html</strong></p>
+        <h1>LaunchLense Meta Pixel Test</h1>
+        <p>URL for Meta Event Testing: <strong>https://launch-lense.vercel.app/pixel-test.html</strong></p>
         
         <div class="status">
-            ✅ Pixel Loaded (check Meta Events Manager)
+            ✅ Pixel Loaded (PageView fired automatically)
         </div>
         
-        <button onclick="testLeadEvent()">Test Lead Event</button>
-        <button onclick="testPurchaseEvent()">Test Purchase Event</button>
+        <div class="info">
+            <strong>Validation-Focused Events:</strong><br>
+            These events track demand signals, not e-commerce metrics
+        </div>
+        
+        <button onclick="testLeadEvent()">Test Lead Event (CTA Click)</button>
+        <button onclick="testCompleteRegistration()">Test CompleteRegistration (Form Submit)</button>
+        <button onclick="testViewContent()">Test ViewContent (Scroll Engagement)</button>
         <button onclick="testCustomEvent()">Test Custom Event</button>
+        
+        <div id="event-log" style="margin-top: 20px;"></div>
     </div>
 
     <script>
+        function log(message) {
+            const logDiv = document.getElementById('event-log');
+            const entry = document.createElement('div');
+            entry.style.cssText = 'padding: 10px; margin: 5px 0; background: #059669; border-radius: 4px; font-size: 0.9rem;';
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logDiv.appendChild(entry);
+        }
+
         function testLeadEvent() {
             if (typeof fbq !== 'undefined') {
                 fbq('track', 'Lead');
-                alert('Lead event fired! Check Meta Events Manager');
+                log('Lead event fired (CTA click - validation signal)');
+            } else {
+                log('Pixel not loaded', true);
             }
         }
 
-        function testPurchaseEvent() {
+        function testCompleteRegistration() {
             if (typeof fbq !== 'undefined') {
-                fbq('track', 'Purchase', {value: 29.99, currency: 'USD'});
-                alert('Purchase event fired! Check Meta Events Manager');
+                fbq('track', 'CompleteRegistration');
+                log('CompleteRegistration fired (form submit - critical validation signal)');
+            } else {
+                log('Pixel not loaded', true);
+            }
+        }
+
+        function testViewContent() {
+            if (typeof fbq !== 'undefined') {
+                fbq('track', 'ViewContent');
+                log('ViewContent fired (content engagement signal)');
+            } else {
+                log('Pixel not loaded', true);
             }
         }
 
         function testCustomEvent() {
             if (typeof fbq !== 'undefined') {
-                fbq('trackCustom', 'LaunchLenseTest', {test_param: 'working'});
-                alert('Custom event fired! Check Meta Events Manager');
+                fbq('trackCustom', 'LaunchLenseValidation', {validation_type: 'demand_signal'});
+                log('Custom event fired (LaunchLenseValidation)');
+            } else {
+                log('Pixel not loaded', true);
             }
         }
+
+        // Check pixel on load
+        setTimeout(() => {
+            if (typeof fbq !== 'undefined') {
+                log('Meta Pixel initialized successfully');
+            } else {
+                log('Meta Pixel failed to load', true);
+            }
+        }, 2000);
     </script>
 </body>
 </html>

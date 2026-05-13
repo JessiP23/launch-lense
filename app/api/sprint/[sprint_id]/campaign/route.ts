@@ -31,6 +31,8 @@ import {
   getSystemPageId,
   getSystemPixelId,
 } from '@/lib/meta-api';
+import { withMetaRetry } from '@/lib/meta/retry';
+import { buildLpUrl } from '@/lib/meta/create-campaign';
 import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import type { AngleAgentOutput, LandingAgentOutput, Platform, CampaignAgentOutput, AngleMetrics } from '@/lib/agents/types';
 
@@ -152,13 +154,16 @@ export async function POST(
     const idea = sprint.idea as string;
     const campaignName = `LL Sprint ${sprint_id.slice(0, 8)} — ${idea.slice(0, 40)}`;
 
-    // 1. Create the campaign
-    const campaignRes = await createCampaign(adAccountId, accessToken, {
-      name: campaignName,
-      objective: 'OUTCOME_LEADS',
-      status: 'PAUSED',
-      special_ad_categories: [],
-    }) as { id: string };
+    // 1. Create the campaign (retried on transient Meta errors)
+    const campaignRes = (await withMetaRetry(
+      () => createCampaign(adAccountId, accessToken, {
+        name: campaignName,
+        objective: 'OUTCOME_LEADS',
+        status: 'PAUSED',
+        special_ad_categories: [],
+      }),
+      { label: 'create-campaign' }
+    )) as { id: string };
 
     const campaignId = campaignRes.id;
 
@@ -169,13 +174,25 @@ export async function POST(
     const dailyBudget = perAngleDailyBudgetCents(totalBudget, angles.angles.length);
 
     const angleMetrics: AngleMetrics[] = [];
+    const adRows: Array<{
+      angle_id: string;
+      adset_id: string;
+      ad_id: string;
+      creative_id: string;
+      lp_url: string;
+      status: string;
+    }> = [];
 
     for (const angle of angles.angles) {
-      // Get LP URL for this angle (fall back to sprint LP if specific angle page unavailable)
+      // Get LP URL for this angle with full UTM attribution (utm_*, angle_id, sprint_id).
       const lpPage = landing?.pages?.find((p) => p.angle_id === angle.id);
-      const lpUrl = lpPage?.utm_base
-        ? `${lpPage.utm_base}?utm_source=meta&utm_medium=paid&utm_campaign=sprint&utm_content=${angle.id}`
-        : `${baseUrl}/lp/${sprint_id}?utm_source=meta&utm_medium=paid&utm_campaign=sprint&utm_content=${angle.id}`;
+      const lpUrl = buildLpUrl({
+        sprintId: sprint_id,
+        angleId: angle.id,
+        channel: 'meta',
+        baseUrl,
+        lpBase: lpPage?.utm_base ?? null,
+      });
 
       const adsetName = `${angle.id.replace('_', ' ')} — ${angle.archetype}`;
 
@@ -205,36 +222,55 @@ export async function POST(
           : {}),
       };
 
-      const adsetRes = await createAdSet(adAccountId, accessToken, adsetParams) as { id: string };
+      const adsetRes = (await withMetaRetry(
+        () => createAdSet(adAccountId, accessToken, adsetParams),
+        { label: `create-adset:${angle.id}` }
+      )) as { id: string };
       adsetMap[angle.id] = adsetRes.id;
 
       // Creative
       const copy = angle.copy.meta;
-      const creativeRes = await createAdCreative(adAccountId, accessToken, {
-        name: `Creative — ${adsetName}`,
-        object_story_spec: {
-          page_id: pageId,
-          link_data: {
-            message: copy.body,
-            link: lpUrl,
-            name: copy.headline,
-            call_to_action: { type: 'LEARN_MORE' },
+      const creativeRes = (await withMetaRetry(
+        () => createAdCreative(adAccountId, accessToken, {
+          name: `Creative — ${adsetName}`,
+          object_story_spec: {
+            page_id: pageId,
+            link_data: {
+              message: copy.body,
+              link: lpUrl,
+              name: copy.headline,
+              call_to_action: { type: 'LEARN_MORE' },
+            },
           },
-        },
-      }) as { id: string };
+        }),
+        { label: `create-creative:${angle.id}` }
+      )) as { id: string };
 
       // Ad
-      const adRes = await createAd(adAccountId, accessToken, {
-        name: `Ad — ${adsetName}`,
-        adset_id: adsetRes.id,
-        creative: { creative_id: creativeRes.id },
-        status: 'PAUSED',
-        tracking_specs: pixelId
-          ? [{ action: ['offsite_conversions'], pixel: [pixelId] }]
-          : [],
-      }) as { id: string };
+      const adRes = (await withMetaRetry(
+        () => createAd(adAccountId, accessToken, {
+          name: `Ad — ${adsetName}`,
+          adset_id: adsetRes.id,
+          creative: { creative_id: creativeRes.id },
+          status: 'PAUSED',
+          tracking_specs: pixelId
+            ? [{ action: ['offsite_conversions'], pixel: [pixelId] }]
+            : [],
+        }),
+        { label: `create-ad:${angle.id}` }
+      )) as { id: string };
 
       adMap[angle.id] = adRes.id;
+
+      // Persist normalized sprint_ads row
+      adRows.push({
+        angle_id: angle.id,
+        adset_id: adsetRes.id,
+        ad_id: adRes.id,
+        creative_id: creativeRes.id,
+        lp_url: lpUrl,
+        status: 'PAUSED',
+      });
 
       angleMetrics.push({
         id: angle.id,
@@ -248,11 +284,38 @@ export async function POST(
     }
 
     // 3. Activate the campaign (adsets remain paused until all are set up)
-    await updateCampaignStatus(campaignId, accessToken, 'ACTIVE');
+    await withMetaRetry(() => updateCampaignStatus(campaignId, accessToken, 'ACTIVE'), { label: 'activate-campaign' });
 
     // 4. Activate all adsets
     for (const adsetId of Object.values(adsetMap)) {
-      await updateCampaignStatus(adsetId, accessToken, 'ACTIVE');
+      await withMetaRetry(() => updateCampaignStatus(adsetId, accessToken, 'ACTIVE'), { label: `activate-adset:${adsetId}` });
+    }
+
+    // 4b. Persist normalized sprint_campaigns + sprint_ads rows.
+    const { data: campaignRow } = await db
+      .from('sprint_campaigns')
+      .upsert(
+        {
+          sprint_id,
+          channel: 'meta',
+          campaign_id: campaignId,
+          adset_map: adsetMap,
+          ad_map: adMap,
+          daily_budget_cents: dailyBudget,
+          total_budget_cents: totalBudget,
+          status: 'ACTIVE',
+          last_polled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'sprint_id,channel' }
+      )
+      .select('id')
+      .single();
+    if (campaignRow?.id && adRows.length > 0) {
+      await db.from('sprint_ads').upsert(
+        adRows.map((r) => ({ ...r, sprint_campaign_id: campaignRow.id, status: 'ACTIVE' })),
+        { onConflict: 'sprint_campaign_id,angle_id' }
+      );
     }
 
     // 5. Persist to sprint
