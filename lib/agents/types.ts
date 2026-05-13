@@ -22,6 +22,11 @@ export type SprintState =
   | 'PAYMENT_PENDING'
   | 'ANGLES_RUNNING'
   | 'ANGLES_DONE'
+  // v10 approval gate: sprint pauses on USER_REVIEW_REQUIRED until the user
+  // approves at least one creative per active channel; CREATIVE_APPROVED
+  // unlocks the deploy step but still requires an explicit launch click.
+  | 'USER_REVIEW_REQUIRED'
+  | 'CREATIVE_APPROVED'
   | 'LANDING_RUNNING'
   | 'LANDING_DONE'
   | 'CAMPAIGN_CREATING'
@@ -478,6 +483,86 @@ export interface OutreachAgentOutput {
   /** Plain-text preview only — never HTML */
   bodyPreview?: string;
 }
+
+// ── sprint_creatives (v10 approval gate) ──────────────────────────────────
+//
+// One row per (sprint, angle, platform). Mirrors the SQL schema in
+// 010_sprint_creatives.sql. Used by lib/creatives/store.ts and consumed by
+// lib/meta/create-campaign.ts when deploying approved creatives.
+
+export type CreativeStatus =
+  | 'draft'
+  | 'reviewing'
+  | 'approved'
+  | 'rejected'
+  | 'deploying'
+  | 'deployed'
+  | 'failed';
+
+export type PolicySeverity = 'clean' | 'warn' | 'block';
+
+export interface PolicyIssue {
+  code: string;
+  severity: PolicySeverity;
+  message: string;
+  field?: 'headline' | 'primary_text' | 'description' | 'cta' | 'image_url' | 'video_url';
+  match?: string;
+}
+
+export interface SprintCreative {
+  id: string;
+  sprint_id: string;
+  angle_id: string;
+  platform: Platform;
+  status: CreativeStatus;
+
+  headline: string | null;
+  primary_text: string | null;
+  description: string | null;
+  cta: string | null;
+  display_link: string | null;
+  hook: string | null;
+  overlay_text: string | null;
+  callout: string | null;
+  audience_label: string | null;
+
+  image_url: string | null;
+  video_url: string | null;
+  image_hash: string | null;
+  video_id: string | null;
+
+  creative_id: string | null;
+  ad_id: string | null;
+  adset_id: string | null;
+
+  meta: Record<string, unknown>;
+
+  policy_severity: PolicySeverity | null;
+  policy_issues: PolicyIssue[] | null;
+  policy_scanned_at: string | null;
+
+  approved_at: string | null;
+  approved_by: string | null;
+  rejected_reason: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export type SprintCreativeEditable = Pick<
+  SprintCreative,
+  | 'headline'
+  | 'primary_text'
+  | 'description'
+  | 'cta'
+  | 'display_link'
+  | 'hook'
+  | 'overlay_text'
+  | 'callout'
+  | 'audience_label'
+  | 'image_url'
+  | 'video_url'
+>;
 
 // ── Agent 10: SlackAgent ───────────────────────────────────────────────────
 

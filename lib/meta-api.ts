@@ -137,6 +137,90 @@ export async function createAdSet(
   });
 }
 
+// ── Asset uploads (v10 editable creative workflow) ────────────────────────
+// Per Meta docs, image uploads use multipart/form-data with the file under
+// any key (Meta returns the hash keyed by that filename in `images`). Videos
+// use a similar multipart form but the response includes a numeric `id`
+// (video_id). Both must bypass our urlencoded helper because they need a
+// raw file body, so they call fetch() directly.
+
+export interface CreateAdImageResult {
+  image_hash: string;
+  url?: string;
+}
+
+/**
+ * Upload an image to the ad account's image library.
+ * Returns the image_hash to embed in object_story_spec.link_data.
+ *
+ * Reference: https://developers.facebook.com/docs/marketing-api/reference/ad-image
+ */
+export async function createAdImage(
+  accountId: string,
+  accessToken: string,
+  file: Blob,
+  filename = 'creative.jpg'
+): Promise<CreateAdImageResult> {
+  const url = new URL(`${META_BASE}/act_${accountId}/adimages`);
+  const form = new FormData();
+  form.set('access_token', accessToken);
+  form.set('filename', file, filename);
+
+  const res = await fetch(url.toString(), { method: 'POST', body: form });
+  const data = (await res.json()) as MetaResponse<{
+    images?: Record<string, { hash: string; url?: string }>;
+  }>;
+
+  if (data.error) {
+    console.error('[createAdImage] Meta error:', JSON.stringify(data.error));
+    throw new MetaAPIError(data.error.message, data.error.code, data.error.type);
+  }
+
+  // Meta keys the response by filename. There is exactly one entry.
+  const first = data.images ? Object.values(data.images)[0] : undefined;
+  if (!first?.hash) {
+    throw new MetaAPIError('createAdImage: no hash returned', 0, 'Unknown');
+  }
+  return { image_hash: first.hash, url: first.url };
+}
+
+export interface CreateAdVideoResult {
+  video_id: string;
+}
+
+/**
+ * Upload a video to the ad account's video library.
+ * Returns the video_id to embed in object_story_spec.video_data.
+ *
+ * For files ≤ 1GB we use the single-request endpoint. Larger files require
+ * the chunked Resumable Upload API which we will add when we wire video.
+ *
+ * Reference: https://developers.facebook.com/docs/marketing-api/reference/video
+ */
+export async function createAdVideo(
+  accountId: string,
+  accessToken: string,
+  file: Blob,
+  filename = 'creative.mp4'
+): Promise<CreateAdVideoResult> {
+  const url = new URL(`${META_BASE}/act_${accountId}/advideos`);
+  const form = new FormData();
+  form.set('access_token', accessToken);
+  form.set('source', file, filename);
+
+  const res = await fetch(url.toString(), { method: 'POST', body: form });
+  const data = (await res.json()) as MetaResponse<{ id?: string }>;
+
+  if (data.error) {
+    console.error('[createAdVideo] Meta error:', JSON.stringify(data.error));
+    throw new MetaAPIError(data.error.message, data.error.code, data.error.type);
+  }
+  if (!data.id) {
+    throw new MetaAPIError('createAdVideo: no id returned', 0, 'Unknown');
+  }
+  return { video_id: data.id };
+}
+
 // Create ad creative
 export async function createAdCreative(
   accountId: string,

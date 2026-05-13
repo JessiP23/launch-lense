@@ -19,6 +19,7 @@ import {
   createAdSet,
   createAdCreative,
   createAd,
+  createAdImage,
   updateCampaignStatus,
   getSystemToken,
   getSystemAdAccountId,
@@ -28,7 +29,17 @@ import {
 import { withMetaRetry } from '@/lib/meta/retry';
 import { createServiceClient } from '@/lib/supabase';
 import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
-import type { AngleAgentOutput, LandingAgentOutput } from '@/lib/agents/types';
+import type {
+  AngleAgentOutput,
+  LandingAgentOutput,
+  SprintCreative,
+} from '@/lib/agents/types';
+import {
+  getDeployableCreatives,
+  setMetaAssetRefs,
+  setMetaCreativeRefs,
+  transitionStatus,
+} from '@/lib/creatives/store';
 
 export interface LaunchCampaignInput {
   sprintId: string;
@@ -40,6 +51,18 @@ export interface LaunchCampaignInput {
   baseUrl?: string;
   /** Override the standard 3-day pacing. */
   pacingDays?: number;
+  /**
+   * v10 approval gate. When true (default), the launcher will:
+   *   1. Refuse to run if no approved sprint_creatives exist for 'meta'.
+   *   2. Use the edited copy + uploaded image_hash from sprint_creatives,
+   *      falling back to the raw angle.copy.meta values when a creative is
+   *      not present.
+   *   3. Skip auto-activation — campaigns stay PAUSED until the user calls
+   *      /api/sprint/[id]/campaign/activate.
+   */
+  requireApprovedCreatives?: boolean;
+  /** When false, the legacy auto-activation path runs (kept for tests). */
+  autoActivate?: boolean;
 }
 
 export interface LaunchCampaignResult {
@@ -166,12 +189,58 @@ export function buildLpUrl(args: {
   return `${root}${sep}${params.toString()}`;
 }
 
+// ── Asset fetch helper ────────────────────────────────────────────────────
+//
+// Pulls an image (or eventually video) referenced in sprint_creatives.image_url
+// down into a Blob so we can POST it to Meta's ad image library. Supports:
+//   - http(s):// URLs   — standard fetch
+//   - data:...;base64   — decoded inline (used for client-side previews)
+//
+// Caps the result at 10 MB so a malicious or runaway upload can't pin the
+// orchestrator. Meta's image upload limit is 30 MB but our LP banners come
+// out to ~1–2 MB; 10 MB is comfortable headroom.
+
+const MAX_ASSET_BYTES = 10 * 1024 * 1024;
+
+async function fetchAsBlob(src: string): Promise<Blob> {
+  if (src.startsWith('data:')) {
+    // Form: data:image/jpeg;base64,XXXXXX...
+    const comma = src.indexOf(',');
+    if (comma < 0) throw new Error('fetchAsBlob: malformed data URL');
+    const meta = src.slice(5, comma); // image/jpeg;base64
+    const data = src.slice(comma + 1);
+    const isBase64 = /;base64$/i.test(meta);
+    const mime = meta.replace(/;base64$/i, '') || 'application/octet-stream';
+    const buf = isBase64
+      ? Buffer.from(data, 'base64')
+      : Buffer.from(decodeURIComponent(data), 'utf-8');
+    if (buf.byteLength > MAX_ASSET_BYTES) {
+      throw new Error(`fetchAsBlob: asset exceeds ${MAX_ASSET_BYTES} bytes`);
+    }
+    return new Blob([buf], { type: mime });
+  }
+
+  const res = await fetch(src);
+  if (!res.ok) {
+    throw new Error(`fetchAsBlob: ${res.status} fetching ${src}`);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.byteLength > MAX_ASSET_BYTES) {
+    throw new Error(`fetchAsBlob: asset exceeds ${MAX_ASSET_BYTES} bytes`);
+  }
+  const mime = res.headers.get('content-type') ?? 'image/jpeg';
+  return new Blob([buf], { type: mime });
+}
+
 // ── Main launcher ──────────────────────────────────────────────────────────
 
 export async function launchManagedMetaCampaign(
   input: LaunchCampaignInput
 ): Promise<LaunchCampaignResult> {
   const { sprintId, idea, angles, landing, totalBudgetCents } = input;
+  const requireApproved = input.requireApprovedCreatives ?? true;
+  const autoActivate = input.autoActivate ?? !requireApproved; // gated by default
+
   if (!angles?.angles?.length) {
     throw new Error('launchManagedMetaCampaign: angles required');
   }
@@ -186,6 +255,22 @@ export async function launchManagedMetaCampaign(
       dailyBudgetCents: perAngleDailyBudgetCents(totalBudgetCents, angles.angles.length, input.pacingDays),
       reused: true,
     };
+  }
+
+  // 0b. v10 approval gate — load user-approved creatives keyed by angle_id.
+  // When requireApproved=true and the map is empty we refuse to launch so
+  // we never push unreviewed creatives to Meta.
+  const approvedRows = requireApproved
+    ? await getDeployableCreatives(sprintId, 'meta')
+    : [];
+  const approvedByAngle: Record<string, SprintCreative> = {};
+  for (const row of approvedRows) approvedByAngle[row.angle_id] = row;
+
+  if (requireApproved && approvedRows.length === 0) {
+    throw new Error(
+      'launchManagedMetaCampaign: no approved sprint_creatives found for channel=meta. ' +
+        'User must approve at least one creative before deployment.'
+    );
   }
 
   const accessToken = getSystemToken();
@@ -224,7 +309,20 @@ export async function launchManagedMetaCampaign(
 
   try {
     // 2. Per-angle adset + creative + ad.
-    for (const angle of angles.angles) {
+    // When requireApproved=true we only deploy angles with an approved
+    // sprint_creatives row; otherwise we deploy every angle (legacy path).
+    const anglesToDeploy = requireApproved
+      ? angles.angles.filter((a) => approvedByAngle[a.id])
+      : angles.angles;
+
+    if (requireApproved && anglesToDeploy.length === 0) {
+      throw new Error(
+        'launchManagedMetaCampaign: filtered angle set is empty after approval check.'
+      );
+    }
+
+    for (const angle of anglesToDeploy) {
+      const approved = approvedByAngle[angle.id];
       const lpPage = landing?.pages?.find((p) => p.angle_id === angle.id);
       const lpBase = lpPage?.utm_base ?? null;
       const lpUrl = buildLpUrl({
@@ -268,19 +366,68 @@ export async function launchManagedMetaCampaign(
       )) as { id: string };
       adsetMap[angle.id] = adsetRes.id;
 
-      const copy = angle.copy.meta;
+      // Mark the sprint_creatives row as 'deploying' so the UI reflects
+      // in-flight state. Non-fatal — legacy path (no row) skips silently.
+      if (approved) {
+        try {
+          await transitionStatus(sprintId, angle.id, 'meta', 'deploying', {
+            actor: 'system',
+          });
+        } catch {/* swallow — status update is advisory */}
+      }
+
+      // Resolve the creative content: prefer the user-edited row, fall back
+      // to the raw AngleAgent output. Never deploy partial copy.
+      const rawCopy = angle.copy.meta;
+      const message = approved?.primary_text?.trim() || rawCopy.body;
+      const headline = approved?.headline?.trim() || rawCopy.headline;
+      const description = approved?.description?.trim() ?? null;
+      const ctaType = (approved?.cta?.trim() || 'LEARN_MORE').toUpperCase();
+
+      // Upload the asset to Meta's ad image library and capture image_hash.
+      // This step is idempotent at the sprint_creatives level — we cache the
+      // hash so retries don't re-upload.
+      let imageHash: string | null = approved?.image_hash ?? null;
+      if (approved?.image_url && !imageHash) {
+        try {
+          const blob = await fetchAsBlob(approved.image_url);
+          const uploaded = await withMetaRetry(
+            () => createAdImage(adAccountId, accessToken, blob, `${angle.id}.jpg`),
+            { label: `upload-image:${angle.id}` }
+          );
+          imageHash = uploaded.image_hash;
+          try {
+            await setMetaAssetRefs(sprintId, angle.id, 'meta', {
+              image_hash: imageHash,
+            });
+          } catch {/* non-fatal */}
+        } catch (err) {
+          // If image upload fails we still deploy the creative without an image
+          // rather than blocking the entire sprint. Meta will accept link-only
+          // ads and the canvas will surface the upload error separately.
+          console.warn(
+            `[create-campaign] image upload failed for ${angle.id}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+
+      const linkData: Record<string, unknown> = {
+        message,
+        link: lpUrl,
+        name: headline,
+        call_to_action: { type: ctaType },
+      };
+      if (description) linkData.description = description;
+      if (imageHash) linkData.image_hash = imageHash;
+
       const creativeRes = (await withMetaRetry(
         () =>
           createAdCreative(adAccountId, accessToken, {
             name: `Creative — ${adsetName}`,
             object_story_spec: {
               page_id: pageId,
-              link_data: {
-                message: copy.body,
-                link: lpUrl,
-                name: copy.headline,
-                call_to_action: { type: 'LEARN_MORE' },
-              },
+              link_data: linkData,
             },
           }),
         { label: `create-creative:${angle.id}` }
@@ -306,24 +453,51 @@ export async function launchManagedMetaCampaign(
         ad_id: adRes.id,
         creative_id: creativeRes.id,
         lp_url: lpUrl,
-        status: 'ACTIVE',
+        status: autoActivate ? 'ACTIVE' : 'PAUSED',
       });
+
+      // Persist Meta refs back to sprint_creatives so the UI can reflect
+      // 'deployed' state and the verdict / monitor jobs can find them.
+      if (approved) {
+        try {
+          await setMetaCreativeRefs(sprintId, angle.id, 'meta', {
+            creative_id: creativeRes.id,
+            ad_id: adRes.id,
+            adset_id: adsetRes.id,
+          });
+          await transitionStatus(sprintId, angle.id, 'meta', 'deployed', {
+            actor: 'system',
+          });
+        } catch {/* non-fatal */}
+      }
     }
 
-    // 3. Activate campaign then all adsets (avoids partial-active state).
-    await withMetaRetry(
-      () => updateCampaignStatus(campaignId, accessToken, 'ACTIVE'),
-      { label: 'activate-campaign' }
-    );
-    for (const adsetId of Object.values(adsetMap)) {
+    // 3. Activation gate.
+    //   - Legacy / autoActivate=true: activate campaign + adsets immediately.
+    //   - v10 default (autoActivate=false): leave everything PAUSED. The
+    //     /api/sprint/[id]/campaign/activate endpoint flips them to ACTIVE
+    //     after the user presses Launch in the canvas.
+    if (autoActivate) {
       await withMetaRetry(
-        () => updateCampaignStatus(adsetId, accessToken, 'ACTIVE'),
-        { label: `activate-adset:${adsetId}` }
+        () => updateCampaignStatus(campaignId, accessToken, 'ACTIVE'),
+        { label: 'activate-campaign' }
       );
+      for (const adsetId of Object.values(adsetMap)) {
+        await withMetaRetry(
+          () => updateCampaignStatus(adsetId, accessToken, 'ACTIVE'),
+          { label: `activate-adset:${adsetId}` }
+        );
+      }
     }
 
     const result = { campaignId, adsetMap, adMap, dailyBudgetCents };
-    await persistCampaign(sprintId, result, adRows, totalBudgetCents, 'ACTIVE');
+    await persistCampaign(
+      sprintId,
+      result,
+      adRows,
+      totalBudgetCents,
+      autoActivate ? 'ACTIVE' : 'PAUSED'
+    );
 
     // Fire analytics — campaign_created is the canonical "campaign live" event
     // for the managed orchestration. Fire-and-forget; never blocks launch.

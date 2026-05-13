@@ -1,53 +1,96 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/policy/scan
+//
+// Stateless preview of the v10 Meta policy scanner. Accepts the editable
+// creative fields and returns the rich PolicyScanResult plus a back-compat
+// envelope so older clients (and the Meta deployment gate) read the same
+// shape they always have.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
+import { scanCreative, type PolicyScanInput } from '@/lib/policy/scan';
+import type { PolicySeverity } from '@/lib/agents/types';
 
-const BANNED_WORDS = ['guarantee', 'guaranteed', 'you will', 'before/after', 'cure', 'miracle'];
+// Optional `image_text_percent` carries over from the old endpoint — kept so
+// existing pixel-side analyzers can still push their image-OCR estimate
+// through the same pipeline.
+const RequestSchema = z.object({
+  platform: z.enum(['meta', 'google', 'linkedin', 'tiktok']).optional(),
+  headline: z.string().max(2000).nullish(),
+  primary_text: z.string().max(20000).nullish(),
+  description: z.string().max(2000).nullish(),
+  cta: z.string().max(120).nullish(),
+  display_link: z.string().max(2000).nullish(),
+  hook: z.string().max(2000).nullish(),
+  overlay_text: z.string().max(2000).nullish(),
+  callout: z.string().max(2000).nullish(),
+  audience_label: z.string().max(2000).nullish(),
+  image_url: z.string().max(2000).nullish(),
+  video_url: z.string().max(2000).nullish(),
+  /** Legacy field: estimated % of image that is text. */
+  image_text_percent: z.number().min(0).max(100).optional(),
+});
+
 const MAX_TEXT_IN_IMAGE_PERCENT = 20;
 
+function severityToRisk(severity: PolicySeverity): 'low' | 'medium' | 'high' {
+  if (severity === 'block') return 'high';
+  if (severity === 'warn') return 'medium';
+  return 'low';
+}
+
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { headline, primary_text, image_text_percent } = body;
-
-  const issues: string[] = [];
-
-  // Check for banned words
-  const allText = `${headline || ''} ${primary_text || ''}`.toLowerCase();
-  for (const word of BANNED_WORDS) {
-    if (allText.includes(word)) {
-      issues.push(`Banned word detected: "${word}". This will cause ad rejection.`);
-    }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  // Check text in image ratio
-  if (image_text_percent && image_text_percent > MAX_TEXT_IN_IMAGE_PERCENT) {
-    issues.push(
-      `Image contains ${image_text_percent}% text. Meta recommends under ${MAX_TEXT_IN_IMAGE_PERCENT}%. Ads with too much text get lower reach.`
+  const parsed = RequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: 'Invalid input', details: parsed.error.format() },
+      { status: 400 }
     );
   }
 
-  // Check headline length
-  if (headline && headline.length > 40) {
-    issues.push(`Headline is ${headline.length} chars. Max recommended is 40.`);
-  }
+  // Coerce null → undefined for the scanner (it treats both as "absent").
+  const { image_text_percent, ...rest } = parsed.data;
+  const scanInput: PolicyScanInput = Object.fromEntries(
+    Object.entries(rest).map(([k, v]) => [k, v ?? undefined])
+  ) as PolicyScanInput;
 
-  // Check primary text length
-  if (primary_text && primary_text.length > 125) {
-    issues.push(`Primary text is ${primary_text.length} chars. Max recommended is 125.`);
-  }
+  const result = scanCreative(scanInput);
 
-  const risk_level = issues.length >= 2 ? 'high' : issues.length === 1 ? 'medium' : 'low';
-  const blocked = risk_level === 'high';
+  // Legacy image-text rule lives only on this endpoint (no creative field).
+  if (image_text_percent != null && image_text_percent > MAX_TEXT_IN_IMAGE_PERCENT) {
+    result.issues.push({
+      code: 'image.text_overlay_excess',
+      severity: 'warn',
+      message: `Image is ~${image_text_percent}% text. Meta deprioritises ads above ${MAX_TEXT_IN_IMAGE_PERCENT}%. Reduce overlay text or move it to the primary_text instead.`,
+      field: 'image_url',
+    });
+    if (result.severity === 'clean') result.severity = 'warn';
+  }
 
   return Response.json({
-    risk_level,
-    blocked,
-    issues,
-    message: blocked
-      ? 'Ad content blocked due to policy violations. Fix issues before proceeding.'
-      : issues.length > 0
-      ? 'Some issues detected. Review before launch.'
-      : 'Content looks good. Ready to deploy.',
+    // New shape (preferred):
+    severity: result.severity,
+    issues: result.issues,
+    blocked: result.blocked,
+    scanned_at: result.scanned_at,
+    // Backward-compatible envelope:
+    risk_level: severityToRisk(result.severity),
+    issues_text: result.issues.map((i) => i.message),
+    message: result.blocked
+      ? 'Ad content blocked due to policy violations. Fix the listed issues before deploying.'
+      : result.issues.length > 0
+        ? 'Some issues detected. Review before launch.'
+        : 'Content looks good. Ready to deploy.',
   });
 }

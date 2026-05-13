@@ -31,6 +31,15 @@ export const SprintEventName = {
   LeadGenerated: 'lead_generated',
   VerdictIssued: 'verdict_issued',
 
+  // Editable creative workflow (v10)
+  CreativeEdited: 'creative_edited',
+  CreativeApproved: 'creative_approved',
+  CreativeRejected: 'creative_rejected',
+  CreativeRegenerated: 'creative_regenerated',
+  CreativePolicyScanned: 'creative_policy_scanned',
+  CreativeDeployed: 'creative_deployed',
+  CampaignActivated: 'campaign_activated',
+
   // Payment
   CheckoutStarted: 'checkout_started',
   PaymentCompleted: 'payment_completed',
