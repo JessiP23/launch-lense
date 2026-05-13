@@ -27,6 +27,7 @@ import {
 } from '@/lib/meta-api';
 import { withMetaRetry } from '@/lib/meta/retry';
 import { createServiceClient } from '@/lib/supabase';
+import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import type { AngleAgentOutput, LandingAgentOutput } from '@/lib/agents/types';
 
 export interface LaunchCampaignInput {
@@ -90,12 +91,24 @@ async function findExistingCampaign(sprintId: string): Promise<ExistingCampaign 
   };
 }
 
+interface PersistAdRow {
+  angle_id: string;
+  adset_id?: string;
+  ad_id?: string;
+  creative_id?: string;
+  lp_url?: string;
+  status?: string;
+}
+
 async function persistCampaign(
   sprintId: string,
-  result: Omit<LaunchCampaignResult, 'reused'>
+  result: Omit<LaunchCampaignResult, 'reused'>,
+  ads: PersistAdRow[],
+  totalBudgetCents: number,
+  campaignStatus: 'ACTIVE' | 'PAUSED' | 'FAILED' | 'CREATING' = 'ACTIVE'
 ): Promise<void> {
   const db = createServiceClient();
-  await db
+  const { data: campaignRow } = await db
     .from('sprint_campaigns')
     .upsert(
       {
@@ -105,11 +118,30 @@ async function persistCampaign(
         adset_map: result.adsetMap,
         ad_map: result.adMap,
         daily_budget_cents: result.dailyBudgetCents,
-        status: 'ACTIVE',
+        total_budget_cents: totalBudgetCents,
+        status: campaignStatus,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'sprint_id,channel' }
+    )
+    .select('id')
+    .single();
+
+  if (campaignRow?.id && ads.length) {
+    await db.from('sprint_ads').upsert(
+      ads.map((a) => ({
+        sprint_campaign_id: campaignRow.id,
+        angle_id: a.angle_id,
+        adset_id: a.adset_id ?? null,
+        ad_id: a.ad_id ?? null,
+        creative_id: a.creative_id ?? null,
+        lp_url: a.lp_url ?? null,
+        status: a.status ?? 'PAUSED',
+        updated_at: new Date().toISOString(),
+      })),
+      { onConflict: 'sprint_campaign_id,angle_id' }
     );
+  }
 }
 
 // ── LP URL builder with full UTM attribution ───────────────────────────────
@@ -188,6 +220,7 @@ export async function launchManagedMetaCampaign(
 
   const adsetMap: Record<string, string> = {};
   const adMap: Record<string, string> = {};
+  const adRows: PersistAdRow[] = [];
 
   try {
     // 2. Per-angle adset + creative + ad.
@@ -267,6 +300,14 @@ export async function launchManagedMetaCampaign(
         { label: `create-ad:${angle.id}` }
       )) as { id: string };
       adMap[angle.id] = adRes.id;
+      adRows.push({
+        angle_id: angle.id,
+        adset_id: adsetRes.id,
+        ad_id: adRes.id,
+        creative_id: creativeRes.id,
+        lp_url: lpUrl,
+        status: 'ACTIVE',
+      });
     }
 
     // 3. Activate campaign then all adsets (avoids partial-active state).
@@ -282,16 +323,28 @@ export async function launchManagedMetaCampaign(
     }
 
     const result = { campaignId, adsetMap, adMap, dailyBudgetCents };
-    await persistCampaign(sprintId, result);
+    await persistCampaign(sprintId, result, adRows, totalBudgetCents, 'ACTIVE');
+
+    // Fire analytics — campaign_created is the canonical "campaign live" event
+    // for the managed orchestration. Fire-and-forget; never blocks launch.
+    void emitSprintEvent(sprintId, SprintEventName.CampaignCreated, {
+      channel: 'meta',
+      campaign_id: campaignId,
+      angle_count: angles.angles.length,
+      daily_budget_cents: dailyBudgetCents,
+      total_budget_cents: totalBudgetCents,
+    });
+
     return { ...result, reused: false };
   } catch (err) {
     // Persist whatever we created so a follow-up call can resume / clean up.
-    await persistCampaign(sprintId, {
-      campaignId,
-      adsetMap,
-      adMap,
-      dailyBudgetCents,
-    });
+    await persistCampaign(
+      sprintId,
+      { campaignId, adsetMap, adMap, dailyBudgetCents },
+      adRows,
+      totalBudgetCents,
+      'CREATING'
+    );
     throw err;
   }
 }

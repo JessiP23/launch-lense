@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, Table2, Mail } from 'lucide-react';
 import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
+import { LivePulse } from '@/components/canvas/panels/live-pulse';
 import type {
   Angle,
   Platform,
@@ -111,6 +112,32 @@ function Pill({ value }: { value: string }) {
       {value}
     </span>
   );
+}
+
+// Human-readable title for each panel id. Used by the panel header so the
+// user always sees what they opened, instead of just the sprint id slug.
+const PANEL_TITLES: Record<NonNullable<PanelId>, string> = {
+  accounts:               'Channels',
+  genome:                 'Genome',
+  healthgate:             'Healthgate',
+  budget:                 'Budget',
+  angles:                 'Angles',
+  creative:               'Creative',
+  landing:                'Landing page',
+  campaign:               'Campaigns',
+  verdict:                'Verdict',
+  report:                 'Report',
+  integrations:           'Integrations',
+  integrations_sheet:     'Spreadsheet',
+  integrations_outreach:  'Outreach',
+  integrations_slack:     'Slack',
+  benchmarks:             'Benchmarks',
+  settings:               'Settings',
+};
+
+function panelTitle(panel: NonNullable<PanelId>, channel?: string): string {
+  const base = PANEL_TITLES[panel] ?? '';
+  return channel ? `${base} · ${channel}` : base;
 }
 
 function workflowActionLabel(sprint: SprintRecord): string {
@@ -1391,10 +1418,30 @@ function CampaignPanel({
     );
   };
 
+  // Derive standardized live-pulse state from the sprint state machine.
+  const pulseState: 'live' | 'polling' | 'idle' | 'stopped' = (() => {
+    if (!sprint) return 'idle';
+    if (sprint.state === 'BLOCKED') return 'stopped';
+    if (sprint.state === 'CAMPAIGN_RUNNING') return 'live';
+    if (sprint.state === 'CAMPAIGN_MONITORING' || sprint.state === 'VERDICT_GENERATING') return 'polling';
+    if (sprint.state === 'COMPLETE') return 'idle';
+    return 'idle';
+  })();
+
+  const pulseLabel = (() => {
+    if (pulseState === 'live') return 'Live';
+    if (pulseState === 'polling') return 'Polling';
+    if (pulseState === 'stopped') return 'Paused';
+    return sprint?.state === 'COMPLETE' ? 'Complete' : 'Idle';
+  })();
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <SectionTitle>Campaigns</SectionTitle>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <SectionTitle>Campaigns</SectionTitle>
+          <LivePulse state={pulseState} label={pulseLabel} />
+        </div>
         {sprint && (
           <div style={{ display: 'flex', gap: 8 }}>
             {sprint.state === 'ANGLES_DONE' && (
@@ -3268,30 +3315,58 @@ export function NodePanel({
         }}
       >
         {/* Panel header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0, gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: '0.9375rem', letterSpacing: '-0.01em', color: C.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {panelTitle(panel, channel)}
+            </span>
             {sprint && (
-              <span style={{ fontSize: '0.6875rem', fontFamily: 'monospace', color: C.muted }}>
-                {sprint.sprint_id.slice(0, 8)}
-              </span>
+              <>
+                <span style={{ fontSize: '0.6875rem', fontFamily: 'monospace', color: C.muted }}>
+                  {sprint.sprint_id.slice(0, 8)}
+                </span>
+                {(() => {
+                  // Single, canonical live-status indicator for the entire panel
+                  // header. State derived from the sprint state machine.
+                  const s = sprint.state;
+                  if (s === 'BLOCKED') return <LivePulse state="stopped" label="Blocked" />;
+                  if (s === 'CAMPAIGN_RUNNING') return <LivePulse state="live" label="Live" />;
+                  if (
+                    s === 'GENOME_RUNNING' ||
+                    s === 'HEALTHGATE_RUNNING' ||
+                    s === 'ANGLES_RUNNING' ||
+                    s === 'LANDING_RUNNING' ||
+                    s === 'CAMPAIGN_CREATING' ||
+                    s === 'CAMPAIGN_MONITORING' ||
+                    s === 'VERDICT_GENERATING'
+                  ) {
+                    return <LivePulse state="polling" label="Running" />;
+                  }
+                  if (s === 'COMPLETE') return <LivePulse state="idle" label="Complete" />;
+                  return null;
+                })()}
+              </>
             )}
           </div>
-          {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && !isIntegrationSurface && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && !isIntegrationSurface && (
+              <button
+                onClick={() => onRunWorkflow(sprint.sprint_id)}
+                disabled={workflowRunning}
+                style={{ height: 30, padding: '0 12px', border: `1px solid ${workflowRunning ? C.ink : 'transparent'}`, borderRadius: 9, background: workflowRunning ? C.faint : C.ink, color: workflowRunning ? C.ink : '#FFF', cursor: workflowRunning ? 'default' : 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
+              >
+                {workflowRunning ? 'Running…' : workflowActionLabel(sprint)}
+              </button>
+            )}
             <button
-              onClick={() => onRunWorkflow(sprint.sprint_id)}
-              disabled={workflowRunning}
-              style={{ height: 30, padding: '0 12px', border: `1px solid ${workflowRunning ? C.ink : 'transparent'}`, borderRadius: 9, background: workflowRunning ? C.faint : C.ink, color: workflowRunning ? C.ink : '#FFF', cursor: workflowRunning ? 'default' : 'pointer', fontSize: '0.75rem', fontWeight: 700, opacity: workflowRunning ? 1 : 1 }}
+              onClick={onClose}
+              style={{ height: 30, width: 30, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.border}`, borderRadius: 9, background: 'transparent', cursor: 'pointer', color: C.muted, fontSize: 16, lineHeight: 1 }}
+              aria-label="Close panel"
+              title="Close panel"
             >
-              {workflowRunning ? 'Running Agents' : workflowActionLabel(sprint)}
+              ×
             </button>
-          )}
-          <button
-            onClick={onClose}
-            style={{ height: 28, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', color: C.muted, fontSize: '0.75rem' }}
-            aria-label="Close panel"
-          >
-            Close
-          </button>
+          </div>
         </div>
 
         {/* Panel content */}

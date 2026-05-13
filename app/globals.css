@@ -115,6 +115,38 @@ h1, h2, h3, h4 {
 .tabular-nums { font-variant-numeric: tabular-nums; }
 .font-display { font-family: var(--font-display); }
 
+/* ── Legal-page prose ─────────────────────────────────────────────── */
+.legal-prose { font-size: 15px; line-height: 1.75; color: var(--color-ink); }
+.legal-prose h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  margin-top: 40px;
+  margin-bottom: 12px;
+}
+.legal-prose h3 {
+  font-weight: 600;
+  font-size: 16px;
+  margin-top: 24px;
+  margin-bottom: 8px;
+}
+.legal-prose p { margin: 0 0 16px; color: var(--color-ink); }
+.legal-prose ul { margin: 0 0 16px 18px; list-style: disc; }
+.legal-prose ul li { margin: 4px 0; }
+.legal-prose a { color: var(--color-ink); text-decoration: underline; text-underline-offset: 3px; }
+.legal-prose a:hover { color: var(--color-muted); }
+.legal-prose strong { font-weight: 600; }
+.legal-prose code {
+  font-family: var(--font-mono);
+  background: var(--color-faint);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 13px;
+}
+.legal-prose hr { margin: 32px 0; border: none; border-top: 1px solid var(--color-border); }
+
 /* ── Animations ───────────────────────────────────────────────────── */
 @keyframes pulse-live {
   0%, 100% { opacity: 1; }

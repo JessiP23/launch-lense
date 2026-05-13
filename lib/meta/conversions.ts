@@ -11,6 +11,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { getSystemToken, getSystemPixelId, MetaAPIError } from '@/lib/meta-api';
 import { withMetaRetry } from '@/lib/meta/retry';
+import { createServiceClient } from '@/lib/supabase';
+import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 
 const META_API_VERSION = 'v20.0';
 const META_GRAPH = `https://graph.facebook.com/${META_API_VERSION}`;
@@ -215,6 +217,49 @@ export async function emitLpCapiEvent(event: string, ctx: LpCapiContext): Promis
   const eventName = lpEventToCapi(event);
   if (!eventName) return;
   if (!process.env.SYSTEM_META_PIXEL_ID && !process.env.META_PIXEL_ID) return;
+
+  // ── Idempotency gate ────────────────────────────────────────────────────
+  // capi_processed_events.event_id is PRIMARY KEY, so concurrent inserts
+  // race-safely fail with 23505 and we skip duplicate sends.
+  if (ctx.event_id) {
+    const db = createServiceClient();
+    const { error: dupErr } = await db
+      .from('capi_processed_events')
+      .insert({
+        event_id: ctx.event_id,
+        sprint_id: ctx.sprint_id ?? null,
+        event_name: eventName,
+      });
+    if (dupErr) {
+      // 23505 = unique_violation → already sent; bail silently.
+      if ((dupErr as { code?: string }).code === '23505') return;
+      console.warn('[capi] dedup insert failed (continuing):', dupErr.message);
+    }
+  }
+
+  // Lead-class events double-emit to PostHog so funnels see them
+  // even if browser-side network blockers swallow the pixel.
+  if (
+    (eventName === 'Lead' || eventName === 'CompleteRegistration') &&
+    (ctx.sprint_id || ctx.test_id)
+  ) {
+    void emitSprintEvent(
+      ctx.sprint_id ?? ctx.test_id!,
+      SprintEventName.LeadGenerated,
+      {
+        sprint_id: ctx.sprint_id,
+        test_id: ctx.test_id,
+        angle_id: ctx.angle_id,
+        channel: ctx.channel,
+        utm_source: ctx.utm_source,
+        utm_medium: ctx.utm_medium,
+        utm_campaign: ctx.utm_campaign,
+        utm_content: ctx.utm_content,
+        event_name: eventName,
+        page_url: ctx.source_url ?? null,
+      }
+    );
+  }
 
   try {
     await sendConversions([

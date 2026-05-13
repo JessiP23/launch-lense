@@ -24,7 +24,11 @@ export const SprintEventName = {
   AnglesGenerated: 'angles_generated',
   LandingDeployed: 'landing_deployed',
   CampaignLaunched: 'campaign_launched',
+  CampaignCreated: 'campaign_created',
+  CampaignPaused: 'campaign_paused',
   CampaignPolled: 'campaign_polled',
+  AngleWon: 'angle_won',
+  LeadGenerated: 'lead_generated',
   VerdictIssued: 'verdict_issued',
 
   // Payment
@@ -132,6 +136,31 @@ type EventPropsMap = {
   [SprintEventName.AnglesGenerated]: AnglesGeneratedProps;
   [SprintEventName.LandingDeployed]: LandingDeployedProps;
   [SprintEventName.CampaignLaunched]: CampaignLaunchedProps;
+  [SprintEventName.CampaignCreated]: {
+    channel: string;
+    campaign_id: string;
+    angle_count: number;
+    daily_budget_cents: number;
+    total_budget_cents: number;
+  };
+  [SprintEventName.CampaignPaused]: {
+    channel: string;
+    campaign_id?: string;
+    adset_id?: string;
+    angle_id?: string;
+    reason: string;
+  };
+  [SprintEventName.AngleWon]: {
+    channel: string;
+    angle_id: string;
+    ctr: number;
+    cpc_cents: number;
+    lp_conversion_rate: number;
+  };
+  [SprintEventName.LeadGenerated]: LpConversionProps & {
+    event_name: string;
+    page_url?: string | null;
+  };
   [SprintEventName.VerdictIssued]: VerdictIssuedProps;
   [SprintEventName.LpViewed]: LpConversionProps;
   [SprintEventName.LpCtaClicked]: LpConversionProps;

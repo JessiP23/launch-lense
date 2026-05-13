@@ -5,7 +5,7 @@ import { ScrollReveal } from '@/components/landing/scroll-reveal';
 
 export function LandingFinalCta() {
   return (
-    <section id="final-cta" className="scroll-mt-20 bg-[var(--color-canvas)] py-32">
+    <section id="final-cta" className="scroll-mt-20 bg-[var(--color-canvas)] py-28">
       <div className="mx-auto max-w-2xl px-5 text-center sm:px-6">
         <ScrollReveal>
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">

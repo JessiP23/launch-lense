@@ -40,22 +40,22 @@ export function LandingHowItWorks() {
     <section id="how-it-works" className="scroll-mt-20 bg-[var(--color-canvas)] py-28">
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text- font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Process</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Process</p>
           <h2 className="mt-3 font-display text-[clamp(1.875rem,4vw,2.75rem)] font-bold tracking-[-0.03em] text-[var(--color-ink)]">
             From idea to verdict in 4 steps.
           </h2>
-          <p className="mt-4 text- leading-[1.65] text-[var(--color-muted)]">
+          <p className="mt-4 text-[16px] leading-[1.65] text-[var(--color-muted)]">
             No surveys. No assumptions. Real people, real clicks, real data.
           </p>
         </div>
 
         <div ref={containerRef} className="relative mt-16">
           {/* Static rail */}
-          <div className="absolute left- top-2 hidden h-[calc(100%-16px)] w-px bg-[var(--color-border)] lg:block" aria-hidden />
+          <div className="absolute left-4 top-2 hidden h-[calc(100%-16px)] w-px bg-[var(--color-border)] lg:block" aria-hidden />
 
           {/* Animated progress rail — draws as you scroll. This is the unique bit */}
           <motion.div
-            className="absolute left- top-2 hidden w-px origin-top bg-[var(--color-ink)] lg:block"
+            className="absolute left-4 top-2 hidden w-px origin-top bg-[var(--color-ink)] lg:block"
             style={{ height: lineHeight }}
             aria-hidden
           />
@@ -81,17 +81,17 @@ export function LandingHowItWorks() {
                     )
                   }}
                 >
-                  <span className="font-mono text- font-bold text-[var(--color-ink)]">
+                  <span className="font-mono text-[18px] font-bold text-[var(--color-ink)]">
                     {s.n}
                   </span>
                 </motion.div>
 
                 {/* Content — no hover scale, just border color. Smooth. */}
                 <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 transition-colors duration-200 lg:-mt-1">
-                  <h3 className="font-display text- font-bold tracking-tight text-[var(--color-ink)]">
+                  <h3 className="font-display text-[20px] font-bold tracking-tight text-[var(--color-ink)]">
                     {s.title}
                   </h3>
-                  <p className="mt-3 text- leading-[1.7] text-[var(--color-muted)]">
+                  <p className="mt-3 text-[15px] leading-[1.7] text-[var(--color-muted)]">
                     {s.body}
                   </p>
                 </div>

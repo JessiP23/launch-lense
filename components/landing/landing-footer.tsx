@@ -1,26 +1,27 @@
 import Image from 'next/image';
 
 const product = [
-  { href: '#how-it-works', label: 'How it works' },
-  { href: '#genome', label: 'Genome' },
-  { href: '#healthgate', label: 'Healthgate™' },
-  { href: '#verdict-engine', label: 'Verdict Engine' },
-  { href: '#verdict-engine', label: 'PDF Reports' },
-  { href: '#pricing', label: 'Pricing' },
+  { href: '/#how-it-works', label: 'How it works' },
+  { href: '/#genome', label: 'Genome' },
+  { href: '/#healthgate', label: 'Healthgate™' },
+  { href: '/#verdict-engine', label: 'Verdict Engine' },
+  { href: '/#verdict-engine', label: 'PDF Reports' },
+  { href: '/#pricing', label: 'Pricing' },
 ];
 
 const resources = [
-  { href: '#faq', label: 'Documentation' },
-  { href: '#faq', label: 'Changelog' },
-  { href: '#faq', label: 'Blog' },
-  { href: '#faq', label: 'Status' },
+  { href: '/#faq', label: 'FAQ' },
+  { href: '/#faq', label: 'Changelog' },
+  { href: '/#faq', label: 'Blog' },
+  { href: '/#faq', label: 'Status' },
 ];
 
 const company = [
-  { href: '#final-cta', label: 'About' },
-  { href: '#faq', label: 'Privacy' },
-  { href: '#faq', label: 'Terms' },
-  { href: '#final-cta', label: 'Contact' },
+  { href: '/#final-cta', label: 'About' },
+  { href: '/privacy', label: 'Privacy' },
+  { href: '/terms', label: 'Terms' },
+  { href: '/data-deletion', label: 'Data deletion' },
+  { href: 'mailto:support@launchlense.app', label: 'Contact' },
 ];
 
 export function LandingFooter() {

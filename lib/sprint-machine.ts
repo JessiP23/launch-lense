@@ -8,6 +8,11 @@ import { runGenomeAgent } from '@/lib/agents/genome';
 import { runAllHealthgateAgents } from '@/lib/agents/healthgate';
 import { runAngleAgent } from '@/lib/agents/angle';
 import { runVerdictAgent } from '@/lib/agents/verdict';
+import {
+  getSprintAngleResults,
+  overlayRollupOnCampaign,
+  aggregateLpConversionRate,
+} from '@/lib/meta/angle-rollup';
 import type {
   SprintRecord,
   SprintState,
@@ -238,6 +243,89 @@ export async function dispatchCampaignStart(
   return (await getSprint(sprint_id))!;
 }
 
+// ── Step 4b: Launch managed Meta campaign (used by orchestrator) ──────────
+// Idempotent: launchManagedMetaCampaign checks sprint_campaigns first and
+// short-circuits if a campaign already exists. Transitions
+// ANGLES_DONE | LANDING_DONE → CAMPAIGN_CREATING → CAMPAIGN_RUNNING.
+
+export async function dispatchCampaignLaunch(
+  sprint_id: string,
+  opts?: { bypassPaymentCheck?: boolean }
+): Promise<SprintRecord> {
+  const pre = await getSprint(sprint_id);
+  if (!pre) throw new Error(`Sprint ${sprint_id} not found`);
+
+  const launchableFrom: SprintState[] = ['ANGLES_DONE', 'LANDING_DONE'];
+  if (!launchableFrom.includes(pre.state)) {
+    // Already past this stage, or earlier — return current.
+    return pre;
+  }
+
+  if (isStripePaymentGateEnabled() && !opts?.bypassPaymentCheck) {
+    const paid = await hasCompletedPayment(sprint_id);
+    if (!paid) {
+      if (pre.state !== 'PAYMENT_PENDING') await transitionState(sprint_id, 'PAYMENT_PENDING');
+      return (await getSprint(sprint_id))!;
+    }
+  }
+
+  if (!pre.angles?.angles?.length) {
+    await blockSprint(sprint_id, 'Cannot launch campaign without angles.');
+    return (await getSprint(sprint_id))!;
+  }
+
+  await transitionState(sprint_id, 'CAMPAIGN_CREATING');
+
+  try {
+    // Lazy-import to avoid pulling Meta deps into modules that don't need them
+    // (e.g. unit tests that only exercise other stages).
+    const { launchManagedMetaCampaign } = await import('@/lib/meta/create-campaign');
+    const result = await launchManagedMetaCampaign({
+      sprintId: sprint_id,
+      idea: pre.idea,
+      angles: pre.angles,
+      landing: pre.landing ?? null,
+      totalBudgetCents: pre.budget_cents,
+    });
+
+    // Stitch the launch result back into sprint.campaign JSONB for the canvas
+    // and `_meta_adset_map` for legacy sprint-monitor compatibility.
+    const angleMetrics = pre.angles.angles.map((a) => ({
+      id: a.id,
+      impressions: 0,
+      clicks: 0,
+      ctr: 0,
+      cpc_cents: 0,
+      spend_cents: 0,
+      status: 'PASS' as const,
+    }));
+
+    const campaign: Partial<Record<Platform, CampaignAgentOutput>> = {
+      ...(pre.campaign ?? {}),
+      meta: {
+        channel: 'meta',
+        status: 'ACTIVE',
+        campaign_id: result.campaignId,
+        campaign_start_time: new Date().toISOString(),
+        budget_cents: pre.budget_cents,
+        spent_cents: 0,
+        angle_metrics: angleMetrics,
+        last_polled_at: new Date().toISOString(),
+      },
+    };
+
+    await patchSprint(sprint_id, {
+      campaign: campaign as Record<Platform, CampaignAgentOutput>,
+      angles: { ...(pre.angles as object), _meta_adset_map: result.adsetMap } as unknown as typeof pre.angles,
+      state: 'CAMPAIGN_RUNNING',
+    });
+  } catch (err) {
+    await blockSprint(sprint_id, `dispatchCampaignLaunch failed: ${String(err)}`);
+  }
+
+  return (await getSprint(sprint_id))!;
+}
+
 // ── Step 5: Poll campaign metrics (called every 4h by cron) ───────────────
 
 export async function pollCampaignMetrics(
@@ -286,12 +374,27 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
     return (await getSprint(sprint_id))!;
   }
 
-  // Mark all channels as COMPLETE for verdict
+  // Mark all channels as COMPLETE and overlay the denormalized angle rollup
+  // (sprint_angle_results) so the verdict reflects the latest poll snapshot
+  // AND LP-side performance, not a stale JSONB blob.
   const completedCampaigns = { ...sprint.campaign };
+  let lpConversionRate: number | null = null;
+
   for (const ch of sprint.active_channels) {
-    if (completedCampaigns[ch]) {
-      completedCampaigns[ch]!.status = 'COMPLETE';
+    if (!completedCampaigns[ch]) continue;
+    try {
+      const rollup = await getSprintAngleResults(sprint_id, ch);
+      if (rollup.length) {
+        completedCampaigns[ch] = overlayRollupOnCampaign(completedCampaigns[ch]!, rollup);
+        // First channel with LP data wins (Meta is canonical). Aggregate later
+        // could be a weighted average across channels.
+        const rate = aggregateLpConversionRate(rollup);
+        if (rate != null && lpConversionRate == null) lpConversionRate = rate;
+      }
+    } catch (err) {
+      console.warn(`[dispatchVerdict] rollup overlay failed for ${ch}:`, String(err));
     }
+    completedCampaigns[ch]!.status = 'COMPLETE';
   }
 
   try {
@@ -307,7 +410,7 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
       angles: sprint.angles,
       sprint_budget_cents: sprint.budget_cents,
       sprint_created_at: sprint.created_at,
-      landing_conversion_rate: null,
+      landing_conversion_rate: lpConversionRate,
       benchmark_avg_ctr: benchRow?.avg_ctr != null ? Number(benchRow.avg_ctr) : null,
       benchmark_avg_cvr: benchRow?.avg_cvr != null ? Number(benchRow.avg_cvr) : null,
       benchmark_avg_cpc_cents: benchRow?.avg_cpa_cents != null ? Number(benchRow.avg_cpa_cents) : null,

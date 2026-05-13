@@ -12,7 +12,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createServiceClient } from '@/lib/supabase';
-import { dispatchGenome, dispatchHealthgate, dispatchAngles, getSprint } from '@/lib/sprint-machine';
+import {
+  dispatchGenome,
+  dispatchHealthgate,
+  dispatchAngles,
+  dispatchCampaignLaunch,
+  getSprint,
+} from '@/lib/sprint-machine';
 import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import type { SprintRecord, SprintState, Platform } from '@/lib/agents/types';
 
@@ -121,6 +127,30 @@ async function runAnglesStage(
   return updated;
 }
 
+async function runCampaignLaunchStage(
+  sprint_id: string,
+  opts?: { bypassPaymentCheck?: boolean }
+): Promise<SprintRecord> {
+  await logEvent(sprint_id, 'campaign', 'launch_started', {});
+  const updated = await dispatchCampaignLaunch(sprint_id, opts);
+
+  await logEvent(sprint_id, 'campaign', updated.state === 'BLOCKED' ? 'blocked' : 'launch_completed', {
+    state: updated.state,
+    campaign_id: updated.campaign?.meta?.campaign_id ?? null,
+    blocked_reason: updated.blocked_reason,
+  });
+
+  if (updated.campaign?.meta?.campaign_id) {
+    await emitSprintEvent(sprint_id, SprintEventName.CampaignLaunched, {
+      channels: ['meta'],
+      total_budget_cents: updated.budget_cents,
+      campaign_ids: { meta: updated.campaign.meta.campaign_id },
+    });
+  }
+
+  return updated;
+}
+
 // ── Main pipeline runner ───────────────────────────────────────────────────
 
 /**
@@ -166,6 +196,20 @@ export async function runNextStage(
         sprint_id,
         final_state: updated.state as SprintState,
         stages_run: ['angles'],
+        blocked_reason: updated.blocked_reason ?? undefined,
+      };
+    }
+
+    // ANGLES_DONE or LANDING_DONE → launch the managed Meta campaign.
+    // Payment is enforced inside dispatchCampaignLaunch unless explicitly bypassed.
+    if (currentState === 'ANGLES_DONE' || currentState === 'LANDING_DONE') {
+      const updated = await runCampaignLaunchStage(sprint_id, {
+        bypassPaymentCheck: opts.bypassPaymentCheck,
+      });
+      return {
+        sprint_id,
+        final_state: updated.state as SprintState,
+        stages_run: ['campaign_launch'],
         blocked_reason: updated.blocked_reason ?? undefined,
       };
     }
@@ -242,7 +286,21 @@ export async function runSprintPipeline(
       }
     }
 
-    // Pipeline reaches ANGLES_DONE — campaign launch is a manual user action
+    // ── CAMPAIGN LAUNCH ──────────────────────────────────────────────────
+    // ANGLES_DONE or LANDING_DONE → launch managed Meta campaign. This is
+    // idempotent (launchManagedMetaCampaign short-circuits on existing
+    // sprint_campaigns row) so it's safe to retry on cron resume.
+    if (sprint.state === 'ANGLES_DONE' || sprint.state === 'LANDING_DONE') {
+      sprint = await runCampaignLaunchStage(sprint_id, {
+        bypassPaymentCheck: opts.bypassPaymentCheck,
+      });
+      stagesRun.push('campaign_launch');
+      if (sprint.state === 'BLOCKED' || sprint.state === 'PAYMENT_PENDING') {
+        return { sprint_id, final_state: sprint.state as SprintState, stages_run: stagesRun, blocked_reason: sprint.blocked_reason ?? undefined };
+      }
+    }
+
+    // Pipeline reaches CAMPAIGN_RUNNING — sprint-monitor cron drives the rest
     await logEvent(sprint_id, 'orchestrator', 'pipeline_completed', {
       final_state: sprint.state,
       stages_run: stagesRun,
