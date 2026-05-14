@@ -21,6 +21,7 @@ import type {
 } from '@/lib/agents/types';
 import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
 import { hasCompletedPayment } from '@/lib/payments/db';
+import { seedSprintCreatives } from '@/lib/creatives/seed';
 
 // ── State helpers ──────────────────────────────────────────────────────────
 
@@ -194,6 +195,10 @@ export async function dispatchAngles(
       active_channels: sprint.active_channels,
     });
     await patchSprint(sprint_id, { angles, state: 'ANGLES_DONE' });
+    // Materialise one sprint_creatives row per (angle × active_channel) so
+    // every downstream read path (scan / approve / regenerate / patch) can
+    // trust the row exists. Idempotent — safe even if AngleAgent is rerun.
+    await seedSprintCreatives(sprint_id, angles, sprint.active_channels);
   } catch (err) {
     await blockSprint(sprint_id, `AngleAgent failed: ${String(err)}`);
   }

@@ -12,6 +12,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { listCreatives, upsertCreative } from '@/lib/creatives/store';
+import { seedSprintCreatives } from '@/lib/creatives/seed';
+import { getSprint } from '@/lib/sprint-machine';
 
 const PlatformSchema = z.enum(['meta', 'google', 'linkedin', 'tiktok']);
 
@@ -29,8 +31,9 @@ const UpsertSchema = z.object({
   overlay_text: z.string().max(2000).nullish(),
   callout: z.string().max(2000).nullish(),
   audience_label: z.string().max(2000).nullish(),
-  image_url: z.string().max(8192).nullish(),
-  video_url: z.string().max(8192).nullish(),
+  // See sibling route for rationale on the generous cap (inline data URLs).
+  image_url: z.string().max(11_000_000).nullish(),
+  video_url: z.string().max(11_000_000).nullish(),
   meta: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -40,7 +43,18 @@ export async function GET(
 ) {
   const { sprint_id } = await params;
   try {
-    const rows = await listCreatives(sprint_id);
+    let rows = await listCreatives(sprint_id);
+    // Backfill: sprints that finished angles before the eager seeder in
+    // dispatchAngles shipped still need their rows. The seeder is
+    // idempotent so it's safe on every GET; we only call it when the
+    // canonical list is empty to avoid touching the DB on the hot path.
+    if (rows.length === 0) {
+      const sprint = await getSprint(sprint_id);
+      if (sprint?.angles?.angles?.length) {
+        await seedSprintCreatives(sprint_id, sprint.angles, sprint.active_channels);
+        rows = await listCreatives(sprint_id);
+      }
+    }
     return Response.json({ creatives: rows });
   } catch (err) {
     return Response.json(

@@ -31,22 +31,26 @@ export async function POST(
   if (!pf.success) return Response.json({ error: 'Invalid platform' }, { status: 400 });
   const channel: Platform = pf.data;
 
-  const existing = await getCreative(sprint_id, angle_id, channel);
-  if (!existing) return Response.json({ error: 'Creative not found' }, { status: 404 });
+  // Rows are eagerly seeded at angle-generation time (see lib/creatives/
+  // seed.ts) so the row is guaranteed to exist by the time the user can
+  // click Scan. We read the canonical row and feed it straight to the
+  // scanner — no fallbacks, no merging.
+  const row = await getCreative(sprint_id, angle_id, channel);
+  if (!row) return Response.json({ error: 'Creative not found' }, { status: 404 });
 
   const result = scanCreative({
     platform: channel,
-    headline: existing.headline ?? undefined,
-    primary_text: existing.primary_text ?? undefined,
-    description: existing.description ?? undefined,
-    cta: existing.cta ?? undefined,
-    display_link: existing.display_link ?? undefined,
-    hook: existing.hook ?? undefined,
-    overlay_text: existing.overlay_text ?? undefined,
-    callout: existing.callout ?? undefined,
-    audience_label: existing.audience_label ?? undefined,
-    image_url: existing.image_url ?? undefined,
-    video_url: existing.video_url ?? undefined,
+    headline: row.headline ?? undefined,
+    primary_text: row.primary_text ?? undefined,
+    description: row.description ?? undefined,
+    cta: row.cta ?? undefined,
+    display_link: row.display_link ?? undefined,
+    hook: row.hook ?? undefined,
+    overlay_text: row.overlay_text ?? undefined,
+    callout: row.callout ?? undefined,
+    audience_label: row.audience_label ?? undefined,
+    image_url: row.image_url ?? undefined,
+    video_url: row.video_url ?? undefined,
   });
 
   try {

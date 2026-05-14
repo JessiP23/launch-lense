@@ -97,53 +97,24 @@ export function useCreatives(sprintId: string | null | undefined, opts: UseCreat
   }, []);
 
   // ── Internal: apply optimistic update ────────────────────────────────────
+  //
+  // Rows are eagerly materialised server-side (see lib/creatives/seed.ts)
+  // the moment angles are generated, so the local cache should always
+  // contain a matching row by the time the user is able to edit anything.
+  // If for some reason it doesn't, we silently no-op the optimistic step
+  // and rely on the server response to populate the cache — better than
+  // inserting a stub that diverges from the canonical row.
   const applyLocal = useCallback(
     (angleId: string, platform: Platform, fields: Partial<SprintCreative>) => {
       setCreatives((prev) => {
         const idx = prev.findIndex((r) => r.angle_id === angleId && r.platform === platform);
-        if (idx >= 0) {
-          const next = prev.slice();
-          next[idx] = { ...next[idx], ...fields };
-          return next;
-        }
-        // Optimistic stub — server will replace it on next refetch / PATCH return.
-        const stub: SprintCreative = {
-          id: `stub-${angleId}-${platform}`,
-          sprint_id: sprintId ?? '',
-          angle_id: angleId,
-          platform,
-          status: 'draft',
-          headline: null,
-          primary_text: null,
-          description: null,
-          cta: null,
-          display_link: null,
-          hook: null,
-          overlay_text: null,
-          callout: null,
-          audience_label: null,
-          image_url: null,
-          video_url: null,
-          image_hash: null,
-          video_id: null,
-          creative_id: null,
-          ad_id: null,
-          adset_id: null,
-          meta: {},
-          policy_severity: null,
-          policy_issues: null,
-          policy_scanned_at: null,
-          rejected_reason: null,
-          approved_at: null,
-          approved_by: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          ...fields,
-        };
-        return [...prev, stub];
+        if (idx < 0) return prev;
+        const next = prev.slice();
+        next[idx] = { ...next[idx], ...fields };
+        return next;
       });
     },
-    [sprintId]
+    []
   );
 
   const setSaving = (key: Key, on: boolean) => {
@@ -171,22 +142,16 @@ export function useCreatives(sprintId: string | null | undefined, opts: UseCreat
 
     setSaving(key, true);
     try {
-      // PATCH if a row exists; otherwise upsert via POST so the row gets
-      // created server-side with the right defaults.
-      const exists = byKey.has(key);
-      const url = exists
-        ? `/api/sprint/${sprintId}/creatives/${encodeURIComponent(angleId)}/${platform}`
-        : `/api/sprint/${sprintId}/creatives`;
-      const method = exists ? 'PATCH' : 'POST';
-      const body = exists
-        ? entry.patch
-        : { angle_id: angleId, platform, ...entry.patch };
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      // Rows are eagerly seeded server-side at angle-generation time, so
+      // the canonical PATCH endpoint is always available. No upsert dance.
+      const res = await fetch(
+        `/api/sprint/${sprintId}/creatives/${encodeURIComponent(angleId)}/${platform}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry.patch),
+        }
+      );
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         throw new Error(`Save failed: ${res.status} ${errText}`);

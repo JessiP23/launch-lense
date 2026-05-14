@@ -3,13 +3,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // CreativeEditor — single (angle, platform) approval card.
 //
-// Single-column layout for narrow panels (~440px content width):
+// Single-column form-only layout. The live ad preview is rendered by the
+// canvas node itself — we do NOT duplicate it inside the panel. The panel
+// is purely for editing copy + driving approval status:
+//
 //   ┌────────────────────────────────┐
 //   │ status pill · saving indicator │
-//   │ [feed] [story] [reel]          │
-//   │ ┌────────────────────────────┐ │
-//   │ │      preview card          │ │
-//   │ └────────────────────────────┘ │
 //   │ headline ____________          │
 //   │ primary  ____________          │
 //   │ desc     ____________          │
@@ -35,11 +34,6 @@ import type {
   PolicyIssue,
   PolicySeverity,
 } from '@/lib/agents/types';
-import {
-  MetaPreviewCard,
-  type MetaPlacement,
-  type MetaPreviewContent,
-} from './meta-previews';
 import type { useCreatives } from '@/hooks/use-creatives';
 
 const C = {
@@ -168,18 +162,15 @@ interface Props {
   platform: Platform;
   controller: ReturnType<typeof useCreatives>;
   fallback: { headline: string; primary_text: string; description?: string; cta?: string };
-  brandName?: string;
-  imageUrl?: string | null;
 }
 
 export function CreativeEditor({
-  angle, platform, controller, fallback, brandName, imageUrl,
+  angle, platform, controller, fallback,
 }: Props) {
   const row = controller.byKey.get(`${angle.id}::${platform}`);
   const status: CreativeStatus = row?.status ?? 'draft';
   const limits = LIMITS_BY_PLATFORM[platform];
 
-  const [placement, setPlacement] = useState<MetaPlacement>('feed');
   const [showRejectBox, setShowRejectBox] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [direction, setDirection] = useState('');
@@ -192,13 +183,6 @@ export function CreativeEditor({
   const saving = controller.isSaving(angle.id, platform);
   const busy = controller.isBusy(angle.id, platform);
   const editLocked = status === 'deploying' || status === 'deployed';
-
-  const previewContent: MetaPreviewContent = {
-    brandName: brandName ?? 'Your Brand',
-    headline, primaryText, description: description || null, cta,
-    imageUrl: row?.image_url ?? imageUrl ?? null,
-    videoUrl: row?.video_url ?? null,
-  };
 
   const showApprove = status === 'draft' || status === 'reviewing' || status === 'rejected' || status === 'failed';
   const showReject = status === 'reviewing' || status === 'draft';
@@ -250,20 +234,6 @@ export function CreativeEditor({
         <span style={{ fontSize: 11, color: C.muted, textTransform: 'uppercase', fontWeight: 700, letterSpacing: 0.4 }}>
           {platform}
         </span>
-      </div>
-
-      {/* ── placement chips + preview ───────────────────────── */}
-      <div>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-          {(['feed', 'story', 'reel'] as MetaPlacement[]).map((p) => (
-            <button key={p} onClick={() => setPlacement(p)} style={chipStyle(placement === p)}>
-              {p}
-            </button>
-          ))}
-        </div>
-        <div style={{ maxWidth: placement === 'feed' ? '100%' : 220, marginInline: placement === 'feed' ? 0 : 'auto' }}>
-          <MetaPreviewCard placement={placement} content={previewContent} />
-        </div>
       </div>
 
       {/* ── editable fields ─────────────────────────────────── */}
@@ -385,13 +355,4 @@ const btnSecondary = (disabled: boolean): CSSProperties => ({
 const btnDanger = (disabled: boolean): CSSProperties => ({
   ...baseBtn, background: C.stop, color: '#FFF',
   opacity: disabled ? 0.55 : 1, cursor: disabled ? 'default' : 'pointer',
-});
-const chipStyle = (active: boolean): CSSProperties => ({
-  flex: 1, height: 26, padding: 0,
-  border: `1px solid ${active ? C.ink : C.border}`,
-  borderRadius: 8,
-  background: active ? C.ink : C.surface,
-  color: active ? '#FFF' : C.muted,
-  fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.4,
-  cursor: 'pointer',
 });

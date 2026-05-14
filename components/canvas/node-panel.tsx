@@ -16,6 +16,7 @@ import type {
 import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
 import { MIN_CHANNEL_USD, MAX_CHANNEL_USD, PLATFORM_FEE_USD } from '@/lib/budget';
 import { CreativeApprovalWorkspace, type CreativeSelectionSnapshot } from '@/components/canvas/creative/creative-approval-workspace';
+import { useCreatives } from '@/hooks/use-creatives';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -835,37 +836,16 @@ function AnglesPanel({
 // Creative Preview Panel
 // ════════════════════════════════════════════════════════════════════════════
 
-const MAX_INLINE_CREATIVE_IMAGE_CHARS = 250_000;
-
-function compactCreativeImage(image: string | null | undefined): string | null {
-  if (!image) return null;
-  if (/^https?:\/\//i.test(image)) return image;
-  if (image.startsWith('data:') && image.length <= MAX_INLINE_CREATIVE_IMAGE_CHARS) return image;
-  return null;
-}
-
-function compactCreativeAssets(
-  assets: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> | undefined,
+// Brand name is persisted on the sprint (tiny string, no quota concerns).
+// Images live on sprint_creatives.image_url — inline data URLs are accepted
+// up to ~8 MB so a phone photo fits without a separate upload step.
+function nextBrandAssets(
+  assets: Partial<Record<Platform, { brand_name?: string }>> | undefined,
   channel: Platform,
-  asset: { brand_name: string; image: string | null },
-): Partial<Record<Platform, { brand_name?: string; image?: string | null }>> {
-  const next: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> = {};
-
-  for (const [key, value] of Object.entries(assets ?? {}) as Array<[
-    Platform,
-    { brand_name?: string; image?: string | null },
-  ]>) {
-    next[key] = {
-      brand_name: value.brand_name,
-      image: compactCreativeImage(value.image),
-    };
-  }
-
-  next[channel] = {
-    brand_name: asset.brand_name,
-    image: compactCreativeImage(asset.image),
-  };
-
+  brandName: string,
+): Partial<Record<Platform, { brand_name?: string }>> {
+  const next: Partial<Record<Platform, { brand_name?: string }>> = { ...(assets ?? {}) };
+  next[channel] = { brand_name: brandName };
   return next;
 }
 
@@ -890,7 +870,6 @@ function CreativePreviewPanel({
   const [selectedId, setSelectedId] = useState<Angle['id']>('angle_A');
   const [channel, setChannel] = useState<Platform>((panelChannel ?? sprint?.active_channels?.[0] ?? 'meta') as Platform);
   const [brandName, setBrandName] = useState('Your Brand');
-  const [image, setImage] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Angle>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -920,16 +899,33 @@ function CreativePreviewPanel({
   const lockedChannel = (panelChannel && channels.includes(panelChannel as Platform)) ? panelChannel as Platform : undefined;
   const activeChannel = lockedChannel ?? (channels.includes(channel) ? channel : channels[0]);
   const copy = selected?.copy[activeChannel];
-  const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> } | undefined)?.creative_assets;
-  const savedChannels = channels.filter((item) => Boolean(creativeAssets?.[item]));
-  const allChannelsSaved = channels.length > 0 && savedChannels.length === channels.length;
+  const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string }>> } | undefined)?.creative_assets;
 
+  // sprint_creatives is the canonical source for image_url. We DERIVE the
+  // displayed image directly from the controller row instead of keeping a
+  // local mirror — the previous mirror created a bidirectional sync with
+  // `creativeDraft` that React couldn't always reconcile, producing an
+  // infinite update loop on the parent canvas.
+  const controller = useCreatives(sprint?.sprint_id ?? null, { activeChannels: channels });
+  const activeRow = controller.byKey.get(`${selectedId}::${activeChannel}`);
+  const image = activeRow?.image_url ?? null;
+  const allChannelsHaveImage = channels.length > 0 && channels.every((ch) =>
+    Boolean(controller.byKey.get(`${selectedId}::${ch}`)?.image_url)
+  );
+
+  // Brand name is local-only and initialised once per (channel) from the
+  // persisted sprint assets. We deliberately do NOT re-sync from
+  // `creativeDraft` — doing so created a write-then-read loop with the
+  // emit effect below. User edits flow OUT to the parent; the parent
+  // never writes brand name back.
   useEffect(() => {
-    const saved = creativeAssets?.[activeChannel];
-    setBrandName(creativeDraft?.brandName ?? saved?.brand_name ?? 'Your Brand');
-    setImage(creativeDraft?.image ?? saved?.image ?? null);
-  }, [activeChannel, creativeDraft?.brandName, creativeDraft?.image, creativeAssets]);
+    setBrandName(creativeAssets?.[activeChannel]?.brand_name ?? 'Your Brand');
+  }, [activeChannel, creativeAssets]);
 
+  // Emit the canvas-node live-preview snapshot. This is a one-way push.
+  // Deps reference only primitive/stable values so the effect can't be
+  // restarted by the parent echoing our own update back to us.
+  const selectedAngleId = selected?.id;
   useEffect(() => {
     if (!selected || !copy) return;
     onCreativeDraftChange?.({
@@ -939,7 +935,12 @@ function CreativePreviewPanel({
       brandName,
       image,
     });
-  }, [activeChannel, brandName, copy, image, onCreativeDraftChange, selected]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `selected`/`copy`
+  // are derived objects whose identity flips on every controller refetch;
+  // depending on them caused the very loop this effect now avoids. The
+  // primitives below are sufficient — we re-emit when *content* changes,
+  // not when references do.
+  }, [activeChannel, brandName, image, onCreativeDraftChange, selectedAngleId]);
 
   if (!angles.length || !selected || !copy) {
     return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Creative previews appear after AngleAgent generates copy.</p>;
@@ -964,16 +965,15 @@ function CreativePreviewPanel({
     });
   };
 
+  // Persists the angle selection + brand name only. The image is written
+  // directly to sprint_creatives by `uploadImage` (and so is the per-field
+  // copy by the workspace), so this no longer needs to touch creative copy.
   const saveCreative = async () => {
     if (!sprint?.angles) return;
     setSaving(true);
     setMessage(null);
     try {
       const editedAngles = sprint.angles.angles.map((angle) => drafts[angle.id] ?? angle);
-      const nextCreativeAssets = compactCreativeAssets(creativeAssets, activeChannel, {
-        brand_name: brandName,
-        image,
-      });
       const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -981,7 +981,7 @@ function CreativePreviewPanel({
           angles: {
             ...sprint.angles,
             selected_angle_id: selected.id,
-            creative_assets: nextCreativeAssets,
+            creative_assets: nextBrandAssets(creativeAssets, activeChannel, brandName),
             angles: editedAngles,
           },
         }),
@@ -989,11 +989,7 @@ function CreativePreviewPanel({
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json().catch(() => null) as { sprint?: unknown } | null;
       if (data?.sprint) onSprintPatched?.(data.sprint);
-      setMessage(
-        image && !compactCreativeImage(image)
-          ? `${activeChannel} creative saved. Large image preview is kept local only.`
-          : `${activeChannel} creative saved.`,
-      );
+      setMessage(`${activeChannel} brand saved.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -1001,12 +997,27 @@ function CreativePreviewPanel({
     }
   };
 
+  // Image upload writes straight to sprint_creatives.image_url for every
+  // active channel of the selected angle. The displayed image is derived
+  // from the controller row, so this single write updates the preview,
+  // the canvas node, and unblocks the policy scanner in one step.
   const uploadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setImage(String(reader.result));
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      for (const ch of channels) {
+        controller.editField(selected.id, ch, 'image_url', dataUrl);
+      }
+    };
     reader.readAsDataURL(file);
+  };
+
+  const removeImage = () => {
+    for (const ch of channels) {
+      controller.editField(selected.id, ch, 'image_url', null);
+    }
   };
 
   const renderCopyEditor = () => {
@@ -1090,7 +1101,7 @@ function CreativePreviewPanel({
             {saving ? 'Saving…' : 'Save brand & image'}
           </button>
           {image && (
-            <button type="button" onClick={() => setImage(null)} style={{
+            <button type="button" onClick={removeImage} style={{
               height: 30, padding: '0 10px', border: 'none', background: 'transparent',
               color: C.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700,
             }}>
@@ -1112,8 +1123,6 @@ function CreativePreviewPanel({
             sprintId={sprint.sprint_id}
             angles={angles}
             activeChannels={(sprint.active_channels?.length ? sprint.active_channels : ['meta']) as Platform[]}
-            brandName={brandName}
-            imageUrl={image}
             initialAngleId={selected.id}
             onActivated={() => onContinue?.(sprint.sprint_id)}
             onSelectionChange={(snap: CreativeSelectionSnapshot) => {
@@ -1210,10 +1219,10 @@ function CreativePreviewPanel({
         </div>
         <button
           onClick={() => sprint && onContinue?.(sprint.sprint_id)}
-          disabled={!allChannelsSaved || workflowRunning}
-          style={{ width: '100%', height: 38, border: `1px solid ${allChannelsSaved ? C.ink : C.border}`, borderRadius: 10, background: allChannelsSaved ? C.ink : C.faint, color: allChannelsSaved ? '#FFF' : C.muted, cursor: allChannelsSaved && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
+          disabled={!allChannelsHaveImage || workflowRunning}
+          style={{ width: '100%', height: 38, border: `1px solid ${allChannelsHaveImage ? C.ink : C.border}`, borderRadius: 10, background: allChannelsHaveImage ? C.ink : C.faint, color: allChannelsHaveImage ? '#FFF' : C.muted, cursor: allChannelsHaveImage && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
         >
-          {workflowRunning ? 'Running Demo Workflow' : allChannelsSaved ? 'Run' : `Save ${channels.length - savedChannels.length} More Creative${channels.length - savedChannels.length === 1 ? '' : 's'}`}
+          {workflowRunning ? 'Running Demo Workflow' : allChannelsHaveImage ? 'Run' : 'Upload an image to enable Run'}
         </button>
         <p style={{ margin: '8px 0 0', color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
           Demo mode will generate campaign results, verdict, landing page, and report from the selected angle.

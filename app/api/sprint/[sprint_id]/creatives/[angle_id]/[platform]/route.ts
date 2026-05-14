@@ -28,8 +28,12 @@ const PatchSchema = z.object({
   overlay_text: z.string().max(2000).nullish(),
   callout: z.string().max(2000).nullish(),
   audience_label: z.string().max(2000).nullish(),
-  image_url: z.string().max(8192).nullish(),
-  video_url: z.string().max(8192).nullish(),
+  // Accepts an http(s) URL or an inline data: URL. We cap at ~8 MB of
+  // base64 (~11 M chars) so a phone photo fits without needing a separate
+  // upload-to-storage round trip. The deployer rehosts to Meta or Supabase
+  // Storage before launch; on-disk inline blobs are an editor convenience.
+  image_url: z.string().max(11_000_000).nullish(),
+  video_url: z.string().max(11_000_000).nullish(),
 }).partial();
 
 type RouteParams = { sprint_id: string; angle_id: string; platform: string };

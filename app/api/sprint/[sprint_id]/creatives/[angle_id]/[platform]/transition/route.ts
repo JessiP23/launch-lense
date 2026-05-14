@@ -64,7 +64,9 @@ export async function POST(
   if (!existing) return Response.json({ error: 'Creative not found' }, { status: 404 });
 
   // Server-side policy guard on approval. We re-scan from the persisted
-  // fields so we never trust a stale client-side scan.
+  // row (rows are eagerly seeded with copy at angle-generation time and
+  // image_url is written directly by the upload UI, so the row is the
+  // single source of truth).
   if (to === 'approved') {
     const result = scanCreative({
       platform: channel,

@@ -21,7 +21,7 @@
 // channel so the canvas node preview can mirror what the user is editing.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Angle, Platform } from '@/lib/agents/types';
 import { useCreatives } from '@/hooks/use-creatives';
 import { CreativeEditor } from './creative-editor';
@@ -49,8 +49,6 @@ interface Props {
   sprintId: string;
   angles: Angle[];
   activeChannels: Platform[];
-  brandName?: string;
-  imageUrl?: string | null;
   /** Pre-select an angle from the parent (e.g. from sprint.angles.selected_angle_id). */
   initialAngleId?: string;
   /** If the sprint already has a live campaign, render the LIVE banner. */
@@ -62,7 +60,7 @@ interface Props {
 }
 
 export function CreativeApprovalWorkspace({
-  sprintId, angles, activeChannels, brandName, imageUrl,
+  sprintId, angles, activeChannels,
   initialAngleId, liveCampaignId, onActivated, onSelectionChange,
 }: Props) {
   const controller = useCreatives(sprintId, { activeChannels });
@@ -82,12 +80,20 @@ export function CreativeApprovalWorkspace({
     [angles, activeAngleId]
   );
 
-  // Compute resolved copy + bubble selection up to the parent.
-  useEffect(() => {
-    if (!activeAngle || !onSelectionChange) return;
+  // Bubble selection up to the parent so the canvas node preview tracks
+  // what's in the panel. We MUST NOT depend on `onSelectionChange` itself
+  // — callers typically pass an inline arrow that changes every render,
+  // which would re-fire this effect on every parent state update and
+  // cause an infinite setState loop. We store the callback in a ref and
+  // only re-fire when the snapshot content actually changes.
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  useEffect(() => { onSelectionChangeRef.current = onSelectionChange; });
+
+  const snapshot = useMemo(() => {
+    if (!activeAngle) return null;
     const row = controller.byKey.get(`${activeAngle.id}::${activeChannel}`);
     const fb = fallbackFor(activeAngle, activeChannel);
-    onSelectionChange({
+    return {
       angle: activeAngle,
       channel: activeChannel,
       copy: {
@@ -96,8 +102,19 @@ export function CreativeApprovalWorkspace({
         description: row?.description ?? fb.description ?? '',
         cta: row?.cta ?? fb.cta ?? '',
       },
-    });
-  }, [activeAngle, activeChannel, controller.byKey, onSelectionChange]);
+    } as CreativeSelectionSnapshot;
+  }, [activeAngle, activeChannel, controller.byKey]);
+
+  // Coalesce identical snapshots into a single notification by comparing
+  // the JSON projection — cheap given there are 3 angles × 4 channels max.
+  const lastSnapshotKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!snapshot) return;
+    const key = `${snapshot.angle.id}|${snapshot.channel}|${snapshot.copy.headline}|${snapshot.copy.primary_text}|${snapshot.copy.description}|${snapshot.copy.cta}`;
+    if (key === lastSnapshotKey.current) return;
+    lastSnapshotKey.current = key;
+    onSelectionChangeRef.current?.(snapshot);
+  }, [snapshot]);
 
   if (!angles.length || !activeAngle) {
     return (
@@ -185,8 +202,6 @@ export function CreativeApprovalWorkspace({
         platform={activeChannel}
         controller={controller}
         fallback={fallbackFor(activeAngle, activeChannel)}
-        brandName={brandName}
-        imageUrl={imageUrl ?? undefined}
       />
     </div>
   );
