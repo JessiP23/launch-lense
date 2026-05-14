@@ -15,10 +15,20 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/privacy',
   '/terms',
+  // Data-deletion compliance pages MUST be reachable by external crawlers
+  // (Meta's verification bot, Google's policy review, etc.) without auth.
+  // Both the human-facing instructions page and the Meta deletion-callback
+  // POST endpoint live under these paths.
+  '/data-deletion(.*)',
+  '/api/data-deletion(.*)',
+  '/api/meta/data-deletion(.*)',
+  // Public marketing surfaces.
   '/lp(.*)',
   '/share(.*)',
   '/api/webhooks(.*)',
   '/api/lp/track',
+  // Geo lookup is anonymous-by-design (returns the caller's own IP country).
+  '/api/geo',
 ]);
 
 // Cron routes — authenticated by CRON_SECRET, not Clerk
