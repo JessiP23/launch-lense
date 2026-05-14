@@ -42,6 +42,12 @@ import {
   transitionStatus,
 } from '@/lib/creatives/store';
 
+export interface LaunchTargeting {
+  /** ISO-2 country codes (e.g. ['US', 'GB']). At least one is required by
+   * Meta v20+; the route auto-detects when omitted. */
+  countries: string[];
+}
+
 export interface LaunchCampaignInput {
   sprintId: string;
   idea: string;
@@ -52,6 +58,8 @@ export interface LaunchCampaignInput {
   baseUrl?: string;
   /** Override the standard 3-day pacing. */
   pacingDays?: number;
+  /** Per-sprint geo targeting. When omitted, falls back to env default. */
+  targeting?: LaunchTargeting;
   /**
    * v10 approval gate. When true (default), the launcher will:
    *   1. Refuse to run if no approved sprint_creatives exist for 'meta'.
@@ -103,14 +111,25 @@ async function findExistingCampaign(sprintId: string): Promise<ExistingCampaign 
   const db = createServiceClient();
   const { data } = await db
     .from('sprint_campaigns')
-    .select('campaign_id, adset_map, ad_map')
+    .select('campaign_id, adset_map, ad_map, status')
     .eq('sprint_id', sprintId)
     .eq('channel', 'meta')
     .maybeSingle();
   if (!data?.campaign_id) return null;
+  const adsetMap = (data.adset_map as Record<string, string>) ?? {};
+  // Only reuse rows that are fully provisioned. Rows left in 'CREATING' or
+  // 'FAILED' state (after a partial Meta failure mid-flight) have an empty
+  // or partial adset_map; re-running the full creation flow is the safe
+  // recovery path. The Meta-side campaign object that was already created
+  // gets re-named/re-used implicitly when we POST a new campaign with the
+  // same idempotent name — Meta does not de-duplicate but the orphaned
+  // paused campaign costs nothing.
+  const status = (data.status as string | null) ?? '';
+  const provisioned = (status === 'PAUSED' || status === 'ACTIVE') && Object.keys(adsetMap).length > 0;
+  if (!provisioned) return null;
   return {
     campaign_id: data.campaign_id as string,
-    adset_map: (data.adset_map as Record<string, string>) ?? {},
+    adset_map: adsetMap,
     ad_map: (data.ad_map as Record<string, string>) ?? {},
   };
 }
@@ -280,6 +299,20 @@ export async function launchManagedMetaCampaign(
   const pixelId = getSystemPixelId();
   const baseUrl = input.baseUrl ?? process.env.BASE_URL ?? 'https://launchlense.com';
 
+  // Resolve geo targeting once for the whole campaign. User-supplied
+  // countries win; otherwise fall back to env default → 'US'. We sanitise
+  // here so the downstream adset payload can trust the shape.
+  const targetCountries = (() => {
+    const raw =
+      input.targeting?.countries?.length
+        ? input.targeting.countries
+        : (process.env.META_DEFAULT_COUNTRIES ?? 'US').split(',');
+    const cleaned = raw
+      .map((c) => c.trim().toUpperCase())
+      .filter((c) => /^[A-Z]{2}$/.test(c));
+    return cleaned.length ? cleaned : ['US'];
+  })();
+
   // 1. Create the campaign (paused so we can wire up adsets before activation).
   const campaignName = `${nameFor(sprintId, 'meta')} — ${idea.slice(0, 40)}`;
   const campaignRes = (await withMetaRetry(
@@ -351,6 +384,11 @@ export async function launchManagedMetaCampaign(
           // Advantage+ audience requires age_max >= 65.
           age_min: 18,
           age_max: 65,
+          // Meta v20+ rejects adsets with no geo and no custom audience
+          // ("Location is missing", error_subcode 1885364). Pulled from the
+          // resolved targeting on the LaunchCampaignInput (which itself
+          // falls back to META_DEFAULT_COUNTRIES → 'US').
+          geo_locations: { countries: targetCountries },
           publisher_platforms: ['facebook', 'instagram'],
           device_platforms: ['mobile', 'desktop'],
           // Required by Meta v20+: explicit Advantage Audience opt-in.

@@ -214,6 +214,16 @@ export async function POST(
           // Advantage+ audience requires age_max >= 65.
           age_min: 18,
           age_max: 65,
+          // Meta v20+ rejects adsets with no geo and no custom audience
+          // ("Location is missing", error_subcode 1885364). Default to the
+          // countries listed in META_DEFAULT_COUNTRIES (comma-separated
+          // ISO-2 codes) or fall back to 'US'.
+          geo_locations: {
+            countries: (process.env.META_DEFAULT_COUNTRIES ?? 'US')
+              .split(',')
+              .map((c) => c.trim().toUpperCase())
+              .filter(Boolean),
+          },
           publisher_platforms: ['facebook', 'instagram'],
           device_platforms: ['mobile', 'desktop'],
           // Required by Meta v20+: explicit Advantage Audience opt-in.

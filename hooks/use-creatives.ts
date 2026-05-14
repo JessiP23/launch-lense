@@ -337,15 +337,29 @@ export function useCreatives(sprintId: string | null | undefined, opts: UseCreat
   }, [sprintId]);
 
   // ── Public: campaign activation gate ────────────────────────────────────
-  const activateCampaign = useCallback(async () => {
-    if (!sprintId) return null;
-    const res = await fetch(`/api/sprint/${sprintId}/campaign/activate`, { method: 'POST' });
-    const data = await res.json().catch(() => null) as
-      | { campaign_id?: string; status?: string; error?: string }
-      | null;
-    if (!res.ok) throw new Error(data?.error ?? `Activation failed (${res.status})`);
-    return data;
-  }, [sprintId]);
+  // Accepts an optional `countries` array. If omitted the server falls back
+  // to (1) the request's geo header and (2) the META_DEFAULT_COUNTRIES env.
+  const activateCampaign = useCallback(
+    async (opts?: { countries?: string[] }) => {
+      if (!sprintId) return null;
+      const res = await fetch(`/api/sprint/${sprintId}/campaign/activate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ countries: opts?.countries ?? [] }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | {
+            campaign_id?: string;
+            status?: string;
+            error?: string;
+            targeting?: { countries: string[] };
+          }
+        | null;
+      if (!res.ok) throw new Error(data?.error ?? `Activation failed (${res.status})`);
+      return data;
+    },
+    [sprintId]
+  );
 
   // ── Derived: deploy-gate completeness ───────────────────────────────────
   const approvalState = useMemo(() => {
