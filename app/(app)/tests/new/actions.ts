@@ -11,6 +11,7 @@ import {
 } from '@/lib/meta-api';
 import { getToken } from '@/lib/meta';
 import { calculateHealthChecks } from '@/lib/healthgate';
+import { resolveMetaCtaType } from '@/lib/meta/cta';
 
 interface Angle {
   headline: string;
@@ -275,7 +276,7 @@ export async function createTest(input: CreateTestInput): Promise<CreateTestResu
     const linkData: Record<string, unknown> = {
       message: angle.primary_text,
       name: angle.headline,
-      call_to_action: { type: angle.cta || 'LEARN_MORE' },
+      call_to_action: { type: resolveMetaCtaType(angle.cta) },
       link: lpUrl,
     };
     if (imageHash) {
