@@ -28,6 +28,7 @@ import {
   getSystemPixelId,
 } from '@/lib/meta-api';
 import { withMetaRetry } from '@/lib/meta/retry';
+import { resolveMetaCtaType } from '@/lib/meta/cta';
 import { createServiceClient } from '@/lib/supabase';
 import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import type {
@@ -421,7 +422,7 @@ export async function launchManagedMetaCampaign(
       const message = approved?.primary_text?.trim() || rawCopy.body;
       const headline = approved?.headline?.trim() || rawCopy.headline;
       const description = approved?.description?.trim() ?? null;
-      const ctaType = (approved?.cta?.trim() || 'LEARN_MORE').toUpperCase();
+      const ctaType = resolveMetaCtaType(approved?.cta ?? angle.cta);
 
       // Upload the asset(s) to Meta's libraries and capture refs. Both
       // image_hash and video_id are idempotent at the sprint_creatives

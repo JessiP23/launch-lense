@@ -35,6 +35,7 @@ import type {
   PolicySeverity,
 } from '@/lib/agents/types';
 import type { useCreatives } from '@/hooks/use-creatives';
+import { META_CTA_OPTIONS, resolveMetaCtaType } from '@/lib/meta/cta';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -155,6 +156,51 @@ function FieldRow({
   );
 }
 
+// ── CTA dropdown ──────────────────────────────────────────────────────────
+// Meta requires call_to_action.type to be one of a fixed enum. We render a
+// native <select> instead of a free-form input so the user can never pick
+// a value Meta will reject at deploy time. The stored value is the enum
+// string itself (e.g. "LEARN_MORE"); the live preview already maps it
+// back to a human label.
+function CtaSelect({
+  value, onChange, disabled,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+}) {
+  // Normalise legacy free-form values (e.g. "GET INSTANT GTM STRATEGY")
+  // down to the closest enum so the dropdown always reflects a valid state.
+  const normalised = resolveMetaCtaType(value);
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+          Call to action
+        </span>
+        <span style={{ color: C.muted, fontSize: 11, fontFamily: 'monospace' }}>{normalised}</span>
+      </div>
+      <select
+        value={normalised}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          border: `1px solid ${C.border}`, borderRadius: 10,
+          background: C.canvas, color: C.ink,
+          padding: '9px 10px', fontSize: '0.8125rem', outline: 'none',
+          fontFamily: 'inherit',
+          appearance: 'none',
+        }}
+      >
+        {META_CTA_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // ── Main card ─────────────────────────────────────────────────────────────
 
 interface Props {
@@ -247,7 +293,7 @@ export function CreativeEditor({
         <FieldRow label="Description" value={description} max={limits.description}
           onChange={(v) => controller.editField(angle.id, platform, 'description', v)}
           disabled={editLocked} />
-        <FieldRow label="CTA" value={cta} max={40}
+        <CtaSelect value={cta}
           onChange={(v) => controller.editField(angle.id, platform, 'cta', v)}
           disabled={editLocked} />
       </div>
