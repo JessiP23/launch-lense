@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, Table2, Mail } from 'lucide-react';
 import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
+import { LivePulse } from '@/components/canvas/panels/live-pulse';
 import type {
   Angle,
   Platform,
@@ -14,6 +15,8 @@ import type {
 } from '@/lib/agents/types';
 import { buildOutreachCopy } from '@/lib/agents/outreach-agent';
 import { MIN_CHANNEL_USD, MAX_CHANNEL_USD, PLATFORM_FEE_USD } from '@/lib/budget';
+import { CreativeApprovalWorkspace, type CreativeSelectionSnapshot } from '@/components/canvas/creative/creative-approval-workspace';
+import { useCreatives } from '@/hooks/use-creatives';
 
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
@@ -111,6 +114,32 @@ function Pill({ value }: { value: string }) {
       {value}
     </span>
   );
+}
+
+// Human-readable title for each panel id. Used by the panel header so the
+// user always sees what they opened, instead of just the sprint id slug.
+const PANEL_TITLES: Record<NonNullable<PanelId>, string> = {
+  accounts:               'Channels',
+  genome:                 'Genome',
+  healthgate:             'Healthgate',
+  budget:                 'Budget',
+  angles:                 'Angles',
+  creative:               'Creative',
+  landing:                'Landing page',
+  campaign:               'Campaigns',
+  verdict:                'Verdict',
+  report:                 'Report',
+  integrations:           'Integrations',
+  integrations_sheet:     'Spreadsheet',
+  integrations_outreach:  'Outreach',
+  integrations_slack:     'Slack',
+  benchmarks:             'Benchmarks',
+  settings:               'Settings',
+};
+
+function panelTitle(panel: NonNullable<PanelId>, channel?: string): string {
+  const base = PANEL_TITLES[panel] ?? '';
+  return channel ? `${base} · ${channel}` : base;
 }
 
 function workflowActionLabel(sprint: SprintRecord): string {
@@ -807,37 +836,16 @@ function AnglesPanel({
 // Creative Preview Panel
 // ════════════════════════════════════════════════════════════════════════════
 
-const MAX_INLINE_CREATIVE_IMAGE_CHARS = 250_000;
-
-function compactCreativeImage(image: string | null | undefined): string | null {
-  if (!image) return null;
-  if (/^https?:\/\//i.test(image)) return image;
-  if (image.startsWith('data:') && image.length <= MAX_INLINE_CREATIVE_IMAGE_CHARS) return image;
-  return null;
-}
-
-function compactCreativeAssets(
-  assets: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> | undefined,
+// Brand name is persisted on the sprint (tiny string, no quota concerns).
+// Images live on sprint_creatives.image_url — inline data URLs are accepted
+// up to ~8 MB so a phone photo fits without a separate upload step.
+function nextBrandAssets(
+  assets: Partial<Record<Platform, { brand_name?: string }>> | undefined,
   channel: Platform,
-  asset: { brand_name: string; image: string | null },
-): Partial<Record<Platform, { brand_name?: string; image?: string | null }>> {
-  const next: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> = {};
-
-  for (const [key, value] of Object.entries(assets ?? {}) as Array<[
-    Platform,
-    { brand_name?: string; image?: string | null },
-  ]>) {
-    next[key] = {
-      brand_name: value.brand_name,
-      image: compactCreativeImage(value.image),
-    };
-  }
-
-  next[channel] = {
-    brand_name: asset.brand_name,
-    image: compactCreativeImage(asset.image),
-  };
-
+  brandName: string,
+): Partial<Record<Platform, { brand_name?: string }>> {
+  const next: Partial<Record<Platform, { brand_name?: string }>> = { ...(assets ?? {}) };
+  next[channel] = { brand_name: brandName };
   return next;
 }
 
@@ -862,7 +870,6 @@ function CreativePreviewPanel({
   const [selectedId, setSelectedId] = useState<Angle['id']>('angle_A');
   const [channel, setChannel] = useState<Platform>((panelChannel ?? sprint?.active_channels?.[0] ?? 'meta') as Platform);
   const [brandName, setBrandName] = useState('Your Brand');
-  const [image, setImage] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Angle>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -892,16 +899,33 @@ function CreativePreviewPanel({
   const lockedChannel = (panelChannel && channels.includes(panelChannel as Platform)) ? panelChannel as Platform : undefined;
   const activeChannel = lockedChannel ?? (channels.includes(channel) ? channel : channels[0]);
   const copy = selected?.copy[activeChannel];
-  const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string; image?: string | null }>> } | undefined)?.creative_assets;
-  const savedChannels = channels.filter((item) => Boolean(creativeAssets?.[item]));
-  const allChannelsSaved = channels.length > 0 && savedChannels.length === channels.length;
+  const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string }>> } | undefined)?.creative_assets;
 
+  // sprint_creatives is the canonical source for image_url. We DERIVE the
+  // displayed image directly from the controller row instead of keeping a
+  // local mirror — the previous mirror created a bidirectional sync with
+  // `creativeDraft` that React couldn't always reconcile, producing an
+  // infinite update loop on the parent canvas.
+  const controller = useCreatives(sprint?.sprint_id ?? null, { activeChannels: channels });
+  const activeRow = controller.byKey.get(`${selectedId}::${activeChannel}`);
+  const image = activeRow?.image_url ?? null;
+  const allChannelsHaveImage = channels.length > 0 && channels.every((ch) =>
+    Boolean(controller.byKey.get(`${selectedId}::${ch}`)?.image_url)
+  );
+
+  // Brand name is local-only and initialised once per (channel) from the
+  // persisted sprint assets. We deliberately do NOT re-sync from
+  // `creativeDraft` — doing so created a write-then-read loop with the
+  // emit effect below. User edits flow OUT to the parent; the parent
+  // never writes brand name back.
   useEffect(() => {
-    const saved = creativeAssets?.[activeChannel];
-    setBrandName(creativeDraft?.brandName ?? saved?.brand_name ?? 'Your Brand');
-    setImage(creativeDraft?.image ?? saved?.image ?? null);
-  }, [activeChannel, creativeDraft?.brandName, creativeDraft?.image, creativeAssets]);
+    setBrandName(creativeAssets?.[activeChannel]?.brand_name ?? 'Your Brand');
+  }, [activeChannel, creativeAssets]);
 
+  // Emit the canvas-node live-preview snapshot. This is a one-way push.
+  // Deps reference only primitive/stable values so the effect can't be
+  // restarted by the parent echoing our own update back to us.
+  const selectedAngleId = selected?.id;
   useEffect(() => {
     if (!selected || !copy) return;
     onCreativeDraftChange?.({
@@ -911,7 +935,12 @@ function CreativePreviewPanel({
       brandName,
       image,
     });
-  }, [activeChannel, brandName, copy, image, onCreativeDraftChange, selected]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `selected`/`copy`
+  // are derived objects whose identity flips on every controller refetch;
+  // depending on them caused the very loop this effect now avoids. The
+  // primitives below are sufficient — we re-emit when *content* changes,
+  // not when references do.
+  }, [activeChannel, brandName, image, onCreativeDraftChange, selectedAngleId]);
 
   if (!angles.length || !selected || !copy) {
     return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Creative previews appear after AngleAgent generates copy.</p>;
@@ -936,16 +965,15 @@ function CreativePreviewPanel({
     });
   };
 
+  // Persists the angle selection + brand name only. The image is written
+  // directly to sprint_creatives by `uploadImage` (and so is the per-field
+  // copy by the workspace), so this no longer needs to touch creative copy.
   const saveCreative = async () => {
     if (!sprint?.angles) return;
     setSaving(true);
     setMessage(null);
     try {
       const editedAngles = sprint.angles.angles.map((angle) => drafts[angle.id] ?? angle);
-      const nextCreativeAssets = compactCreativeAssets(creativeAssets, activeChannel, {
-        brand_name: brandName,
-        image,
-      });
       const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -953,7 +981,7 @@ function CreativePreviewPanel({
           angles: {
             ...sprint.angles,
             selected_angle_id: selected.id,
-            creative_assets: nextCreativeAssets,
+            creative_assets: nextBrandAssets(creativeAssets, activeChannel, brandName),
             angles: editedAngles,
           },
         }),
@@ -961,11 +989,7 @@ function CreativePreviewPanel({
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json().catch(() => null) as { sprint?: unknown } | null;
       if (data?.sprint) onSprintPatched?.(data.sprint);
-      setMessage(
-        image && !compactCreativeImage(image)
-          ? `${activeChannel} creative saved. Large image preview is kept local only.`
-          : `${activeChannel} creative saved.`,
-      );
+      setMessage(`${activeChannel} brand saved.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -973,12 +997,27 @@ function CreativePreviewPanel({
     }
   };
 
+  // Image upload writes straight to sprint_creatives.image_url for every
+  // active channel of the selected angle. The displayed image is derived
+  // from the controller row, so this single write updates the preview,
+  // the canvas node, and unblocks the policy scanner in one step.
   const uploadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setImage(String(reader.result));
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      for (const ch of channels) {
+        controller.editField(selected.id, ch, 'image_url', dataUrl);
+      }
+    };
     reader.readAsDataURL(file);
+  };
+
+  const removeImage = () => {
+    for (const ch of channels) {
+      controller.editField(selected.id, ch, 'image_url', null);
+    }
   };
 
   const renderCopyEditor = () => {
@@ -1015,35 +1054,101 @@ function CreativePreviewPanel({
   return (
     <div>
       <SectionTitle>Creative · {activeChannel}</SectionTitle>
-      <p style={{ color: C.muted, fontSize: '0.875rem', marginBottom: 14 }}>Edit the selected angle for this channel. The preview updates directly inside the canvas node in real time.</p>
-      <div style={{ background: C.ink, color: '#FFF', borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
-        <Label><span style={{ color: '#FFFFFF80' }}>Selected Angle</span></Label>
-        <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 800 }}>{selected.id.replace('angle_', '')} · {selected.archetype}</p>
+      <p style={{ color: C.muted, fontSize: '0.8125rem', marginBottom: 14, lineHeight: 1.45 }}>
+        Pick an angle, fine-tune the copy, and approve it. The canvas node preview tracks your selection in real time.
+      </p>
+
+      {/* Brand + image upload (drives canvas-node live preview + legacy save) */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Label>Brand</Label>
+            <input
+              value={brandName}
+              onChange={(event) => setBrandName(event.target.value)}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                border: `1px solid ${C.border}`, borderRadius: 10,
+                background: C.canvas, color: C.ink,
+                padding: '9px 10px', fontSize: '0.8125rem', outline: 'none',
+              }}
+            />
+          </div>
+          <div style={{ width: 140 }}>
+            <Label>Image</Label>
+            <label style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              height: 36, border: `1px dashed ${C.border}`, borderRadius: 10,
+              background: C.canvas, color: C.ink, cursor: 'pointer',
+              fontSize: '0.75rem', fontWeight: 800,
+            }}>
+              {image ? 'Replace' : 'Upload'}
+              <input type="file" accept="image/*" onChange={uploadImage} style={{ display: 'none' }} />
+            </label>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <button
+            onClick={saveCreative}
+            disabled={saving}
+            style={{
+              height: 30, padding: '0 12px',
+              border: `1px solid ${C.border}`, borderRadius: 8,
+              background: C.surface, color: C.ink,
+              fontSize: 12, fontWeight: 800,
+              cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1,
+            }}>
+            {saving ? 'Saving…' : 'Save brand & image'}
+          </button>
+          {image && (
+            <button type="button" onClick={removeImage} style={{
+              height: 30, padding: '0 10px', border: 'none', background: 'transparent',
+              color: C.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700,
+            }}>
+              Remove image
+            </button>
+          )}
+        </div>
+        {message && (
+          <p style={{ margin: '6px 0 0', color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>
+            {message}
+          </p>
+        )}
       </div>
-      {!lockedChannel && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-          {channels.map((item) => (
-            <button key={item} onClick={() => setChannel(item)} style={{ height: 30, padding: '0 10px', border: `1px solid ${activeChannel === item ? C.ink : C.border}`, borderRadius: 8, background: activeChannel === item ? C.ink : C.surface, color: activeChannel === item ? '#FFF' : C.muted, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, textTransform: 'capitalize' }}>{item}</button>
-          ))}
+
+      {/* v10 Approval workspace — single source of truth for copy + status */}
+      {sprint?.sprint_id && angles.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <CreativeApprovalWorkspace
+            sprintId={sprint.sprint_id}
+            angles={angles}
+            activeChannels={(sprint.active_channels?.length ? sprint.active_channels : ['meta']) as Platform[]}
+            initialAngleId={selected.id}
+            onActivated={() => onContinue?.(sprint.sprint_id)}
+            onSelectionChange={(snap: CreativeSelectionSnapshot) => {
+              setSelectedId(snap.angle.id);
+              setChannel(snap.channel);
+              // Mirror the user's edits into the legacy draft so the canvas
+              // node preview tracks them. We splice the snapshot into the
+              // current angle so other channels stay untouched.
+              setDrafts((prev) => {
+                const base = prev[snap.angle.id] ?? snap.angle;
+                const channelCopy =
+                  snap.channel === 'meta'
+                    ? { headline: snap.copy.headline, body: snap.copy.primary_text }
+                    : base.copy[snap.channel];
+                return {
+                  ...prev,
+                  [snap.angle.id]: {
+                    ...base,
+                    copy: { ...base.copy, [snap.channel]: channelCopy },
+                  },
+                };
+              });
+            }}
+          />
         </div>
       )}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-        <Label>Brand</Label>
-        <input value={brandName} onChange={(event) => setBrandName(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none', marginBottom: 10 }} />
-        <Label>Creative Image</Label>
-        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 42, border: `1px dashed ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 800 }}>
-          {image ? 'Replace Uploaded Image' : 'Upload Image'}
-          <input type="file" accept="image/*" onChange={uploadImage} style={{ display: 'none' }} />
-        </label>
-        {image && <button type="button" onClick={() => setImage(null)} style={{ marginTop: 8, height: 30, border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, color: C.muted, cursor: 'pointer', fontSize: '0.75rem' }}>Remove image</button>}
-      </div>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {renderCopyEditor()}
-        <button onClick={saveCreative} disabled={saving} style={{ height: 36, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', fontSize: '0.8125rem', fontWeight: 800, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-          {saving ? 'Saving Creative' : `Save ${activeChannel} Creative`}
-        </button>
-        {message && <p style={{ margin: 0, color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>{message}</p>}
-      </div>
       {activeChannel === 'tiktok' && sprint && (
         <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <Label>TikTok video brief (VideoCreativeAgent)</Label>
@@ -1114,10 +1219,10 @@ function CreativePreviewPanel({
         </div>
         <button
           onClick={() => sprint && onContinue?.(sprint.sprint_id)}
-          disabled={!allChannelsSaved || workflowRunning}
-          style={{ width: '100%', height: 38, border: `1px solid ${allChannelsSaved ? C.ink : C.border}`, borderRadius: 10, background: allChannelsSaved ? C.ink : C.faint, color: allChannelsSaved ? '#FFF' : C.muted, cursor: allChannelsSaved && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
+          disabled={!allChannelsHaveImage || workflowRunning}
+          style={{ width: '100%', height: 38, border: `1px solid ${allChannelsHaveImage ? C.ink : C.border}`, borderRadius: 10, background: allChannelsHaveImage ? C.ink : C.faint, color: allChannelsHaveImage ? '#FFF' : C.muted, cursor: allChannelsHaveImage && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
         >
-          {workflowRunning ? 'Running Demo Workflow' : allChannelsSaved ? 'Run' : `Save ${channels.length - savedChannels.length} More Creative${channels.length - savedChannels.length === 1 ? '' : 's'}`}
+          {workflowRunning ? 'Running Demo Workflow' : allChannelsHaveImage ? 'Run' : 'Upload an image to enable Run'}
         </button>
         <p style={{ margin: '8px 0 0', color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
           Demo mode will generate campaign results, verdict, landing page, and report from the selected angle.
@@ -1391,10 +1496,30 @@ function CampaignPanel({
     );
   };
 
+  // Derive standardized live-pulse state from the sprint state machine.
+  const pulseState: 'live' | 'polling' | 'idle' | 'stopped' = (() => {
+    if (!sprint) return 'idle';
+    if (sprint.state === 'BLOCKED') return 'stopped';
+    if (sprint.state === 'CAMPAIGN_RUNNING') return 'live';
+    if (sprint.state === 'CAMPAIGN_MONITORING' || sprint.state === 'VERDICT_GENERATING') return 'polling';
+    if (sprint.state === 'COMPLETE') return 'idle';
+    return 'idle';
+  })();
+
+  const pulseLabel = (() => {
+    if (pulseState === 'live') return 'Live';
+    if (pulseState === 'polling') return 'Polling';
+    if (pulseState === 'stopped') return 'Paused';
+    return sprint?.state === 'COMPLETE' ? 'Complete' : 'Idle';
+  })();
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <SectionTitle>Campaigns</SectionTitle>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <SectionTitle>Campaigns</SectionTitle>
+          <LivePulse state={pulseState} label={pulseLabel} />
+        </div>
         {sprint && (
           <div style={{ display: 'flex', gap: 8 }}>
             {sprint.state === 'ANGLES_DONE' && (
@@ -3181,6 +3306,8 @@ export function NodePanel({
       ? 820
       : panel === 'integrations_sheet'
         ? 920
+      : panel === 'creative'
+        ? 460
       : panel === 'budget'
         ? 440
       : isIntegrationSurface
@@ -3268,30 +3395,58 @@ export function NodePanel({
         }}
       >
         {/* Panel header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0, gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: '0.9375rem', letterSpacing: '-0.01em', color: C.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {panelTitle(panel, channel)}
+            </span>
             {sprint && (
-              <span style={{ fontSize: '0.6875rem', fontFamily: 'monospace', color: C.muted }}>
-                {sprint.sprint_id.slice(0, 8)}
-              </span>
+              <>
+                <span style={{ fontSize: '0.6875rem', fontFamily: 'monospace', color: C.muted }}>
+                  {sprint.sprint_id.slice(0, 8)}
+                </span>
+                {(() => {
+                  // Single, canonical live-status indicator for the entire panel
+                  // header. State derived from the sprint state machine.
+                  const s = sprint.state;
+                  if (s === 'BLOCKED') return <LivePulse state="stopped" label="Blocked" />;
+                  if (s === 'CAMPAIGN_RUNNING') return <LivePulse state="live" label="Live" />;
+                  if (
+                    s === 'GENOME_RUNNING' ||
+                    s === 'HEALTHGATE_RUNNING' ||
+                    s === 'ANGLES_RUNNING' ||
+                    s === 'LANDING_RUNNING' ||
+                    s === 'CAMPAIGN_CREATING' ||
+                    s === 'CAMPAIGN_MONITORING' ||
+                    s === 'VERDICT_GENERATING'
+                  ) {
+                    return <LivePulse state="polling" label="Running" />;
+                  }
+                  if (s === 'COMPLETE') return <LivePulse state="idle" label="Complete" />;
+                  return null;
+                })()}
+              </>
             )}
           </div>
-          {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && !isIntegrationSurface && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {sprint && sprint.state !== 'COMPLETE' && onRunWorkflow && !isIntegrationSurface && (
+              <button
+                onClick={() => onRunWorkflow(sprint.sprint_id)}
+                disabled={workflowRunning}
+                style={{ height: 30, padding: '0 12px', border: `1px solid ${workflowRunning ? C.ink : 'transparent'}`, borderRadius: 9, background: workflowRunning ? C.faint : C.ink, color: workflowRunning ? C.ink : '#FFF', cursor: workflowRunning ? 'default' : 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
+              >
+                {workflowRunning ? 'Running…' : workflowActionLabel(sprint)}
+              </button>
+            )}
             <button
-              onClick={() => onRunWorkflow(sprint.sprint_id)}
-              disabled={workflowRunning}
-              style={{ height: 30, padding: '0 12px', border: `1px solid ${workflowRunning ? C.ink : 'transparent'}`, borderRadius: 9, background: workflowRunning ? C.faint : C.ink, color: workflowRunning ? C.ink : '#FFF', cursor: workflowRunning ? 'default' : 'pointer', fontSize: '0.75rem', fontWeight: 700, opacity: workflowRunning ? 1 : 1 }}
+              onClick={onClose}
+              style={{ height: 30, width: 30, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.border}`, borderRadius: 9, background: 'transparent', cursor: 'pointer', color: C.muted, fontSize: 16, lineHeight: 1 }}
+              aria-label="Close panel"
+              title="Close panel"
             >
-              {workflowRunning ? 'Running Agents' : workflowActionLabel(sprint)}
+              ×
             </button>
-          )}
-          <button
-            onClick={onClose}
-            style={{ height: 28, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', color: C.muted, fontSize: '0.75rem' }}
-            aria-label="Close panel"
-          >
-            Close
-          </button>
+          </div>
         </div>
 
         {/* Panel content */}

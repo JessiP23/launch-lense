@@ -11,6 +11,7 @@
 
 import type { Angle, LandingPage, LandingSection, LandingAgentOutput, Platform } from './types';
 import { DOMPurify as purify } from './landing-sanitize';
+import { generateLpTrackingScript } from '@/lib/meta-pixel';
 
 // ── HTML generation ───────────────────────────────────────────────────────
 
@@ -66,99 +67,6 @@ function buildSections(angle: Angle, channel: Platform): LandingSection[] {
   ];
 }
 
-function buildMetaPixelScript(pixelId: string): string {
-  if (!pixelId) return '';
-  return `<!-- Meta Pixel -->
-<script>
-!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-n.queue=[];t=b.createElement(e);t.async=!0;
-t.src=v;s=b.getElementsByTagName(e)[0];
-s.parentNode.insertBefore(t,s)}(window,document,'script',
-'https://connect.facebook.net/en_US/fbevents.js');
-fbq('init','${pixelId}');
-fbq('track','PageView');
-</script>
-<noscript><img height="1" width="1" style="display:none"
-src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"/></noscript>
-<!-- End Meta Pixel -->`;
-}
-
-function buildTrackingScript(recordId: string, angleId: string, channel: Platform, utmBase: string, pixelId: string): string {
-  const pixelLead = pixelId
-    ? `\n  // Fire Meta Pixel Lead event on form submit\n  if(window.fbq) fbq('track','Lead');`
-    : '';
-  const pixelInitiateCheckout = pixelId
-    ? `\n  // Fire Meta Pixel InitiateCheckout on CTA click\n  if(window.fbq) fbq('track','InitiateCheckout');`
-    : '';
-
-  return `<script>
-(function() {
-  var RECORD_ID = '${escapedText(recordId)}';
-  var ANGLE_ID = '${escapedText(angleId)}';
-  var CHANNEL = '${escapedText(channel)}';
-  var utmParams = (function() {
-    var s = window.location.search;
-    var m = {};
-    s.replace(/[?&]([^=&]+)=([^&]*)/g, function(_, k, v) { m[decodeURIComponent(k)] = decodeURIComponent(v); });
-    return m;
-  })();
-
-  function track(event, extra) {
-    var payload = Object.assign({
-      sprint_id: RECORD_ID,
-      angle_id: ANGLE_ID,
-      channel: CHANNEL,
-      utm_source: utmParams.utm_source || CHANNEL,
-      utm_medium: utmParams.utm_medium || 'paid',
-      utm_campaign: utmParams.utm_campaign || 'sprint',
-      utm_content: utmParams.utm_content || ANGLE_ID,
-    }, extra || {});
-    fetch('/api/lp/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sprint_id: RECORD_ID, event: event, angle_id: ANGLE_ID, channel: CHANNEL,
-        utm_source: payload.utm_source, utm_medium: payload.utm_medium,
-        utm_campaign: payload.utm_campaign, utm_content: payload.utm_content,
-        metadata: extra || {}, ts: Date.now() }),
-      keepalive: true
-    }).catch(function() {});
-  }
-
-  // page_view on load
-  track('page_view');
-
-  // scroll_depth at 25 / 50 / 75 / 100 %
-  var scrollMilestones = { 25: false, 50: false, 75: false, 100: false };
-  window.addEventListener('scroll', function() {
-    var scrolled = (window.scrollY + window.innerHeight) / document.body.scrollHeight * 100;
-    [25, 50, 75, 100].forEach(function(pct) {
-      if (!scrollMilestones[pct] && scrolled >= pct) {
-        scrollMilestones[pct] = true;
-        track('scroll_depth', { depth_pct: pct });
-      }
-    });
-  }, { passive: true });
-
-  // cta_click
-  document.querySelectorAll('[data-lp-cta]').forEach(function(el) {
-    el.addEventListener('click', function() {
-      track('cta_click');${pixelInitiateCheckout}
-    });
-  });
-
-  // form_submit + email_capture
-  document.querySelectorAll('[data-lp-form]').forEach(function(form) {
-    form.addEventListener('submit', function(e) {
-      track('form_submit');
-      var emailInput = form.querySelector('input[type="email"]');
-      if (emailInput && emailInput.value) track('email_capture', { email_domain: emailInput.value.split('@')[1] || '' });${pixelLead}
-    });
-  });
-})();
-</script>`;
-}
 
 function buildLpHtml(
   recordId: string,
@@ -178,8 +86,7 @@ function buildLpHtml(
   const ctaLabel = escapedText(hero?.cta_label ?? angle.cta ?? 'Get Early Access');
   const bullets = (proof?.bullets ?? []).map((b) => `<li>${escapedText(b)}</li>`).join('\n');
   const quote = trust?.quote ? `<blockquote class="trust-quote"><p>"${escapedText(trust.quote)}"</p><cite>— ${escapedText(trust.quote_attribution ?? '')}</cite></blockquote>` : '';
-  const metaPixelScript = buildMetaPixelScript(pixelId);
-  const trackingScript = buildTrackingScript(recordId, angle.id, channel, utmBase, pixelId);
+  const trackingScript = generateLpTrackingScript(recordId, angle.id, channel, pixelId);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -188,7 +95,7 @@ function buildLpHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>${headline}</title>
-  ${metaPixelScript}
+  ${trackingScript}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -247,7 +154,6 @@ function buildLpHtml(
       <p>No spam. No commitment. Unsubscribe anytime.</p>
     </footer>
   </div>
-  ${trackingScript}
 </body>
 </html>`;
 }

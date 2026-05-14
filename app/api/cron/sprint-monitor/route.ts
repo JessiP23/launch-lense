@@ -19,7 +19,11 @@ import {
   fetchAndEvaluateAngles,
   getSystemToken,
   getSystemAdAccountId,
+  pauseAdset,
 } from '@/lib/meta-api';
+import { getExtendedAdsetInsights, evaluatePauseRules } from '@/lib/meta/insights';
+import { withMetaRetry } from '@/lib/meta/retry';
+import { refreshSprintAngleResults, pickWinningAngle, lpConversionsFor, aggregateLpEventsByAngle } from '@/lib/meta/angle-rollup';
 import { dispatchVerdict } from '@/lib/sprint-machine';
 import { emitSprintEvent, SprintEventName } from '@/lib/analytics/events';
 import type { Platform, CampaignAgentOutput, AngleMetrics, AngleStatus } from '@/lib/agents/types';
@@ -114,37 +118,139 @@ export async function GET(request: NextRequest) {
         updatedMetrics = simulateSandboxMetrics(updatedMetrics, elapsedHours);
         totalSpent = updatedMetrics.reduce((s, m) => s + m.spend_cents, 0);
       } else {
-        // Get adset map stored during campaign creation
-        const adsetMap = ((sprint.angles as Record<string, unknown>)?._meta_adset_map ?? {}) as Record<string, string>;
-        const angleAdsetMap = {
-          angle_A: adsetMap.angle_A,
-          angle_B: adsetMap.angle_B,
-          angle_C: adsetMap.angle_C,
-        } as Record<'angle_A' | 'angle_B' | 'angle_C', string>;
+        // Prefer the normalized sprint_campaigns.adset_map (managed launcher);
+        // fall back to the legacy in-blob _meta_adset_map for older sprints.
+        const { data: campaignRow } = await db
+          .from('sprint_campaigns')
+          .select('id, adset_map, campaign_id')
+          .eq('sprint_id', sprint.id)
+          .eq('channel', 'meta')
+          .maybeSingle();
 
-        // Filter to angles that have adset IDs
-        const validMap = Object.fromEntries(
-          Object.entries(angleAdsetMap).filter(([, v]) => !!v)
-        ) as Record<'angle_A' | 'angle_B' | 'angle_C', string>;
+        let adsetMap = (campaignRow?.adset_map as Record<string, string> | undefined) ?? {};
+        if (Object.keys(adsetMap).length === 0) {
+          adsetMap = ((sprint.angles as Record<string, unknown>)?._meta_adset_map ?? {}) as Record<string, string>;
+        }
 
-        if (Object.keys(validMap).length > 0) {
-          const liveMetrics = await fetchAndEvaluateAngles(validMap, systemToken!, true);
+        const validEntries = Object.entries(adsetMap).filter(([, v]) => !!v);
 
-          updatedMetrics = updatedMetrics.map((m) => {
-            const live = liveMetrics.find((l) => l.angle_id === m.id);
-            if (!live) return m;
-            if (live.status === 'UNDERPERFORM') pausedAngles.push(m.id);
-            return {
-              ...m,
-              impressions: live.impressions,
-              clicks: live.clicks,
-              ctr: live.ctr,
-              cpc_cents: live.cpc_cents,
-              spend_cents: live.spend_cents,
-              status: live.status === 'UNDERPERFORM' ? 'FAIL' : m.status,
-            };
-          });
+        if (validEntries.length > 0) {
+          // Aggregate LP conversions per angle so the pause-rules engine has the
+          // "no-conversion spend ceiling" signal it needs.
+          const lpByAngle = await aggregateLpEventsByAngle(sprint.id);
+
+          for (const [angleId, adsetId] of validEntries) {
+            const insight = await getExtendedAdsetInsights(adsetId, systemToken!).catch((err) => {
+              console.warn(`[sprint-monitor] insights failed adset=${adsetId}:`, String(err));
+              return null;
+            });
+            if (!insight) continue;
+
+            const lpConv = lpConversionsFor(lpByAngle.get(angleId));
+            const decision = evaluatePauseRules(insight, lpConv);
+
+            // Merge live insight back into the in-blob angle_metrics for canvas.
+            updatedMetrics = updatedMetrics.map((m) =>
+              m.id === angleId
+                ? {
+                    ...m,
+                    impressions: insight.impressions,
+                    clicks: insight.clicks,
+                    ctr: insight.ctr,
+                    cpc_cents: insight.cpc_cents,
+                    spend_cents: insight.spend_cents,
+                    status: decision.pause ? ('FAIL' as AngleStatus) : m.status,
+                  }
+                : m
+            );
+
+            // Snapshot per-angle metric row (append-only).
+            await db.from('sprint_metrics').insert({
+              sprint_id: sprint.id,
+              sprint_campaign_id: campaignRow?.id ?? null,
+              angle_id: angleId,
+              channel: 'meta',
+              impressions: insight.impressions,
+              clicks: insight.clicks,
+              ctr: insight.ctr,
+              cpc_cents: insight.cpc_cents,
+              cpm_cents: insight.cpm_cents,
+              spend_cents: insight.spend_cents,
+              frequency: insight.frequency,
+              outbound_clicks: insight.outbound_clicks,
+              leads: lpConv,
+              raw: insight as unknown as Record<string, unknown>,
+            });
+
+            if (decision.pause) {
+              try {
+                await withMetaRetry(() => pauseAdset(adsetId, systemToken!), {
+                  label: `pause-adset:${adsetId}`,
+                });
+                pausedAngles.push(angleId);
+                await emitSprintEvent(sprint.id, SprintEventName.CampaignPaused, {
+                  channel: 'meta',
+                  campaign_id: campaignRow?.campaign_id ?? undefined,
+                  adset_id: adsetId,
+                  angle_id: angleId,
+                  reason: decision.reason ?? 'thresholds',
+                });
+                await db.from('sprint_ads').update({ status: 'PAUSED', updated_at: new Date().toISOString() })
+                  .eq('sprint_campaign_id', campaignRow?.id ?? '')
+                  .eq('angle_id', angleId);
+              } catch (err) {
+                console.error(`[sprint-monitor] pauseAdset ${adsetId} failed:`, err);
+              }
+            }
+          }
+
           totalSpent = updatedMetrics.reduce((s, m) => s + m.spend_cents, 0);
+
+          // Refresh denormalized rollup + pick the current winner.
+          const rollup = await refreshSprintAngleResults(sprint.id, 'meta');
+          const winner = pickWinningAngle(rollup);
+          if (winner) {
+            const cvr = winner.lp_views > 0
+              ? (winner.lp_form_submits + winner.lp_email_captures) / winner.lp_views
+              : 0;
+            await emitSprintEvent(sprint.id, SprintEventName.AngleWon, {
+              channel: 'meta',
+              angle_id: winner.angle_id,
+              ctr: winner.ctr,
+              cpc_cents: winner.cpc_cents,
+              lp_conversion_rate: cvr,
+            });
+          }
+
+          // Touch sprint_campaigns.last_polled_at for observability.
+          if (campaignRow?.id) {
+            await db
+              .from('sprint_campaigns')
+              .update({ last_polled_at: new Date().toISOString() })
+              .eq('id', campaignRow.id);
+          }
+        } else {
+          // No managed launcher record — fall back to legacy whole-campaign poll.
+          // Kept for back-compat with sprints created before migration 008.
+          const legacyMap = ((sprint.angles as Record<string, unknown>)?._meta_adset_map ?? {}) as Record<'angle_A' | 'angle_B' | 'angle_C', string>;
+          if (Object.values(legacyMap).some(Boolean)) {
+            const liveMetrics = await fetchAndEvaluateAngles(legacyMap, systemToken!, true);
+            updatedMetrics = updatedMetrics.map((m) => {
+              const live = liveMetrics.find((l) => l.angle_id === m.id);
+              if (!live) return m;
+              if (live.status === 'UNDERPERFORM') pausedAngles.push(m.id);
+              return {
+                ...m,
+                impressions: live.impressions,
+                clicks: live.clicks,
+                ctr: live.ctr,
+                cpc_cents: live.cpc_cents,
+                spend_cents: live.spend_cents,
+                status: live.status === 'UNDERPERFORM' ? 'FAIL' : m.status,
+              };
+            });
+            totalSpent = updatedMetrics.reduce((s, m) => s + m.spend_cents, 0);
+          }
         }
       }
 
@@ -171,6 +277,32 @@ export async function GET(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq('id', sprint.id);
+
+      // 3b. Sandbox + legacy paths still need normalized sprint_metrics rows.
+      // (Live managed path inserts these inline so it can capture extended
+      //  fields like frequency, cpm_cents, outbound_clicks.)
+      if (updatedMetrics.length > 0 && SANDBOX_MODE) {
+        const { data: campaignRow } = await db
+          .from('sprint_campaigns')
+          .select('id')
+          .eq('sprint_id', sprint.id)
+          .eq('channel', 'meta')
+          .maybeSingle();
+        await db.from('sprint_metrics').insert(
+          updatedMetrics.map((m) => ({
+            sprint_id: sprint.id,
+            sprint_campaign_id: campaignRow?.id ?? null,
+            angle_id: m.id,
+            channel: 'meta',
+            impressions: m.impressions,
+            clicks: m.clicks,
+            ctr: m.ctr,
+            cpc_cents: m.cpc_cents,
+            spend_cents: m.spend_cents,
+            raw: m as unknown as Record<string, unknown>,
+          }))
+        );
+      }
 
       // 4. Emit poll event
       await db.from('sprint_events').insert({

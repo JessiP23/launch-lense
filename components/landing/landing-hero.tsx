@@ -81,18 +81,24 @@ export function LandingHero() {
           </motion.div>
         </motion.div>
 
-       <motion.div
-  className="w-full relative"
-  initial={{ opacity: 0, y: 28 }}
-  animate={{ opacity: 1, y: 0 }}
-  transition={{ duration: 0.6, ease: LANDING_EASE, delay: 0.12 }}
->
-  <img
-    src="/image.png"
-    alt='Illustration of a software image with no background'
-    className="w-[160%] max-w-none h-auto -translate-y-[8%] lg:w-[220%] lg:-translate-x-[18%] lg:-translate-y-[12%]"
-  />
-</motion.div>
+        <motion.div
+          className="relative w-full overflow-visible"
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: LANDING_EASE, delay: 0.12 }}
+        >
+          {/* Cap the image so it never overflows the column on tablets.
+              On desktop we still let it bleed slightly to the right for the
+              hero composition, but using max-width instead of a fixed 220%
+              that breaks on mid-width screens. */}
+          <img
+            src="/image.png"
+            alt="LaunchLense product preview"
+            className="block w-full max-w-[640px] h-auto mx-auto lg:max-w-none lg:w-[120%] lg:-translate-y-2"
+            loading="eager"
+            decoding="async"
+          />
+        </motion.div>
       </div>
     </section>
   );
