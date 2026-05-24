@@ -3,7 +3,6 @@
 import { useAppStore } from '@/lib/store';
 import { useIntelligence } from '@/hooks/use-intelligence';
 import { PredictionInsightCard } from './prediction-insight-card';
-import { AccuracyOverTimeChart } from './accuracy-over-time-chart';
 import { CalibrationScatterPlot } from './calibration-scatter-plot';
 import { PerAxisBreakdownTable } from './per-axis-breakdown-table';
 import { AccuracyByVerticalChart } from './accuracy-by-vertical-chart';
@@ -18,17 +17,17 @@ export function PredictionEngine() {
   }
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       <PredictionInsightCard orgId={orgId} />
 
-      <AccuracyOverTimeChart orgId={orgId} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
         <CalibrationScatterPlot orgId={orgId} />
-        <AccuracyByVerticalChart orgId={orgId} />
+        <PerAxisBreakdownTable orgId={orgId} />
       </div>
 
-      <PerAxisBreakdownTable orgId={orgId} />
+      <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '24px' }}>
+        <AccuracyByVerticalChart orgId={orgId} />
+      </div>
     </div>
   );
 }

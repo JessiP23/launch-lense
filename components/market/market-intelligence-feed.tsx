@@ -1,31 +1,31 @@
 'use client';
 
 import { useAppStore } from '@/lib/store';
-import { TopWinningAngles } from './top-winning-angles';
+import { MarketStats } from './market-stats';
 import { VerticalMomentum } from './vertical-momentum';
-import { CompetitiveDensity } from './competitive-density';
+import { WinningAngleArchetypes } from './winning-angle-archetypes';
+import { ChannelVerticalHeatmap } from './channel-vertical-heatmap';
 import { DeadZone } from './dead-zone';
-import { ChannelPerformance } from './channel-performance';
 
 export function MarketIntelligenceFeed() {
   const orgId = useAppStore((s) => s.orgId);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Market Intelligence</h1>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <MarketStats orgId={orgId} />
 
-      <TopWinningAngles orgId={orgId} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
         <VerticalMomentum orgId={orgId} />
-        <CompetitiveDensity orgId={orgId} />
+        <WinningAngleArchetypes orgId={orgId} />
       </div>
 
-      <DeadZone orgId={orgId} />
+      <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '24px' }}>
+        <ChannelVerticalHeatmap orgId={orgId} />
+      </div>
 
-      <ChannelPerformance orgId={orgId} />
+      <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '24px' }}>
+        <DeadZone orgId={orgId} />
+      </div>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useAppStore } from '@/lib/store';
 import { useIntelligence } from '@/hooks/use-intelligence';
 import { HeaderStats } from './header-stats';
-import { VerdictDistributionChart } from './verdict-distribution-chart';
+import { VerdictDonutChart } from './verdict-donut-chart';
 import { GenomeAccuracyChart } from './genome-accuracy-chart';
 import { VerticalPerformanceTable } from './vertical-performance-table';
 import { LiveVerdictFeed } from './live-verdict-feed';
@@ -18,17 +18,21 @@ export function IntelligenceDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       <HeaderStats orgId={orgId} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <VerdictDistributionChart orgId={orgId} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
+        <VerdictDonutChart orgId={orgId} />
         <GenomeAccuracyChart orgId={orgId} />
       </div>
 
-      <VerticalPerformanceTable orgId={orgId} />
+      <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '24px' }}>
+        <VerticalPerformanceTable orgId={orgId} />
+      </div>
 
-      <LiveVerdictFeed orgId={orgId} />
+      <div style={{ borderTop: '1px solid var(--surface-border)', paddingTop: '24px' }}>
+        <LiveVerdictFeed orgId={orgId} />
+      </div>
     </div>
   );
 }

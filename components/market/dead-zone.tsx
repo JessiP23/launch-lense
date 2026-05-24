@@ -1,8 +1,7 @@
 'use client';
 
 import { useMarket } from '@/hooks/use-market';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { motion } from 'framer-motion';
 
 export function DeadZone({ orgId }: { orgId: string | null }) {
   const { sprints, isLoading } = useMarket(orgId);
@@ -50,42 +49,74 @@ export function DeadZone({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">The Dead Zone: What the Market Keeps Rejecting</h3>
-        <Skeleton className="h-64" />
-      </Card>
+      <div style={{ padding: '24px 16px' }}>
+        <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          THE DEAD ZONE
+        </div>
+        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+          Loading...
+        </div>
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">The Dead Zone: What the Market Keeps Rejecting</h3>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ padding: '24px 16px' }}
+    >
+      <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        THE DEAD ZONE
+      </div>
       {themes.length === 0 ? (
-        <p className="text-sm text-ink-3">No NO-GO verdict sprints found.</p>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+          No NO-GO verdict sprints found.
+        </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
             <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-2 px-3 font-medium text-ink-3">Theme</th>
-                <th className="text-right py-2 px-3 font-medium text-ink-3">NO-GO Count</th>
-                <th className="text-right py-2 px-3 font-medium text-ink-3">Avg CTR</th>
-                <th className="text-right py-2 px-3 font-medium text-ink-3">Avg Genome</th>
+              <tr style={{ borderBottom: '1px solid var(--surface-border)' }}>
+                <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  THEME
+                </th>
+                <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  NO-GO COUNT
+                </th>
+                <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  AVG CTR
+                </th>
+                <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  AVG GENOME
+                </th>
               </tr>
             </thead>
             <tbody>
               {themes.map((theme: any) => (
-                <tr key={theme.theme} className="border-b border-border/50">
-                  <td className="py-2 px-3">{theme.theme}</td>
-                  <td className="text-right py-2 px-3 text-danger font-medium">{theme.noGoCount}</td>
-                  <td className="text-right py-2 px-3">{theme.avgCtr}%</td>
-                  <td className="text-right py-2 px-3">{theme.avgGenomeScore}</td>
+                <tr
+                  key={theme.theme}
+                  style={{ borderBottom: '1px solid var(--surface-border)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-elevated)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 16px', color: 'var(--text-primary)' }}>{theme.theme}</td>
+                  <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--signal-no-go)', fontWeight: 600 }}>
+                    {theme.noGoCount}
+                  </td>
+                  <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                    {theme.avgCtr}%
+                  </td>
+                  <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                    {theme.avgGenomeScore}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-    </Card>
+    </motion.div>
   );
 }

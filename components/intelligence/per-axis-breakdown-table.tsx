@@ -1,8 +1,7 @@
 'use client';
 
 import { useIntelligence } from '@/hooks/use-intelligence';
-
-const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB', go: '#059669', stop: '#DC2626' };
+import { motion } from 'framer-motion';
 
 const GENOME_AXES = ['demand', 'competition', 'icp', 'timing', 'moat'];
 
@@ -35,40 +34,45 @@ export function PerAxisBreakdownTable({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Per-Axis Breakdown</h3>
-        <div style={{ height: 250, background: C.faint, borderRadius: 8 }} />
+      <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--surface-border)' }}>
+        <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          PER-AXIS PREDICTIVE POWER
+        </div>
+        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+          Loading...
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Per-Axis Breakdown (GO vs NO-GO)</h3>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', fontSize: '0.875rem' }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Axis</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg GO Score</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg NO-GO Score</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Delta</th>
-            </tr>
-          </thead>
-          <tbody>
-            {axisData.map((row) => (
-              <tr key={row.axis} style={{ borderBottom: `1px solid ${C.border}50` }}>
-                <td style={{ padding: '8px 12px', textTransform: 'capitalize' }}>{row.axis}</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgGoScore.toFixed(1)}</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgNoGoScore.toFixed(1)}</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: row.delta > 0 ? C.go : row.delta < 0 ? C.stop : C.ink }}>
-                  {row.delta > 0 ? '+' : ''}{row.delta.toFixed(1)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ padding: '24px 16px', borderBottom: '1px solid var(--surface-border)' }}
+    >
+      <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        PER-AXIS PREDICTIVE POWER
       </div>
-    </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {axisData.map((row, index) => (
+          <div key={row.axis} style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 80, fontSize: '11px', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', color: 'var(--text-primary)' }}>
+              {row.axis}
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: `${row.avgGoScore}%`, height: '6px', background: 'var(--signal-go)', borderRadius: 1 }} />
+                <div style={{ width: `${row.avgNoGoScore}%`, height: '6px', background: 'var(--signal-no-go)', borderRadius: 1 }} />
+              </div>
+            </div>
+            <div style={{ width: 60, fontSize: '12px', fontFamily: 'var(--font-mono)', color: row.delta > 0 ? 'var(--signal-go)' : 'var(--signal-no-go)', textAlign: 'right' }}>
+              {row.delta > 0 ? '+' : ''}{row.delta.toFixed(1)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </motion.div>
   );
 }

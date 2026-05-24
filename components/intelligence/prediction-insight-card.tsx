@@ -2,17 +2,13 @@
 
 import { useIntelligence } from '@/hooks/use-intelligence';
 
-const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
-
 const VERTICAL_KEYWORDS: Record<string, string[]> = {
-  fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit'],
-  health: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'therapy', 'pharma'],
-  saas: ['software', 'platform', 'tool', 'app', 'dashboard', 'analytics', 'automation'],
-  ecommerce: ['shop', 'store', 'market', 'sell', 'buy', 'retail', 'commerce'],
-  marketplace: ['marketplace', 'platform', 'connect', 'matching', 'gig', 'freelance'],
-  edtech: ['education', 'learn', 'course', 'teach', 'school', 'training', 'skill'],
-  consumer: ['social', 'lifestyle', 'personal', 'home', 'family', 'daily'],
-  b2b: ['enterprise', 'business', 'corporate', 'professional', 'workflow', 'productivity'],
+  fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit', 'insurance'],
+  health: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'therapy', 'pharma', 'patient', 'mental'],
+  saas: ['software', 'platform', 'tool', 'app', 'dashboard', 'analytics', 'automation', 'api', 'workflow'],
+  ecommerce: ['shop', 'store', 'market', 'sell', 'buy', 'retail', 'commerce', 'product', 'marketplace'],
+  consumer: ['social', 'lifestyle', 'personal', 'home', 'family', 'daily', 'app', 'community'],
+  b2b: ['enterprise', 'business', 'corporate', 'professional', 'team', 'company', 'B2B'],
 };
 
 function classifyVertical(idea: string): string {
@@ -59,20 +55,20 @@ export function PredictionInsightCard({ orgId }: { orgId: string | null }) {
   }
 
   const insight = bestVertical
-    ? `Genome correctly predicted campaign outcomes in ${bestAccuracy.toFixed(0)}% of ${bestVertical} sprints — the highest accuracy vertical with ${(verticalAccuracy[bestVertical] as { matches: number; total: number }).total} sprints completed.`
-    : 'Insufficient data to generate insights. Complete at least 5 sprints in a vertical to see prediction accuracy.';
+    ? `${bestVertical.charAt(0).toUpperCase() + bestVertical.slice(1)} ideas have the highest prediction accuracy at ${bestAccuracy.toFixed(0)}% across ${(verticalAccuracy[bestVertical] as { matches: number; total: number }).total} sprints — and improving.`
+    : `Prediction accuracy improves with every sprint. ${sprints.length} sprints completed so far.`;
 
   if (isLoading) {
     return (
-      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-        <div style={{ height: 64, background: C.faint, borderRadius: 8 }} />
+      <div style={{ padding: '24px 16px', background: 'var(--surface-card)', border: '1px solid var(--surface-border)' }}>
+        <div style={{ height: 40, background: 'var(--surface-elevated)' }} />
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-      <p style={{ fontSize: '0.875rem', color: C.ink, lineHeight: 1.6 }}>{insight}</p>
+    <div style={{ padding: '24px 16px', background: 'var(--surface-card)', border: '1px solid var(--surface-border)' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6 }}>{insight}</p>
     </div>
   );
 }

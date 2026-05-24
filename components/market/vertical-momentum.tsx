@@ -1,18 +1,15 @@
 'use client';
 
 import { useMarket } from '@/hooks/use-market';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { motion } from 'framer-motion';
 
 const VERTICAL_KEYWORDS: Record<string, string[]> = {
-  fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit'],
-  health: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'therapy', 'pharma'],
-  saas: ['software', 'platform', 'tool', 'app', 'dashboard', 'analytics', 'automation'],
-  ecommerce: ['shop', 'store', 'market', 'sell', 'buy', 'retail', 'commerce'],
-  marketplace: ['marketplace', 'platform', 'connect', 'matching', 'gig', 'freelance'],
-  edtech: ['education', 'learn', 'course', 'teach', 'school', 'training', 'skill'],
-  consumer: ['social', 'lifestyle', 'personal', 'home', 'family', 'daily'],
-  b2b: ['enterprise', 'business', 'corporate', 'professional', 'workflow', 'productivity'],
+  fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit', 'insurance'],
+  health: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'therapy', 'pharma', 'patient', 'mental'],
+  saas: ['software', 'platform', 'tool', 'app', 'dashboard', 'analytics', 'automation', 'api', 'workflow'],
+  ecommerce: ['shop', 'store', 'market', 'sell', 'buy', 'retail', 'commerce', 'product', 'marketplace'],
+  consumer: ['social', 'lifestyle', 'personal', 'home', 'family', 'daily', 'app', 'community'],
+  b2b: ['enterprise', 'business', 'corporate', 'professional', 'team', 'company', 'B2B'],
 };
 
 function classifyVertical(idea: string): string {
@@ -70,40 +67,68 @@ export function VerticalMomentum({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">Vertical Momentum</h3>
-        <Skeleton className="h-64" />
-      </Card>
+      <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--surface-border)' }}>
+        <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          VERTICAL MOMENTUM
+        </div>
+        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+          Loading...
+        </div>
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">Vertical Momentum Scores</h3>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ padding: '24px 16px', borderBottom: '1px solid var(--surface-border)' }}
+    >
+      <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        VERTICAL MOMENTUM
+      </div>
       {momentumData.length === 0 ? (
-        <p className="text-sm text-ink-3">No GO verdict sprints in the last 30 days.</p>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+          No GO verdict sprints in the last 30 days.
+        </div>
       ) : (
-        <div className="space-y-2">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {momentumData.map((item: any, index: number) => (
-            <div
+            <motion.div
               key={item.vertical}
-              className="flex items-center justify-between p-2 rounded-lg bg-surface-2/50 border border-border/50"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.3, delay: index * 0.05 }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--surface-border)',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-elevated)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
             >
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium capitalize text-ink-1">{item.vertical}</span>
-                {index === 0 && <span className="text-xs">🔥 Heating up</span>}
-                {index === momentumData.length - 1 && <span className="text-xs">📉 Cooling</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', color: 'var(--text-primary)' }}>
+                  {item.vertical}
+                </span>
+                {index === 0 && <span style={{ fontSize: '10px', color: 'var(--signal-go)', fontFamily: 'var(--font-mono)' }}>HEATING UP</span>}
+                {index === momentumData.length - 1 && <span style={{ fontSize: '10px', color: 'var(--signal-no-go)', fontFamily: 'var(--font-mono)' }}>COOLING</span>}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-ink-2">{item.momentum}%</span>
-                <span className="text-xs">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                  {item.momentum}%
+                </span>
+                <span style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: item.trend === 'up' ? 'var(--signal-go)' : item.trend === 'down' ? 'var(--signal-no-go)' : 'var(--signal-neutral)' }}>
                   {item.trend === 'up' ? '↑' : item.trend === 'down' ? '↓' : '→'}
                 </span>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
       )}
-    </Card>
+    </motion.div>
   );
 }

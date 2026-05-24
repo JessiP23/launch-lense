@@ -20,7 +20,6 @@ export function ExternalFeaturesPanel() {
           </div>
           <TabsList style={{ height: 36, background: 'transparent', width: '100%', justifyContent: 'flex-start' }}>
             <TabsTrigger value="intelligence" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Intelligence</TabsTrigger>
-            <TabsTrigger value="market" style={{ fontSize: '0.875rem', fontWeight: 500 }} disabled>Market (Coming Soon)</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="intelligence" style={{ marginTop: 0, flex: 1, overflow: 'auto' }}>
@@ -37,10 +36,42 @@ export function ExternalFeaturesPanel() {
                 </TabsList>
               </div>
               <TabsContent value="dashboard" style={{ marginTop: 0 }}>
-                <IntelligenceDashboard />
+                <div style={{
+                  '--surface-primary': '#FFFFFF',
+                  '--surface-elevated': '#F5F5F5',
+                  '--surface-card': '#FFFFFF',
+                  '--surface-border': '#E8E4DC',
+                  '--text-primary': '#111110',
+                  '--text-secondary': '#8C8880',
+                  '--text-tertiary': '#D1D1D1',
+                  '--signal-go': '#059669',
+                  '--signal-no-go': '#DC2626',
+                  '--signal-iterate': '#D97706',
+                  '--signal-neutral': '#8C8880',
+                  '--accent-blue': '#3B82F6',
+                  '--accent-purple': '#8B5CF6',
+                } as React.CSSProperties}>
+                  <IntelligenceDashboard />
+                </div>
               </TabsContent>
               <TabsContent value="prediction" style={{ marginTop: 0 }}>
-                <PredictionEngine />
+                <div style={{
+                  '--surface-primary': '#FFFFFF',
+                  '--surface-elevated': '#F5F5F5',
+                  '--surface-card': '#FFFFFF',
+                  '--surface-border': '#E8E4DC',
+                  '--text-primary': '#111110',
+                  '--text-secondary': '#8C8880',
+                  '--text-tertiary': '#D1D1D1',
+                  '--signal-go': '#059669',
+                  '--signal-no-go': '#DC2626',
+                  '--signal-iterate': '#D97706',
+                  '--signal-neutral': '#8C8880',
+                  '--accent-blue': '#3B82F6',
+                  '--accent-purple': '#8B5CF6',
+                } as React.CSSProperties}>
+                  <PredictionEngine />
+                </div>
               </TabsContent>
             </Tabs>
           </div>

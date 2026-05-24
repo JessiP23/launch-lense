@@ -2,17 +2,13 @@
 
 import { useIntelligence } from '@/hooks/use-intelligence';
 
-const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
-
 const VERTICAL_KEYWORDS: Record<string, string[]> = {
-  fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit'],
-  health: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'therapy', 'pharma'],
-  saas: ['software', 'platform', 'tool', 'app', 'dashboard', 'analytics', 'automation'],
-  ecommerce: ['shop', 'store', 'market', 'sell', 'buy', 'retail', 'commerce'],
-  marketplace: ['marketplace', 'platform', 'connect', 'matching', 'gig', 'freelance'],
-  edtech: ['education', 'learn', 'course', 'teach', 'school', 'training', 'skill'],
-  consumer: ['social', 'lifestyle', 'personal', 'home', 'family', 'daily'],
-  b2b: ['enterprise', 'business', 'corporate', 'professional', 'workflow', 'productivity'],
+  fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit', 'insurance'],
+  health: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'therapy', 'pharma', 'patient', 'mental'],
+  saas: ['software', 'platform', 'tool', 'app', 'dashboard', 'analytics', 'automation', 'api', 'workflow'],
+  ecommerce: ['shop', 'store', 'market', 'sell', 'buy', 'retail', 'commerce', 'product', 'marketplace'],
+  consumer: ['social', 'lifestyle', 'personal', 'home', 'family', 'daily', 'app', 'community'],
+  b2b: ['enterprise', 'business', 'corporate', 'professional', 'team', 'company', 'B2B'],
 };
 
 function classifyVertical(idea: string): string {
@@ -67,37 +63,75 @@ export function VerticalPerformanceTable({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Vertical Performance</h3>
-        <div className="h-[250px] bg-faint rounded animate-pulse" />
+      <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--surface-border)' }}>
+        <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          VERTICAL PERFORMANCE
+        </div>
+        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+          Loading...
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Vertical Performance</h3>
+    <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--surface-border)' }}>
+      <div style={{ fontSize: '10px', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        VERTICAL PERFORMANCE
+      </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', fontSize: '0.875rem' }}>
+        <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Vertical</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Sprints</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg CTR</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg CPC</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>GO Rate</th>
-              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg Genome</th>
+            <tr style={{ borderBottom: '1px solid var(--surface-border)' }}>
+              <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                VERTICAL
+              </th>
+              <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                SPRINTS
+              </th>
+              <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                GO RATE
+              </th>
+              <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                AVG CTR
+              </th>
+              <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                AVG CPC
+              </th>
+              <th style={{ textAlign: 'right', padding: '12px 16px', fontWeight: 500, color: 'var(--text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                AVG GENOME
+              </th>
             </tr>
           </thead>
           <tbody>
             {tableData.map((row: any) => (
-              <tr key={row.vertical} style={{ borderBottom: `1px solid ${C.border}50` }}>
-                <td style={{ padding: '8px 12px', textTransform: 'capitalize' }}>{row.vertical}</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.sprintCount}</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgCtr.toFixed(2)}%</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>${row.avgCpc.toFixed(2)}</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.goRate.toFixed(1)}%</td>
-                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgGenomeScore.toFixed(1)}</td>
+              <tr
+                key={row.vertical}
+                style={{ borderBottom: '1px solid var(--surface-border)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-elevated)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <td style={{ padding: '12px 16px', textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+                  {row.vertical}
+                </td>
+                <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                  {row.sprintCount}
+                </td>
+                <td style={{ textAlign: 'right', padding: '12px 16px' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', marginBottom: 4 }}>
+                    {row.goRate.toFixed(1)}%
+                  </div>
+                  <div style={{ width: `${row.goRate}%`, maxWidth: '60px', height: '2px', background: 'var(--signal-go)', opacity: 0.3, marginLeft: 'auto' }} />
+                </td>
+                <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                  {row.avgCtr.toFixed(2)}%
+                </td>
+                <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                  ${row.avgCpc.toFixed(2)}
+                </td>
+                <td style={{ textAlign: 'right', padding: '12px 16px', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                  {row.avgGenomeScore.toFixed(1)}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -3,32 +3,64 @@
 import { useState } from 'react';
 import { IntelligenceDashboard } from '@/components/intelligence/intelligence-dashboard';
 import { PredictionEngine } from '@/components/intelligence/prediction-engine';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useAppStore } from '@/lib/store';
 
 export default function IntelligencePage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('market-overview');
+  const orgId = useAppStore((state) => state.orgId);
 
   return (
-    <div className="min-h-screen bg-bg">
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-ink-1 mb-2">Investor Intelligence</h1>
-          <p className="text-sm text-ink-3">Track your sprint performance, genome accuracy, and market insights.</p>
+    <div style={{ minHeight: '100vh', background: 'var(--surface-primary)', padding: '16px' }}>
+      <div style={{ maxWidth: '100%', margin: '0 auto' }}>
+        <div style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-display)' }}>
+            Investor Intelligence
+          </h1>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            Track your sprint performance, genome accuracy, and market insights.
+          </p>
         </div>
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="border-b border-border mb-6">
-            <TabsList className="h-10 bg-transparent">
-              <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-              <TabsTrigger value="prediction">Prediction Engine</TabsTrigger>
-            </TabsList>
+
+        {/* Terminal-style tab switcher */}
+        <div style={{ borderBottom: '1px solid var(--surface-border)', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', gap: '32px' }}>
+            <button
+              onClick={() => setActiveTab('market-overview')}
+              style={{
+                padding: '12px 0',
+                background: 'transparent',
+                border: 'none',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: activeTab === 'market-overview' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                borderBottom: activeTab === 'market-overview' ? '2px solid var(--signal-go)' : 'none',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              MARKET OVERVIEW
+            </button>
+            <button
+              onClick={() => setActiveTab('prediction-engine')}
+              style={{
+                padding: '12px 0',
+                background: 'transparent',
+                border: 'none',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: activeTab === 'prediction-engine' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                borderBottom: activeTab === 'prediction-engine' ? '2px solid var(--signal-go)' : 'none',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              PREDICTION ENGINE
+            </button>
           </div>
-          <TabsContent value="dashboard" className="mt-0">
-            <IntelligenceDashboard />
-          </TabsContent>
-          <TabsContent value="prediction" className="mt-0">
-            <PredictionEngine />
-          </TabsContent>
-        </Tabs>
+        </div>
+
+        {activeTab === 'market-overview' && <IntelligenceDashboard />}
+        {activeTab === 'prediction-engine' && <PredictionEngine />}
       </div>
     </div>
   );
