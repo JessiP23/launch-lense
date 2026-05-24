@@ -10,6 +10,8 @@ import {
   Plug,
   ChevronsLeft,
   ChevronsRight,
+  Brain,
+  TrendingUp,
 } from 'lucide-react';
 import { UserButton } from '@clerk/nextjs';
 import { useAppStore } from '@/lib/store';
@@ -35,6 +37,8 @@ type NavItem = {
 
 const workspace: NavItem[] = [
   { href: '/canvas', label: 'Sprints', icon: LayoutGrid, match: (p) => p.startsWith('/canvas') || p.startsWith('/tests') },
+  { href: '/intelligence', label: 'Intelligence', icon: Brain, match: (p) => p.startsWith('/intelligence') },
+  { href: '/market', label: 'Market', icon: TrendingUp, match: (p) => p.startsWith('/market') },
   { href: '/benchmarks', label: 'Benchmarks', icon: BarChart3 },
 ];
 const account: NavItem[] = [
