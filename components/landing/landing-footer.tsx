@@ -1,63 +1,45 @@
-import Image from 'next/image';
-
 const product = [
-  { href: '/#how-it-works', label: 'How it works' },
-  { href: '/#genome', label: 'Genome' },
-  { href: '/#healthgate', label: 'Healthgate™' },
-  { href: '/#verdict-engine', label: 'Verdict Engine' },
-  { href: '/#verdict-engine', label: 'PDF Reports' },
-  { href: '/#pricing', label: 'Pricing' },
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#genome', label: 'Genome' },
+  { href: '#healthgate', label: 'Healthgate™' },
+  { href: '#verdict-engine', label: 'Verdict Engine' },
 ];
 
 const resources = [
-  { href: '/#faq', label: 'FAQ' },
-  { href: '/#faq', label: 'Changelog' },
-  { href: '/#faq', label: 'Blog' },
-  { href: '/#faq', label: 'Status' },
-];
-
-const company = [
-  { href: '/#final-cta', label: 'About' },
   { href: '/privacy', label: 'Privacy' },
   { href: '/terms', label: 'Terms' },
   { href: '/data-deletion', label: 'Data deletion' },
+];
+
+const company = [
   { href: 'mailto:support@launchlense.app', label: 'Contact' },
 ];
 
 export function LandingFooter() {
   return (
-    <footer className="border-t border-[var(--color-border)] bg-[var(--color-canvas)] py-16">
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
-        <div className="grid grid-cols-2 gap-10 md:grid-cols-5 md:gap-8">
+    <footer className="border-t border-[rgba(0,0,0,0.07)] bg-[#ffffff] py-16 px-5 sm:px-6">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-4 md:gap-8">
           <div className="col-span-2">
-            <div className="flex items-center gap-2">
-              <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-white ring-1 ring-black/10 shadow-sm">
-                <Image
-                  src="/logo.png"
-                  alt="LaunchLense"
-                  width={20}
-                  height={20}
-                  className="h-5 w-5"
-                />
-              </span>
-              <span className="font-display text-[15px] font-bold tracking-tight">LaunchLense</span>
+            <div className="font-['Sora'] text-[15px] font-bold tracking-tight text-[#1a1a1a]">
+              LaunchLense
             </div>
-            <p className="mt-3 max-w-xs text-[14px] text-[var(--color-muted)]">
+            <p className="font-['Sora'] mt-3 max-w-xs text-[14px] text-[#6b7280]">
               Kill bad startup ideas before they kill your time.
             </p>
-            <p className="mt-3 max-w-sm text-[14px] leading-relaxed text-[var(--color-muted)]">
+            <p className="font-['Sora'] mt-3 max-w-sm text-[14px] leading-relaxed text-[#6b7280]">
               Real spend. Real CTR. A verdict you can act on — in 48 hours.
             </p>
           </div>
 
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-wide text-[var(--color-muted)]">
+            <div className="font-['DM_Mono'] text-[10px] font-bold uppercase tracking-wide text-[#6b7280]">
               Product
             </div>
             <ul className="mt-4 space-y-2.5">
               {product.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="text-[14px] text-[var(--color-ink)] transition-colors hover:text-[var(--color-muted)]">
+                  <a href={l.href} className="font-['Sora'] text-[14px] text-[#1a1a1a] transition-colors hover:text-[#6b7280]">
                     {l.label}
                   </a>
                 </li>
@@ -66,13 +48,13 @@ export function LandingFooter() {
           </div>
 
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-wide text-[var(--color-muted)]">
+            <div className="font-['DM_Mono'] text-[10px] font-bold uppercase tracking-wide text-[#6b7280]">
               Resources
             </div>
             <ul className="mt-4 space-y-2.5">
               {resources.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="text-[14px] text-[var(--color-ink)] transition-colors hover:text-[var(--color-muted)]">
+                  <a href={l.href} className="font-['Sora'] text-[14px] text-[#1a1a1a] transition-colors hover:text-[#6b7280]">
                     {l.label}
                   </a>
                 </li>
@@ -81,13 +63,13 @@ export function LandingFooter() {
           </div>
 
           <div>
-            <div className="font-mono text-[10px] font-bold uppercase tracking-wide text-[var(--color-muted)]">
+            <div className="font-['DM_Mono'] text-[10px] font-bold uppercase tracking-wide text-[#6b7280]">
               Company
             </div>
             <ul className="mt-4 space-y-2.5">
               {company.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="text-[14px] text-[var(--color-ink)] transition-colors hover:text-[var(--color-muted)]">
+                  <a href={l.href} className="font-['Sora'] text-[14px] text-[#1a1a1a] transition-colors hover:text-[#6b7280]">
                     {l.label}
                   </a>
                 </li>
@@ -96,16 +78,16 @@ export function LandingFooter() {
           </div>
         </div>
 
-        <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-[var(--color-border)] pt-8 sm:flex-row sm:items-center">
-          <p className="text-[12px] text-[var(--color-muted)]">
+        <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-[rgba(0,0,0,0.07)] pt-8 sm:flex-row sm:items-center">
+          <p className="font-['Sora'] text-[12px] text-[#6b7280]">
             © 2026 LaunchLense. Built for founders who validate before they build.
           </p>
-          <div className="flex gap-5 font-mono text-[12px]">
+          <div className="flex gap-5">
             <a
               href="https://x.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--color-muted)] transition-colors hover:text-[var(--color-ink)]"
+              className="font-['Sora'] text-[12px] text-[#6b7280] transition-colors hover:text-[#1a1a1a]"
             >
               X
             </a>
@@ -113,7 +95,7 @@ export function LandingFooter() {
               href="https://linkedin.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--color-muted)] transition-colors hover:text-[var(--color-ink)]"
+              className="font-['Sora'] text-[12px] text-[#6b7280] transition-colors hover:text-[#1a1a1a]"
             >
               LinkedIn
             </a>
@@ -121,7 +103,7 @@ export function LandingFooter() {
               href="https://github.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--color-muted)] transition-colors hover:text-[var(--color-ink)]"
+              className="font-['Sora'] text-[12px] text-[#6b7280] transition-colors hover:text-[#1a1a1a]"
             >
               GitHub
             </a>

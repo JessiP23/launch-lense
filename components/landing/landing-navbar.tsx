@@ -4,16 +4,12 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/nextjs';
-import { LANDING_EASE } from '@/components/landing/motion-variants';
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
 
 const navLinks = [
   { href: '#how-it-works', label: 'How it works' },
   { href: '#genome', label: 'Genome' },
   { href: '#healthgate', label: 'Healthgate™' },
-  { href: '#pricing', label: 'Pricing' },
-  { href: '#faq', label: 'Docs' },
 ] as const;
 
 export function LandingNavbar() {
@@ -41,22 +37,13 @@ export function LandingNavbar() {
         className={cn(
           'fixed inset-x-0 top-0 z-50 transition-all duration-300',
           scrolled
-            ? 'border-b border-[var(--color-border)] bg-[var(--color-canvas)]/95 backdrop-blur-md'
+            ? 'border-b border-[rgba(0,0,0,0.07)] bg-[#ffffff]/95 backdrop-blur-md shadow-[0_4px_16px_rgba(0,0,0,0.07),0_2px_6px_rgba(0,0,0,0.04)]'
             : 'border-b border-transparent bg-transparent'
         )}
       >
-        <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-between gap-6 px-5 sm:px-6">
+        <div className="relative mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5 sm:px-6">
           <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2.5">
-            <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[7px] bg-white ring-1 ring-black/10 shadow-sm">
-              <Image
-                src="/logo.png"
-                alt="LaunchLense"
-                width={20}
-                height={20}
-                className="h-5 w-5"
-              />
-            </span>
-            <span className="font-display text-[15px] font-bold tracking-tight text-[var(--color-ink)]">
+            <span className="font-['Sora'] text-[15px] font-bold tracking-tight text-[#1a1a1a]">
               LaunchLense
             </span>
           </Link>
@@ -66,7 +53,7 @@ export function LandingNavbar() {
               <a
                 key={l.href}
                 href={l.href}
-                className="text-[14px] font-normal text-[var(--color-muted)] transition-colors duration-150 hover:text-[var(--color-ink)]"
+                className="font-['Sora'] text-[14px] font-normal text-[#6b7280] transition-colors duration-150 hover:text-[#1a1a1a]"
               >
                 {l.label}
               </a>
@@ -79,7 +66,7 @@ export function LandingNavbar() {
               <>
                 <Link
                   href="/canvas"
-                  className="flex h-8 items-center rounded-full bg-[var(--color-ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-80"
+                  className="font-['Sora'] flex h-9 items-center rounded-full bg-[#111111] px-5 text-[14px] font-semibold text-white transition-opacity hover:opacity-80"
                 >
                   Dashboard
                 </Link>
@@ -88,12 +75,12 @@ export function LandingNavbar() {
             ) : (
               <>
                 <SignInButton mode="redirect">
-                  <button className="text-[14px] text-[var(--color-muted)] transition-colors hover:text-[var(--color-ink)]">
+                  <button className="font-['Sora'] text-[14px] text-[#6b7280] transition-colors hover:text-[#1a1a1a]">
                     Sign in
                   </button>
                 </SignInButton>
                 <SignUpButton mode="redirect">
-                  <button className="flex h-8 items-center rounded-full bg-[var(--color-ink)] px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-80">
+                  <button className="font-['Sora'] flex h-9 items-center rounded-full bg-[#111111] px-5 text-[14px] font-semibold text-white transition-opacity hover:opacity-80">
                     Start free
                   </button>
                 </SignUpButton>
@@ -104,14 +91,14 @@ export function LandingNavbar() {
           {/* Mobile menu toggle */}
           <button
             type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--color-faint)] md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-[rgba(0,0,0,0.04)] md:hidden"
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
           >
-            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
-              <rect y="0" width="16" height="1.5" rx="0.75" fill="currentColor" />
-              <rect y="5.25" width="16" height="1.5" rx="0.75" fill="currentColor" />
-              <rect y="10.5" width="16" height="1.5" rx="0.75" fill="currentColor" />
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" stroke="#1a1a1a">
+              <rect y="0" width="18" height="2" rx="1" />
+              <rect y="6" width="18" height="2" rx="1" />
+              <rect y="12" width="18" height="2" rx="1" />
             </svg>
           </button>
         </div>
@@ -128,23 +115,23 @@ export function LandingNavbar() {
           >
             <button
               type="button"
-              className="absolute inset-0 bg-[var(--color-ink)]/30 backdrop-blur-sm"
+              className="absolute inset-0 bg-[#1a1a1a]/30 backdrop-blur-sm"
               aria-label="Close menu"
               onClick={() => setMobileOpen(false)}
             />
             <motion.nav
-              className="absolute inset-y-0 right-0 flex w-[min(100%,320px)] flex-col border-l border-[var(--color-border)] bg-[var(--color-canvas)] p-6"
+              className="absolute inset-y-0 right-0 flex w-[min(100%,320px)] flex-col border-l border-[rgba(0,0,0,0.07)] bg-[#ffffff] p-6"
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
-              transition={{ duration: 0.28, ease: LANDING_EASE }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             >
               <div className="mb-8 flex items-center justify-between">
-                <span className="font-display text-[15px] font-bold">Menu</span>
+                <span className="font-['Sora'] text-[15px] font-bold">Menu</span>
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
-                  className="font-mono text-[12px] text-[var(--color-muted)]"
+                  className="font-['DM_Mono'] text-[12px] text-[#6b7280]"
                 >
                   Close
                 </button>
@@ -155,18 +142,18 @@ export function LandingNavbar() {
                     key={l.href}
                     href={l.href}
                     onClick={() => setMobileOpen(false)}
-                    className="rounded-lg px-4 py-3 text-[16px] text-[var(--color-ink)] transition-colors hover:bg-[var(--color-raised)]"
+                    className="font-['Sora'] rounded-lg px-4 py-3 text-[16px] text-[#1a1a1a] transition-colors hover:bg-[rgba(0,0,0,0.04)]"
                   >
                     {l.label}
                   </a>
                 ))}
               </div>
-              <div className="mt-auto flex flex-col gap-3 border-t border-[var(--color-border)] pt-6">
+              <div className="mt-auto flex flex-col gap-3 border-t border-[rgba(0,0,0,0.07)] pt-6">
                 {isSignedIn ? (
                   <>
                     <Link
                       href="/canvas"
-                      className="flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] text-[15px] font-semibold text-white"
+                      className="font-['Sora'] flex h-12 items-center justify-center rounded-full bg-[#111111] text-[15px] font-semibold text-white"
                       onClick={() => setMobileOpen(false)}
                     >
                       Dashboard
@@ -179,7 +166,7 @@ export function LandingNavbar() {
                   <>
                     <SignInButton mode="redirect">
                       <button
-                        className="rounded-lg px-4 py-3 text-[16px] text-[var(--color-muted)]"
+                        className="font-['Sora'] rounded-lg px-4 py-3 text-[16px] text-[#6b7280]"
                         onClick={() => setMobileOpen(false)}
                       >
                         Sign in
@@ -187,7 +174,7 @@ export function LandingNavbar() {
                     </SignInButton>
                     <SignUpButton mode="redirect">
                       <button
-                        className="flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] text-[15px] font-semibold text-white"
+                        className="font-['Sora'] flex h-12 items-center justify-center rounded-full bg-[#111111] text-[15px] font-semibold text-white"
                         onClick={() => setMobileOpen(false)}
                       >
                         Start free
