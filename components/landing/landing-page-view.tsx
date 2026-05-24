@@ -2,7 +2,7 @@
 
 import { LandingNavbar } from '@/components/landing/landing-navbar';
 import { LandingHero } from '@/components/landing/landing-hero';
-import { LandingDashboardMock } from '@/components/landing/landing-dashboard-mock';
+import { LandingDashboardMock } from './landing-dashboard-mock';
 import { LandingChannelLogos } from '@/components/landing/landing-channel-logos';
 import { LandingGenome } from '@/components/landing/landing-genome';
 import { LandingHowItWorks } from '@/components/landing/landing-how-it-works';
