@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, Table2, Mail } from 'lucide-react';
 import { useAppStore, type PlatformId, type ConnectedPlatform } from '@/lib/store';
 import { LivePulse } from '@/components/canvas/panels/live-pulse';
+import { IntelligencePanel } from '@/components/canvas/panels/intelligence-panel';
 import type {
   Angle,
   Platform,
@@ -32,7 +33,7 @@ export type PanelId =
   | 'integrations_sheet'
   | 'integrations_outreach'
   | 'integrations_slack'
-  | 'benchmarks' | 'settings' | null;
+  | 'benchmarks' | 'settings' | 'intelligence' | null;
 
 /** Scroll nested panel body explicitly (`scrollIntoView` misses inner overflow containers under motion wrappers). */
 function scrollIntoScrollParent(scrollParent: HTMLElement, target: HTMLElement, paddingTop = 14) {
@@ -135,6 +136,7 @@ const PANEL_TITLES: Record<NonNullable<PanelId>, string> = {
   integrations_slack:     'Slack',
   benchmarks:             'Benchmarks',
   settings:               'Settings',
+  intelligence:           'Intelligence',
 };
 
 function panelTitle(panel: NonNullable<PanelId>, channel?: string): string {
@@ -3364,6 +3366,7 @@ export function NodePanel({
         );
       case 'benchmarks': return <BenchmarksPanel />;
       case 'settings':   return <SettingsPanel />;
+      case 'intelligence': return <IntelligencePanel />;
       default: return null;
     }
   };
