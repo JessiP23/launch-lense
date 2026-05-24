@@ -14,6 +14,7 @@ export function useIntelligence(orgId: string | null) {
 
   return {
     sprints: data?.sprints ?? [],
+    hasAccess: data?.hasAccess ?? true,
     isLoading,
     error,
   };

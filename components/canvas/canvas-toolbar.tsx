@@ -118,7 +118,7 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
       {[
         { label: 'Accounts', panel: 'accounts' },
         { label: 'Integrations', panel: 'integrations' },
-        { label: 'Intelligence', panel: 'intelligence' },
+        { label: 'External', panel: 'external' },
         { label: 'Report', panel: 'report' },
         { label: 'Benchmarks', panel: 'benchmarks' },
         { label: 'Settings', panel: 'settings' },
