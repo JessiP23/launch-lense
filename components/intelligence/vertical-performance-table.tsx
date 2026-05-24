@@ -1,8 +1,8 @@
 'use client';
 
 import { useIntelligence } from '@/hooks/use-intelligence';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
 const VERTICAL_KEYWORDS: Record<string, string[]> = {
   fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit'],
@@ -67,42 +67,42 @@ export function VerticalPerformanceTable({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">Vertical Performance</h3>
-        <Skeleton className="h-64" />
-      </Card>
+      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Vertical Performance</h3>
+        <div className="h-[250px] bg-faint rounded animate-pulse" />
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">Vertical Performance</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Vertical Performance</h3>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', fontSize: '0.875rem' }}>
           <thead>
-            <tr className="border-b border-border">
-              <th className="text-left py-2 px-3 font-medium text-ink-3">Vertical</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Sprints</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Avg CTR</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Avg CPC</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">GO Rate</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Avg Genome</th>
+            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Vertical</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Sprints</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg CTR</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg CPC</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>GO Rate</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg Genome</th>
             </tr>
           </thead>
           <tbody>
             {tableData.map((row: any) => (
-              <tr key={row.vertical} className="border-b border-border/50">
-                <td className="py-2 px-3 capitalize">{row.vertical}</td>
-                <td className="text-right py-2 px-3">{row.sprintCount}</td>
-                <td className="text-right py-2 px-3">{row.avgCtr.toFixed(2)}%</td>
-                <td className="text-right py-2 px-3">${row.avgCpc.toFixed(2)}</td>
-                <td className="text-right py-2 px-3">{row.goRate.toFixed(1)}%</td>
-                <td className="text-right py-2 px-3">{row.avgGenomeScore.toFixed(1)}</td>
+              <tr key={row.vertical} style={{ borderBottom: `1px solid ${C.border}50` }}>
+                <td style={{ padding: '8px 12px', textTransform: 'capitalize' }}>{row.vertical}</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.sprintCount}</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgCtr.toFixed(2)}%</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>${row.avgCpc.toFixed(2)}</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.goRate.toFixed(1)}%</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgGenomeScore.toFixed(1)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }

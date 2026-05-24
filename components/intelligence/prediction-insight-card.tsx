@@ -1,8 +1,8 @@
 'use client';
 
 import { useIntelligence } from '@/hooks/use-intelligence';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
 const VERTICAL_KEYWORDS: Record<string, string[]> = {
   fintech: ['bank', 'finance', 'payment', 'crypto', 'trading', 'invest', 'loan', 'credit'],
@@ -64,15 +64,15 @@ export function PredictionInsightCard({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <Skeleton className="h-16" />
-      </Card>
+      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+        <div style={{ height: 64, background: C.faint, borderRadius: 8 }} />
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <p className="text-sm text-ink-2">{insight}</p>
-    </Card>
+    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+      <p style={{ fontSize: '0.875rem', color: C.ink, lineHeight: 1.6 }}>{insight}</p>
+    </div>
   );
 }

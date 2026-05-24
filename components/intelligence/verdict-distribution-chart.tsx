@@ -2,13 +2,14 @@
 
 import { useIntelligence } from '@/hooks/use-intelligence';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
+
 const COLORS = {
-  GO: '#22c55e',
-  'NO-GO': '#ef4444',
-  ITERATE: '#f59e0b',
+  GO: '#059669',
+  'NO-GO': '#DC2626',
+  ITERATE: '#D97706',
 };
 
 export function VerdictDistributionChart({ orgId }: { orgId: string | null }) {
@@ -31,16 +32,16 @@ export function VerdictDistributionChart({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">Verdict Distribution</h3>
-        <Skeleton className="h-64" />
-      </Card>
+      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Verdict Distribution</h3>
+        <div className="h-[250px] bg-faint rounded animate-pulse" />
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">Verdict Distribution</h3>
+    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Verdict Distribution</h3>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie
@@ -60,6 +61,6 @@ export function VerdictDistributionChart({ orgId }: { orgId: string | null }) {
           <Tooltip />
         </PieChart>
       </ResponsiveContainer>
-    </Card>
+    </div>
   );
 }

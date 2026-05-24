@@ -2,13 +2,13 @@
 
 import { useIntelligence } from '@/hooks/use-intelligence';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
 const VERDICT_COLORS: Record<string, string> = {
-  GO: '#22c55e',
-  'NO-GO': '#ef4444',
-  ITERATE: '#f59e0b',
+  GO: '#059669',
+  'NO-GO': '#DC2626',
+  ITERATE: '#D97706',
 };
 
 export function CalibrationScatterPlot({ orgId }: { orgId: string | null }) {
@@ -46,36 +46,38 @@ export function CalibrationScatterPlot({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">Calibration: Genome Score vs CTR</h3>
-        <Skeleton className="h-64" />
-      </Card>
+      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Calibration: Genome Score vs CTR</h3>
+        <div style={{ height: 250, background: C.faint, borderRadius: 8 }} />
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">Calibration: Genome Score vs CTR</h3>
+    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Calibration: Genome Score vs CTR</h3>
       <ResponsiveContainer width="100%" height={250}>
         <ScatterChart>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis 
-            dataKey="genomeScore" 
-            name="Genome Score" 
-            label={{ value: 'Genome Score', position: 'insideBottom', offset: -5 }}
+          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+          <XAxis
+            dataKey="genomeScore"
+            name="Genome Score"
+            label={{ value: 'Genome Score', position: 'insideBottom', offset: -5, fill: C.muted, fontSize: 12 }}
             domain={[0, 100]}
+            stroke={C.muted}
           />
-          <YAxis 
-            dataKey="ctr" 
-            name="CTR" 
-            label={{ value: 'CTR %', angle: -90, position: 'insideLeft' }}
+          <YAxis
+            dataKey="ctr"
+            name="CTR"
+            label={{ value: 'CTR %', angle: -90, position: 'insideLeft', fill: C.muted, fontSize: 12 }}
+            stroke={C.muted}
           />
-          <Tooltip 
+          <Tooltip
             content={({ active, payload }: any) => {
               if (active && payload && payload.length) {
                 const data = payload[0].payload;
                 return (
-                  <div className="bg-surface-1 border border-border rounded p-2 text-xs">
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, fontSize: '0.75rem' }}>
                     <div>Genome: {data.genomeScore}</div>
                     <div>CTR: {data.ctr}%</div>
                     <div>Verdict: {data.verdict}</div>
@@ -86,24 +88,24 @@ export function CalibrationScatterPlot({ orgId }: { orgId: string | null }) {
             }}
           />
           {Object.entries(VERDICT_COLORS).map(([verdict, color]) => (
-            <Scatter 
+            <Scatter
               key={verdict}
-              data={scatterData.filter((p: any) => p.verdict === verdict)} 
+              data={scatterData.filter((p: any) => p.verdict === verdict)}
               fill={color}
             />
           ))}
           <LineChart data={trendlineData}>
-            <Line 
-              type="linear" 
-              dataKey="y" 
-              stroke="#3b82f6" 
-              strokeWidth={2} 
+            <Line
+              type="linear"
+              dataKey="y"
+              stroke="#059669"
+              strokeWidth={2}
               dot={false}
               strokeDasharray="5 5"
             />
           </LineChart>
         </ScatterChart>
       </ResponsiveContainer>
-    </Card>
+    </div>
   );
 }

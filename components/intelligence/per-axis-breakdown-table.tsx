@@ -1,8 +1,8 @@
 'use client';
 
 import { useIntelligence } from '@/hooks/use-intelligence';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB', go: '#059669', stop: '#DC2626' };
 
 const GENOME_AXES = ['demand', 'competition', 'icp', 'timing', 'moat'];
 
@@ -35,33 +35,33 @@ export function PerAxisBreakdownTable({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">Per-Axis Breakdown</h3>
-        <Skeleton className="h-64" />
-      </Card>
+      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Per-Axis Breakdown</h3>
+        <div style={{ height: 250, background: C.faint, borderRadius: 8 }} />
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">Per-Axis Breakdown (GO vs NO-GO)</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Per-Axis Breakdown (GO vs NO-GO)</h3>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', fontSize: '0.875rem' }}>
           <thead>
-            <tr className="border-b border-border">
-              <th className="text-left py-2 px-3 font-medium text-ink-3">Axis</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Avg GO Score</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Avg NO-GO Score</th>
-              <th className="text-right py-2 px-3 font-medium text-ink-3">Delta</th>
+            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+              <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Axis</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg GO Score</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Avg NO-GO Score</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 500, color: C.muted }}>Delta</th>
             </tr>
           </thead>
           <tbody>
             {axisData.map((row) => (
-              <tr key={row.axis} className="border-b border-border/50">
-                <td className="py-2 px-3 capitalize">{row.axis}</td>
-                <td className="text-right py-2 px-3">{row.avgGoScore.toFixed(1)}</td>
-                <td className="text-right py-2 px-3">{row.avgNoGoScore.toFixed(1)}</td>
-                <td className={`text-right py-2 px-3 font-medium ${row.delta > 0 ? 'text-success' : row.delta < 0 ? 'text-danger' : 'text-ink-2'}`}>
+              <tr key={row.axis} style={{ borderBottom: `1px solid ${C.border}50` }}>
+                <td style={{ padding: '8px 12px', textTransform: 'capitalize' }}>{row.axis}</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgGoScore.toFixed(1)}</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px' }}>{row.avgNoGoScore.toFixed(1)}</td>
+                <td style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: row.delta > 0 ? C.go : row.delta < 0 ? C.stop : C.ink }}>
                   {row.delta > 0 ? '+' : ''}{row.delta.toFixed(1)}
                 </td>
               </tr>
@@ -69,6 +69,6 @@ export function PerAxisBreakdownTable({ orgId }: { orgId: string | null }) {
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }

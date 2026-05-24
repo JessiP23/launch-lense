@@ -1,8 +1,8 @@
 'use client';
 
 import { useIntelligence } from '@/hooks/use-intelligence';
-import { MetricCard } from '@/components/ui/metric-card';
-import { Skeleton } from '@/components/ui/skeleton';
+
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
 export function HeaderStats({ orgId }: { orgId: string | null }) {
   const { sprints, isLoading } = useIntelligence(orgId);
@@ -30,33 +30,41 @@ export function HeaderStats({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        {[...Array(4)].map((_, i) => (
+          <div key={i} style={{ height: 80, background: C.faint, borderRadius: 12 }} />
+        ))}
       </div>
     );
   }
 
+  const stats = [
+    { label: 'Total Sprints', value: totalSprints.toString() },
+    { label: 'Ideas Validated', value: totalIdeas.toString() },
+    { label: 'Capital Preserved', value: `$${(capitalPreserved / 10000).toFixed(0)}K` },
+    { label: 'Genome Accuracy', value: `${accuracy.toFixed(1)}%` },
+  ];
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <MetricCard
-        label="Total Sprints"
-        value={totalSprints.toString()}
-      />
-      <MetricCard
-        label="Ideas Validated"
-        value={totalIdeas.toString()}
-      />
-      <MetricCard
-        label="Capital Preserved"
-        value={`$${(capitalPreserved / 1000).toFixed(0)}K`}
-      />
-      <MetricCard
-        label="Genome Accuracy"
-        value={`${accuracy.toFixed(1)}%`}
-      />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      {stats.map((stat) => (
+        <div
+          key={stat.label}
+          style={{
+            padding: 20,
+            borderRadius: 12,
+            background: C.surface,
+            border: `1px solid ${C.border}`,
+          }}
+        >
+          <div style={{ fontSize: '0.75rem', fontWeight: 500, color: C.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            {stat.label}
+          </div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 700, color: C.ink, letterSpacing: '-0.02em' }}>
+            {stat.value}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

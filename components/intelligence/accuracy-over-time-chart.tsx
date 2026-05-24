@@ -2,8 +2,8 @@
 
 import { useIntelligence } from '@/hooks/use-intelligence';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
 export function AccuracyOverTimeChart({ orgId }: { orgId: string | null }) {
   const { sprints, isLoading } = useIntelligence(orgId);
@@ -32,11 +32,11 @@ export function AccuracyOverTimeChart({ orgId }: { orgId: string | null }) {
   const rollingData = accuracyData.map((point: any, index: number) => {
     const window = accuracyData.slice(Math.max(0, index - 6), index + 1);
     const avg = window.reduce((sum: number, p: any) => sum + p.match, 0) / window.length;
-    
+
     // Calculate standard deviation for confidence bands
     const variance = window.reduce((sum: number, p: any) => sum + Math.pow(p.match - avg, 2), 0) / window.length;
     const stdDev = Math.sqrt(variance);
-    
+
     return {
       sprint: point.sprint,
       accuracy: (avg * 100).toFixed(1),
@@ -47,47 +47,47 @@ export function AccuracyOverTimeChart({ orgId }: { orgId: string | null }) {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold mb-4">Accuracy Over Time</h3>
-        <Skeleton className="h-80" />
-      </Card>
+      <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+        <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Accuracy Over Time</h3>
+        <div style={{ height: 300, background: C.faint, borderRadius: 8 }} />
+      </div>
     );
   }
 
   return (
-    <Card className="p-6">
-      <h3 className="text-sm font-semibold mb-4">Accuracy Over Time (with Confidence Bands)</h3>
+    <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+      <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: 16, color: C.ink }}>Accuracy Over Time (with Confidence Bands)</h3>
       <ResponsiveContainer width="100%" height={300}>
         <AreaChart data={rollingData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="sprint" label={{ value: 'Sprint #', position: 'insideBottom', offset: -5 }} />
-          <YAxis label={{ value: 'Accuracy %', angle: -90, position: 'insideLeft' }} />
-          <Tooltip formatter={(value: any) => `${value}%`} />
+          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+          <XAxis dataKey="sprint" label={{ value: 'Sprint #', position: 'insideBottom', offset: -5, fill: C.muted, fontSize: 12 }} stroke={C.muted} />
+          <YAxis label={{ value: 'Accuracy %', angle: -90, position: 'insideLeft', fill: C.muted, fontSize: 12 }} stroke={C.muted} />
+          <Tooltip formatter={(value: any) => `${value}%`} contentStyle={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8 }} />
           <Area
             type="monotone"
             dataKey="upperBound"
-            stroke="#3b82f6"
+            stroke="#059669"
             strokeWidth={0}
-            fill="#3b82f6"
+            fill="#059669"
             fillOpacity={0.1}
           />
           <Area
             type="monotone"
             dataKey="lowerBound"
-            stroke="#3b82f6"
+            stroke="#059669"
             strokeWidth={0}
-            fill="#3b82f6"
+            fill="#059669"
             fillOpacity={0.1}
           />
           <Line
             type="monotone"
             dataKey="accuracy"
-            stroke="#3b82f6"
+            stroke="#059669"
             strokeWidth={2}
-            dot={{ r: 3 }}
+            dot={{ r: 3, fill: '#059669' }}
           />
         </AreaChart>
       </ResponsiveContainer>
-    </Card>
+    </div>
   );
 }
