@@ -2,11 +2,28 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import { Dithering } from '@paper-design/shaders-react';
 
 export function LandingHero() {
   return (
-    <section className="pt-32 pb-20 px-5 sm:px-6">
-      <div className="mx-auto max-w-6xl">
+    <section className="relative pt-32 pb-20 px-5 sm:px-6">
+      {/* Dithering shader background - matches LaunchLense theme */}
+      <div className="absolute inset-0 pointer-events-none opacity-8 z-0">
+        <Dithering
+          style={{ height: '100%', width: '100%' }}
+          colorBack="#ffffff"
+          colorFront="#1a1a1a"
+          shape="simplex"
+          type="4x4"
+          pxSize={3}
+          offsetX={0}
+          offsetY={0}
+          scale={0.8}
+          rotation={0}
+          speed={0.1}
+        />
+      </div>
+      <div className="relative z-10 mx-auto max-w-6xl">
         <motion.div
           initial={{ opacity: 0, y: 28 }}
           animate={{ opacity: 1, y: 0 }}
