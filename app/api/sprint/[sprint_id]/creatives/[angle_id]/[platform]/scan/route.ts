@@ -38,6 +38,16 @@ export async function POST(
   const row = await getCreative(sprint_id, angle_id, channel);
   if (!row) return Response.json({ error: 'Creative not found' }, { status: 404 });
 
+  console.log('[SCAN DEBUG] Row data:', {
+    sprint_id,
+    angle_id,
+    platform: channel,
+    image_url: row.image_url,
+    image_url_length: row.image_url?.length,
+    video_url: row.video_url,
+    video_url_length: row.video_url?.length,
+  });
+
   const result = scanCreative({
     platform: channel,
     headline: row.headline ?? undefined,

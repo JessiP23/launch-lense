@@ -309,6 +309,8 @@ export function useCreatives(sprintId: string | null | undefined, opts: UseCreat
   const scan = useCallback(async (angleId: string, platform: Platform) => {
     if (!sprintId) return null;
     const key = k(angleId, platform);
+    // Flush any pending edits before scanning to ensure the scanner sees the latest data
+    await saveNow(angleId, platform);
     setBusy(key, true);
     try {
       const res = await fetch(
@@ -334,7 +336,7 @@ export function useCreatives(sprintId: string | null | undefined, opts: UseCreat
     } finally {
       setBusy(key, false);
     }
-  }, [sprintId]);
+  }, [sprintId, saveNow]);
 
   // ── Public: campaign activation gate ────────────────────────────────────
   // Accepts an optional `countries` array. If omitted the server falls back

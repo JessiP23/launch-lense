@@ -57,19 +57,30 @@ interface Props {
   /** Notifies parent when the user changes angle/channel — used to drive the
    *  live canvas node preview. */
   onSelectionChange?: (snap: CreativeSelectionSnapshot) => void;
+  /** If provided, locks the angle selection to this specific angle (from angles node). */
+  lockedAngleId?: string;
 }
 
 export function CreativeApprovalWorkspace({
   sprintId, angles, activeChannels,
   initialAngleId, liveCampaignId, onActivated, onSelectionChange,
+  lockedAngleId,
 }: Props) {
   const controller = useCreatives(sprintId, { activeChannels });
 
   const channels: Platform[] = activeChannels.length ? activeChannels : ['meta'];
   const [activeChannel, setActiveChannel] = useState<Platform>(channels[0] ?? 'meta');
-  const [activeAngleId, setActiveAngleId] = useState<string>(
-    initialAngleId ?? angles[0]?.id ?? 'angle_A'
-  );
+  
+  // If lockedAngleId is provided, use it exclusively; otherwise use initialAngleId
+  const effectiveInitialAngleId = lockedAngleId ?? initialAngleId ?? angles[0]?.id ?? 'angle_A';
+  const [activeAngleId, setActiveAngleId] = useState<string>(effectiveInitialAngleId);
+
+  // If lockedAngleId is provided, sync the active angle to it
+  useEffect(() => {
+    if (lockedAngleId) {
+      setActiveAngleId(lockedAngleId);
+    }
+  }, [lockedAngleId]);
 
   // If the active angle is no longer in the source set (rare; defensive)
   // we transparently fall back to the first available one. We derive this
@@ -144,20 +155,21 @@ export function CreativeApprovalWorkspace({
         onActivated={onActivated}
       />
 
-      {/* Angle tab strip */}
+      {/* Angle tab strip - only show locked angle if lockedAngleId is provided */}
       <div style={{
         display: 'flex', gap: 6, marginBottom: 10,
         borderBottom: `1px solid ${C.border}`,
         paddingBottom: 0,
       }}>
-        {angles.map((angle) => {
+        {(lockedAngleId ? angles.filter((a) => a.id === lockedAngleId) : angles).map((angle) => {
           const active = angle.id === activeAngleId;
           const dot = statusDot(angle.id);
           return (
             <button key={angle.id}
-              onClick={() => setActiveAngleId(angle.id)}
+              onClick={() => !lockedAngleId && setActiveAngleId(angle.id)}
               title={`Status: ${dot.label}`}
-              style={angleTabStyle(active)}>
+              style={angleTabStyle(active)}
+              disabled={!!lockedAngleId}>
               <span style={{
                 width: 8, height: 8, borderRadius: '50%', background: dot.color,
                 border: dot.color === C.border ? `1px solid ${C.border}` : undefined,

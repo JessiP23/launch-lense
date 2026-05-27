@@ -1003,22 +1003,30 @@ function CreativePreviewPanel({
   // active channel of the selected angle. The displayed image is derived
   // from the controller row, so this single write updates the preview,
   // the canvas node, and unblocks the policy scanner in one step.
-  const uploadImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = String(reader.result);
+      // Use the sprint's selected_angle_id to ensure we upload to the correct angle
+      const targetAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id ?? selected.id;
       for (const ch of channels) {
-        controller.editField(selected.id, ch, 'image_url', dataUrl);
+        controller.editField(targetAngleId, ch, 'image_url', dataUrl);
+      }
+      // Immediately save to ensure the image is persisted before any scan
+      for (const ch of channels) {
+        await controller.saveNow(targetAngleId, ch);
       }
     };
     reader.readAsDataURL(file);
   };
 
   const removeImage = () => {
+    // Use the sprint's selected_angle_id to ensure we remove from the correct angle
+    const targetAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id ?? selected.id;
     for (const ch of channels) {
-      controller.editField(selected.id, ch, 'image_url', null);
+      controller.editField(targetAngleId, ch, 'image_url', null);
     }
   };
 
@@ -1126,6 +1134,7 @@ function CreativePreviewPanel({
             angles={angles}
             activeChannels={(sprint.active_channels?.length ? sprint.active_channels : ['meta']) as Platform[]}
             initialAngleId={selected.id}
+            lockedAngleId={(sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id}
             onActivated={() => onContinue?.(sprint.sprint_id)}
             onSelectionChange={(snap: CreativeSelectionSnapshot) => {
               setSelectedId(snap.angle.id);
