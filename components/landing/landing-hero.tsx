@@ -1,103 +1,110 @@
 'use client';
 
 import Link from 'next/link';
-import { motion, useScroll, useTransform } from 'framer-motion';
-import { useRef } from 'react';
-import { StatusDot } from '@/components/status-dot';
-import { LiveTestMockup } from '@/components/landing/live-test-mockup';
-import { LANDING_EASE, staggerShow } from '@/components/landing/motion-variants';
-import Image from 'next/image';
-
-const heroContainer = staggerShow(0.09);
-
-const heroItem = {
-  hidden: { opacity: 0, y: 20 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: LANDING_EASE },
-  },
-};
+import { motion } from 'framer-motion';
+import { Dithering } from '@paper-design/shaders-react';
 
 export function LandingHero() {
-  const sectionRef = useRef<HTMLElement>(null);
-  const { scrollY } = useScroll();
-  const yCol = useTransform(scrollY, [0, 520], [0, 60]);
-
   return (
-    <section ref={sectionRef} className="relative pt-[100px] pb-16">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.35]"
-        style={{
-          backgroundImage: `linear-gradient(to right, var(--color-border) 1px, transparent 1px),
-            linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)`,
-          backgroundSize: '64px 64px',
-          maskImage: 'radial-gradient(ellipse 70% 65% at 50% 45%, black 20%, transparent 75%)',
-        }}
-      />
+    <section className="relative pt-32 pb-20 px-5 sm:px-6">
+      {/* Dithering shader background - matches LaunchLense theme */}
+      <div className="absolute inset-0 pointer-events-none opacity-8 z-0">
+        <Dithering
+          style={{ height: '100%', width: '100%' }}
+          colorBack="#ffffff"
+          colorFront="#1a1a1a"
+          shape="simplex"
+          type="4x4"
+          pxSize={3}
+          offsetX={0}
+          offsetY={0}
+          scale={0.8}
+          rotation={0}
+          speed={0.1}
+        />
+      </div>
+      <div className="relative z-10 mx-auto max-w-6xl">
+        <motion.div
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
+          className="inline-flex"
+        >
+          <span className="font-['Sora'] inline-flex items-center rounded-full border border-[rgba(0,0,0,0.07)] bg-[#f9f9f8] px-4 py-2 text-[12px] font-medium text-[#6b7280]">
+            Validate with real ad data — not surveys
+          </span>
+        </motion.div>
 
-      <div className="relative mx-auto grid max-w-6xl items-center gap-16 px-5 sm:px-6 lg:grid-cols-[1fr_1.1fr]">
-        <motion.div style={{ y: yCol }} variants={heroContainer} initial="hidden" animate="show">
-          <motion.div variants={heroItem} className="inline-flex">
-            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5">
-              <StatusDot status="green" pulse className="h-1.5 w-1.5" />
-              <span className="text-[11px] font-medium text-[var(--color-muted)]">
-                Validate with real ad data (Google, Meta, LinkedIn, TikTok) — not surveys
-              </span>
-            </span>
-          </motion.div>
+        <motion.h1
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          className="font-['Sora'] mt-8 text-[clamp(44px,7vw,84px)] font-extrabold leading-[1.06] tracking-[-0.03em] text-[#1a1a1a]"
+        >
+          Kill bad startup ideas before they kill your time.
+        </motion.h1>
 
-          <motion.h1
-            variants={heroItem}
-            className="mt-6 font-display text-[clamp(2.5rem,5.5vw,4rem)] font-extrabold leading-[1.06] tracking-[-0.04em] text-[var(--color-ink)]"
+        <motion.p
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className="font-['Sora'] mt-6 max-w-2xl text-[17px] leading-[1.65] text-[#6b7280]"
+        >
+          Run a real $500 ad test on Google, Meta, LinkedIn, or TikTok. Get a GO / NO-GO / ITERATE verdict in 48 hours. No surveys. No guesswork.
+        </motion.p>
+
+        <motion.div
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-8 flex flex-wrap gap-4"
+        >
+          <Link
+            href="/canvas"
+            className="font-['Sora'] inline-flex h-12 items-center justify-center rounded-full bg-[#111111] px-7 text-[15px] font-semibold text-white transition-opacity hover:opacity-80"
           >
-            Kill bad startup ideas
-            <br />
-            <span className="text-[var(--color-muted)]">before they kill</span>
-            <br />
-            <span className="text-[var(--color-muted)]">your time.</span>
-          </motion.h1>
-
-          <motion.p
-            variants={heroItem}
-            className="mt-5 max-w-lg text-[17px] leading-[1.65] text-[var(--color-muted)]"
+            Start validating
+          </Link>
+          <Link
+            href="#how-it-works"
+            className="font-['Sora'] inline-flex h-12 items-center justify-center rounded-full border border-[rgba(0,0,0,0.07)] px-7 text-[15px] font-semibold text-[#1a1a1a] transition-colors hover:bg-[rgba(0,0,0,0.04)]"
           >
-            Start with Genome, a $15 go/no-go check in 60 seconds. Then run a real $500 ad tests on Meta, Google, LinkedIn, or TikTok and get a GO / NO-GO / ITERATE verdict in 48 hours.
-          </motion.p>
-
-          <motion.div variants={heroItem} className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href="/canvas"
-              className="inline-flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] px-7 text-[15px] font-semibold text-white transition-colors duration-150 hover:bg-[#2a2a28]"
-            >
-              Start validating
-            </Link>
-          </motion.div>
-
-          <motion.div variants={heroItem} className="mt-8">
-            <span className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-[12px] text-[var(--color-muted)]">
-              Upcoming on Product Hunt
-            </span>
-          </motion.div>
+            How it works
+          </Link>
         </motion.div>
 
         <motion.div
-          className="relative w-full overflow-visible"
           initial={{ opacity: 0, y: 28 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: LANDING_EASE, delay: 0.12 }}
+          transition={{ duration: 0.65, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-8"
         >
-          {/* Cap the image so it never overflows the column on tablets.
-              On desktop we still let it bleed slightly to the right for the
-              hero composition, but using max-width instead of a fixed 220%
-              that breaks on mid-width screens. */}
-          <img
-            src="/image.png"
-            alt="LaunchLense product preview"
-            className="block w-full max-w-[640px] h-auto mx-auto lg:max-w-none lg:w-[120%] lg:-translate-y-2"
-            loading="eager"
-            decoding="async"
-          />
+          <span className="font-['Sora'] inline-flex items-center rounded-full border border-[rgba(0,0,0,0.07)] bg-[#f9f9f8] px-4 py-2 text-[12px] text-[#6b7280]">
+            Upcoming on Product Hunt
+          </span>
+        </motion.div>
+
+        {/* Stats row */}
+        <motion.div
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-16 flex flex-wrap items-center gap-0 border-t border-[rgba(0,0,0,0.07)] pt-8"
+        >
+          {[
+            { label: '48h', desc: 'Average verdict time' },
+            { label: '94%', desc: 'Verdict accuracy' },
+            { label: '$500', desc: 'Max budget' },
+            { label: '4', desc: 'Channels supported' },
+          ].map((stat, i) => (
+            <div key={i} className="flex items-center gap-6">
+              <div>
+                <div className="font-['DM_Mono'] text-[28px] font-bold text-[#1a1a1a]">{stat.label}</div>
+                <div className="font-['Sora'] text-[13px] text-[#6b7280]">{stat.desc}</div>
+              </div>
+              {i < 3 && <div className="h-8 w-px bg-[rgba(0,0,0,0.07)]" />}
+            </div>
+          ))}
         </motion.div>
       </div>
     </section>

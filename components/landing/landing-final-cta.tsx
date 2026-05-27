@@ -1,40 +1,40 @@
 'use client';
 
 import Link from 'next/link';
-import { ScrollReveal } from '@/components/landing/scroll-reveal';
+import { motion } from 'framer-motion';
 
 export function LandingFinalCta() {
   return (
-    <section id="final-cta" className="scroll-mt-20 bg-[var(--color-canvas)] py-28">
-      <div className="mx-auto max-w-2xl px-5 text-center sm:px-6">
-        <ScrollReveal>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
-            Ready to validate?
-          </p>
-          <h2 className="mt-4 font-display text-[clamp(1.875rem,4vw,2.75rem)] font-bold leading-[1.1] tracking-[-0.03em] text-[var(--color-ink)]">
-            Stop guessing.
-            <br />
-            Start knowing.
+    <section id="final-cta" className="scroll-mt-20 py-28 px-5 sm:px-6">
+      <div className="mx-auto max-w-4xl">
+        <motion.div
+          initial={{ opacity: 0, y: 28 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
+          className="rounded-3xl bg-[#111111] p-12 text-center"
+        >
+          <h2 className="font-['Sora'] text-[clamp(1.875rem,4vw,3rem)] font-bold tracking-[-0.02em] text-[#ffffff]">
+            Stop guessing. Start knowing.
           </h2>
-          <p className="mt-5 text-[16px] leading-[1.65] text-[var(--color-muted)]">
-            Your next startup idea deserves a real market signal — not a survey, not a mock landing page, not a gut
-            feeling. Get the data.
+          <p className="font-['Sora'] mt-4 text-[17px] leading-[1.65] text-[#ffffff]/80">
+            Your next startup idea deserves a real market signal — not a survey, not a mock landing page, not a gut feeling. Get the data.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/canvas?panel=accounts"
-              className="inline-flex h-12 items-center justify-center rounded-full bg-[var(--color-ink)] px-7 text-[15px] font-semibold text-white transition-colors hover:bg-[#2a2a28]"
+              className="font-['Sora'] inline-flex h-12 items-center justify-center rounded-full bg-[#ffffff] px-7 text-[15px] font-semibold text-[#111111] transition-opacity hover:opacity-80"
             >
               Start validating
             </Link>
             <Link
-              href="#pricing"
-              className="inline-flex h-12 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-7 text-[15px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-border-2)]"
+              href="#how-it-works"
+              className="font-['Sora'] inline-flex h-12 items-center justify-center rounded-full border border-[#ffffff]/30 px-7 text-[15px] font-semibold text-[#ffffff] transition-colors hover:bg-[#ffffff]/10"
             >
-              Talk to us
+              How it works
             </Link>
           </div>
-        </ScrollReveal>
+        </motion.div>
       </div>
     </section>
   );

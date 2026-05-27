@@ -323,6 +323,16 @@ const RULES: Rule[] = [
     run(input) {
       const hasImage = !!(input.image_url ?? '').trim();
       const hasVideo = !!(input.video_url ?? '').trim();
+      console.log('[POLICY DEBUG] required.image_or_video check:', {
+        image_url: input.image_url,
+        image_url_length: input.image_url?.length,
+        image_url_trimmed: (input.image_url ?? '').trim(),
+        hasImage,
+        video_url: input.video_url,
+        video_url_length: input.video_url?.length,
+        video_url_trimmed: (input.video_url ?? '').trim(),
+        hasVideo,
+      });
       if (hasImage || hasVideo) return [];
       return [
         {

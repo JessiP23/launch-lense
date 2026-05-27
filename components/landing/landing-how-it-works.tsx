@@ -1,7 +1,6 @@
 'use client';
 
-import { motion, useScroll, useTransform } from 'framer-motion';
-import { useRef } from 'react';
+import { motion } from 'framer-motion';
 
 const steps = [
   {
@@ -27,77 +26,42 @@ const steps = [
 ] as const;
 
 export function LandingHowItWorks() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ['start 0.8', 'end 0.2']
-  });
-
-  // Line draws from 0 to 100% as you scroll through the section
-  const lineHeight = useTransform(scrollYProgress, [0, 1], ['0%', '100%']);
-
   return (
-    <section id="how-it-works" className="scroll-mt-20 bg-[var(--color-canvas)] py-28">
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Process</p>
-          <h2 className="mt-3 font-display text-[clamp(1.875rem,4vw,2.75rem)] font-bold tracking-[-0.03em] text-[var(--color-ink)]">
+    <section id="how-it-works" className="scroll-mt-20 bg-[#f9f9f8] py-28 px-5 sm:px-6">
+      <div className="mx-auto max-w-6xl">
+        <motion.div
+          initial={{ opacity: 0, y: 28 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
+          className="mx-auto max-w-2xl text-center"
+        >
+          <p className="font-['Sora'] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6b7280]">Process</p>
+          <h2 className="font-['Sora'] mt-3 text-[clamp(1.875rem,4vw,3rem)] font-bold tracking-[-0.02em] text-[#1a1a1a]">
             From idea to verdict in 4 steps.
           </h2>
-          <p className="mt-4 text-[16px] leading-[1.65] text-[var(--color-muted)]">
+          <p className="font-['Sora'] mt-4 text-[17px] leading-[1.65] text-[#6b7280]">
             No surveys. No assumptions. Real people, real clicks, real data.
           </p>
-        </div>
+        </motion.div>
 
-        <div ref={containerRef} className="relative mt-16">
-          {/* Static rail */}
-          <div className="absolute left-4 top-2 hidden h-[calc(100%-16px)] w-px bg-[var(--color-border)] lg:block" aria-hidden />
-
-          {/* Animated progress rail — draws as you scroll. This is the unique bit */}
-          <motion.div
-            className="absolute left-4 top-2 hidden w-px origin-top bg-[var(--color-ink)] lg:block"
-            style={{ height: lineHeight }}
-            aria-hidden
-          />
-
-          <div className="grid gap-6">
-            {steps.map((s, i) => (
-              <motion.div
-                key={s.n}
-                initial={{ opacity: 0, x: -12 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, margin: '-80px' }}
-                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1], delay: i * 0.05 }}
-                className="group relative grid gap-6 will-change-transform lg:grid-cols-[32px_1fr] lg:items-start"
-              >
-                {/* Number node — fills when line passes it */}
-                <motion.div
-                  className="relative z-10 flex h-8 w-8 items-center justify-center rounded-full border bg-[var(--color-canvas)] transition-colors duration-300"
-                  style={{
-                    borderColor: useTransform(
-                      scrollYProgress,
-                      [i * 0.25, (i + 0.5) * 0.25],
-                      ['var(--color-border)', 'var(--color-ink)']
-                    )
-                  }}
-                >
-                  <span className="font-mono text-[18px] font-bold text-[var(--color-ink)]">
-                    {s.n}
-                  </span>
-                </motion.div>
-
-                {/* Content — no hover scale, just border color. Smooth. */}
-                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 transition-colors duration-200 lg:-mt-1">
-                  <h3 className="font-display text-[20px] font-bold tracking-tight text-[var(--color-ink)]">
-                    {s.title}
-                  </h3>
-                  <p className="mt-3 text-[15px] leading-[1.7] text-[var(--color-muted)]">
-                    {s.body}
-                  </p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+        <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {steps.map((s, i) => (
+            <motion.div
+              key={s.n}
+              initial={{ opacity: 0, y: 28 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.65, delay: 0.1 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+              className="rounded-xl border border-[rgba(0,0,0,0.07)] bg-[#ffffff] p-6"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#111111]">
+                <span className="font-['DM_Mono'] text-[24px] font-bold text-[#ffffff]">{s.n}</span>
+              </div>
+              <h3 className="font-['Sora'] mt-4 text-[18px] font-semibold text-[#1a1a1a]">{s.title}</h3>
+              <p className="font-['Sora'] mt-3 text-[14px] leading-relaxed text-[#6b7280]">{s.body}</p>
+            </motion.div>
+          ))}
         </div>
       </div>
     </section>

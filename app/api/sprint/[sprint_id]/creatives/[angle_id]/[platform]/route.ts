@@ -83,7 +83,22 @@ export async function PATCH(
   }
 
   try {
+    console.log('[PATCH DEBUG] Incoming data:', {
+      sprint_id,
+      angle_id,
+      platform: p,
+      parsed_data: parsed.data,
+      has_image_url: 'image_url' in parsed.data,
+      image_url_length: parsed.data.image_url?.length,
+    });
     const row = await patchCreative(sprint_id, angle_id, p, parsed.data);
+    console.log('[PATCH DEBUG] Saved row:', {
+      id: row.id,
+      image_url: row.image_url,
+      image_url_length: row.image_url?.length,
+      video_url: row.video_url,
+      video_url_length: row.video_url?.length,
+    });
     return Response.json({ creative: row });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to patch creative';

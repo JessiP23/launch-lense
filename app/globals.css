@@ -71,6 +71,21 @@
   --font-display: 'Cabinet Grotesk', system-ui, -apple-system, sans-serif;
   --font-body:    'Satoshi', system-ui, -apple-system, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* ── Terminal Design System ───────────────────────────────────────── */
+  --signal-go: #00FF94;
+  --signal-no-go: #FF3B5C;
+  --signal-iterate: #FFB800;
+  --signal-neutral: #6B7280;
+  --surface-primary: #0A0A0A;
+  --surface-elevated: #111111;
+  --surface-card: #161616;
+  --surface-border: #222222;
+  --text-primary: #F5F5F5;
+  --text-secondary: #888888;
+  --text-tertiary: #444444;
+  --accent-blue: #3B82F6;
+  --accent-purple: #8B5CF6;
 }
 
 @theme inline {

@@ -2,31 +2,29 @@
 
 import { LandingNavbar } from '@/components/landing/landing-navbar';
 import { LandingHero } from '@/components/landing/landing-hero';
-import { LandingStatsBar } from '@/components/landing/landing-stats-bar';
+import { LandingDashboardMock } from './landing-dashboard-mock';
+import { LandingChannelLogos } from '@/components/landing/landing-channel-logos';
 import { LandingGenome } from '@/components/landing/landing-genome';
 import { LandingHowItWorks } from '@/components/landing/landing-how-it-works';
 import { LandingVerdictEngine } from '@/components/landing/landing-verdict-engine';
-import { LandingHealthgateBlock } from '@/components/landing/landing-healthgate-block';
+import { LandingHealthgate } from '@/components/landing/landing-healthgate';
 import { LandingTestimonials } from '@/components/landing/landing-testimonials';
-import { LandingPricing } from '@/components/landing/landing-pricing';
-import { LandingFaq } from '@/components/landing/landing-faq';
 import { LandingFinalCta } from '@/components/landing/landing-final-cta';
 import { LandingFooter } from '@/components/landing/landing-footer';
 
 export function LandingPageView() {
   return (
-    <div className="min-h-screen bg-[var(--color-canvas)] text-[var(--color-ink)]">
+    <div className="min-h-screen bg-[#ffffff] text-[#1a1a1a]">
       <LandingNavbar />
       <main>
         <LandingHero />
-        <LandingStatsBar />
+        <LandingDashboardMock />
+        <LandingChannelLogos />
         <LandingGenome />
         <LandingHowItWorks />
         <LandingVerdictEngine />
-        <LandingHealthgateBlock />
+        <LandingHealthgate />
         <LandingTestimonials />
-        <LandingPricing />
-        <LandingFaq />
         <LandingFinalCta />
       </main>
       <LandingFooter />
