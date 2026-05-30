@@ -32,7 +32,7 @@ create table if not exists signal_benchmarks (
   last_updated timestamptz default now(),
   
   -- Ensure one benchmark row per vertical+channel
-  constraint signal_benchmarks_unique primary key (vertical, channel)
+  constraint signal_benchmarks_unique unique (vertical, channel)
 );
 
 create index if not exists idx_signal_benchmarks_vertical
@@ -95,7 +95,7 @@ create table if not exists signal_patterns (
   last_updated timestamptz default now(),
   
   -- Ensure one pattern row per vertical+channel+archetype
-  constraint signal_patterns_unique primary key (vertical, channel, angle_archetype)
+  constraint signal_patterns_unique unique (vertical, channel, angle_archetype)
 );
 
 create index if not exists idx_signal_patterns_vertical
