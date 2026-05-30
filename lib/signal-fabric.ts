@@ -7,13 +7,12 @@
 // verdicts against real market behavior instead of static thresholds.
 //
 // Functions:
-//   - writeSprintSignal(sprintId): Records sprint performance after COMPLETE
+//   - writeSprintSignal(sprint): Records sprint performance after COMPLETE
 //   - updateBenchmarks(vertical, channel): Recalculates aggregated benchmarks
 //   - getVerticalBenchmarks(vertical): Fetches benchmarks for Genome/Verdict
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createServiceClient } from '@/lib/supabase';
-import { getSprint } from '@/lib/sprint-machine';
 import type { Platform, SprintRecord } from '@/lib/agents/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -55,22 +54,16 @@ export interface SignalPatternRow {
 // Records sprint performance to sprint_signals table after sprint reaches COMPLETE.
 // Called by orchestrator during VERDICT_GENERATING → COMPLETE transition.
 
-export async function writeSprintSignal(sprintId: string): Promise<void> {
+export async function writeSprintSignal(sprint: SprintRecord): Promise<void> {
   const db = createServiceClient();
-  const sprint = await getSprint(sprintId);
-
-  if (!sprint) {
-    console.error(`[signal-fabric] Sprint ${sprintId} not found`);
-    return;
-  }
 
   if (!sprint.verdict) {
-    console.warn(`[signal-fabric] Sprint ${sprintId} has no verdict, skipping signal write`);
+    console.warn(`[signal-fabric] Sprint ${sprint.sprint_id} has no verdict, skipping signal write`);
     return;
   }
 
   if (!sprint.campaign) {
-    console.warn(`[signal-fabric] Sprint ${sprintId} has no campaign data, skipping signal write`);
+    console.warn(`[signal-fabric] Sprint ${sprint.sprint_id} has no campaign data, skipping signal write`);
     return;
   }
 
@@ -100,7 +93,7 @@ export async function writeSprintSignal(sprintId: string): Promise<void> {
     const angleArchetype = winningAngle?.archetype || null;
 
     const signalRow: Partial<SprintSignalRow> = {
-      sprint_id: sprintId,
+      sprint_id: sprint.sprint_id,
       vertical,
       channel,
       ctr: ctr !== null && ctr !== undefined ? Number(ctr.toFixed(4)) : null,
@@ -113,9 +106,9 @@ export async function writeSprintSignal(sprintId: string): Promise<void> {
 
     const { error } = await db.from('sprint_signals').insert(signalRow);
     if (error) {
-      console.error(`[signal-fabric] Failed to write sprint signal for ${sprintId}/${channel}:`, error.message);
+      console.error(`[signal-fabric] Failed to write sprint signal for ${sprint.sprint_id}/${channel}:`, error.message);
     } else {
-      console.log(`[signal-fabric] Wrote sprint signal for ${sprintId}/${channel}: CTR=${ctr}, CPC=${cpc}, Verdict=${sprint.verdict.verdict}`);
+      console.log(`[signal-fabric] Wrote sprint signal for ${sprint.sprint_id}/${channel}: CTR=${ctr}, CPC=${cpc}, Verdict=${sprint.verdict.verdict}`);
     }
   }
 

@@ -567,8 +567,3 @@ export type BenchmarksNodeData  = { stage: NodeStage };
 export type BenchmarksNodeType  = Node<BenchmarksNodeData, 'benchmarks'>;
 
 export type SettingsNodeData  = { stage: NodeStage; configured?: boolean };
-export type SettingsNodeType  = Node<SettingsNodeData, 'settings'>;
-export const SettingsNode = memo(({ data, selected }: NodeProps<SettingsNodeType>) => (
-  <NodeCard label="Settings" sublabel={data.configured ? 'Configured' : 'API Keys'} stage={data.stage} selected={!!selected} hasLeft={false} hasRight={false} />
-));
-SettingsNode.displayName = 'SettingsNode';

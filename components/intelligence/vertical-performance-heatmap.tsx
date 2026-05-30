@@ -3,24 +3,38 @@
 import { useEffect, useState } from 'react';
 import type { BenchmarkRow } from '@/lib/signal-fabric';
 
-const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
+const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB', go: '#0F8A4C' };
 
-const VERTICALS = ['saas', 'fintech', 'health', 'ecommerce', 'consumer', 'b2b', 'other'] as const;
-const CHANNELS = ['meta', 'google', 'linkedin', 'tiktok'] as const;
+const VERTICALS = [
+  { id: 'saas', label: 'SaaS', description: 'Software-as-a-Service' },
+  { id: 'fintech', label: 'Fintech', description: 'Financial Technology' },
+  { id: 'health', label: 'Health', description: 'Healthcare & Wellness' },
+  { id: 'ecommerce', label: 'E-commerce', description: 'Online Retail' },
+  { id: 'consumer', label: 'Consumer', description: 'Consumer Apps' },
+  { id: 'b2b', label: 'B2B', description: 'Business-to-Business' },
+  { id: 'other', label: 'Other', description: 'Other Verticals' },
+] as const;
+
+const CHANNELS = [
+  { id: 'meta', label: 'Meta', icon: '📘' },
+  { id: 'google', label: 'Google', icon: '🔍' },
+  { id: 'linkedin', label: 'LinkedIn', icon: '💼' },
+  { id: 'tiktok', label: 'TikTok', icon: '🎵' },
+] as const;
 
 export function VerticalPerformanceHeatmap({ orgId }: { orgId: string | null }) {
   const [benchmarks, setBenchmarks] = useState<BenchmarkRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hoveredCell, setHoveredCell] = useState<{ vertical: string; channel: string } | null>(null);
 
   useEffect(() => {
     async function fetchBenchmarks() {
       try {
-        const { getVerticalBenchmarks } = await import('@/lib/signal-fabric');
-        // Fetch benchmarks for all verticals
         const allBenchmarks: BenchmarkRow[] = [];
-        for (const vertical of VERTICALS) {
-          const verticalBenchmarks = await getVerticalBenchmarks(vertical);
-          allBenchmarks.push(...verticalBenchmarks);
+        for (const { id: vertical } of VERTICALS) {
+          const response = await fetch(`/api/signal/benchmarks/${vertical}`);
+          const data = await response.json();
+          allBenchmarks.push(...(data.benchmarks || []));
         }
         setBenchmarks(allBenchmarks);
       } catch (err) {
@@ -33,48 +47,50 @@ export function VerticalPerformanceHeatmap({ orgId }: { orgId: string | null }) 
     fetchBenchmarks();
   }, []);
 
-  // Create a lookup map for benchmarks
   const benchmarkMap = new Map<string, BenchmarkRow>();
   for (const b of benchmarks) {
     benchmarkMap.set(`${b.vertical}-${b.channel}`, b);
   }
 
-  // Get CTR value for a vertical/channel pair
-  const getCtr = (vertical: string, channel: string): number | null => {
+  const getData = (vertical: string, channel: string) => {
     const key = `${vertical}-${channel}`;
-    return benchmarkMap.get(key)?.avg_ctr ?? null;
+    return benchmarkMap.get(key);
   };
 
-  // Get sample size for a vertical/channel pair
-  const getSampleSize = (vertical: string, channel: string): number => {
-    const key = `${vertical}-${channel}`;
-    return benchmarkMap.get(key)?.sample_size ?? 0;
-  };
-
-  // Get color based on CTR value (heatmap coloring)
   const getColor = (ctr: number | null): string => {
     if (ctr == null) return '#F3F0EB';
-    // Normalize CTR to 0-100 scale (assuming max CTR is 3%)
-    const normalized = Math.min(100, (ctr / 0.03) * 100);
-    // Green gradient: lighter green for lower CTR, darker for higher
-    const green = Math.round(50 + (normalized / 100) * 150);
-    return `rgb(${100 - normalized}, ${green}, ${150 - normalized / 2})`;
+    const pct = ctr * 100;
+    if (pct >= 2.0) return '#0F8A4C'; // Excellent (≥2%)
+    if (pct >= 1.5) return '#22C55E'; // Good (1.5-2%)
+    if (pct >= 1.0) return '#84CC16'; // Fair (1-1.5%)
+    if (pct >= 0.5) return '#EAB308'; // Poor (0.5-1%)
+    return '#DC2626'; // Critical (<0.5%)
   };
 
-  // Get text color based on background
   const getTextColor = (ctr: number | null): string => {
     if (ctr == null) return C.muted;
-    return ctr > 0.015 ? '#FFFFFF' : C.ink;
+    const pct = ctr * 100;
+    return pct >= 1.0 ? '#FFFFFF' : C.ink;
+  };
+
+  const getPerformanceLabel = (ctr: number | null): string => {
+    if (ctr == null) return 'No Data';
+    const pct = ctr * 100;
+    if (pct >= 2.0) return 'Excellent';
+    if (pct >= 1.5) return 'Good';
+    if (pct >= 1.0) return 'Fair';
+    if (pct >= 0.5) return 'Poor';
+    return 'Critical';
   };
 
   if (isLoading) {
     return (
       <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
         <div style={{ fontSize: '10px', fontWeight: 500, color: C.muted, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-          VERTICAL PERFORMANCE HEATMAP
+          Vertical Performance Heatmap
         </div>
         <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>
-          Loading...
+          Loading benchmark data...
         </div>
       </div>
     );
@@ -82,54 +98,79 @@ export function VerticalPerformanceHeatmap({ orgId }: { orgId: string | null }) 
 
   return (
     <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-      <div style={{ fontSize: '10px', fontWeight: 500, color: C.muted, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-        VERTICAL PERFORMANCE HEATMAP
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ fontSize: '10px', fontWeight: 500, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Vertical Performance Heatmap
+        </div>
+        <div style={{ fontSize: 11, color: C.muted }}>
+          Click-through rate by industry × channel
+        </div>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', padding: '8px 12px', borderBottom: `1px solid ${C.border}`, color: C.muted, fontWeight: 600, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em' }}>
-                Vertical
+              <th style={{ textAlign: 'left', padding: '12px 16px', borderBottom: `2px solid ${C.border}`, color: C.ink, fontWeight: 700, fontSize: 11 }}>
+                Industry
               </th>
               {CHANNELS.map((channel) => (
-                <th key={channel} style={{ textAlign: 'center', padding: '8px 12px', borderBottom: `1px solid ${C.border}`, color: C.muted, fontWeight: 600, textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em', minWidth: 80 }}>
-                  {channel}
+                <th key={channel.id} style={{ textAlign: 'center', padding: '12px 8px', borderBottom: `2px solid ${C.border}`, color: C.ink, fontWeight: 700, fontSize: 11, minWidth: 90 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                    <span style={{ fontSize: 16 }}>{channel.icon}</span>
+                    <span>{channel.label}</span>
+                  </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {VERTICALS.map((vertical) => (
-              <tr key={vertical}>
-                <td style={{ textAlign: 'left', padding: '10px 12px', borderBottom: `1px solid ${C.border}`, color: C.ink, fontWeight: 600, fontSize: 11, textTransform: 'capitalize' }}>
-                  {vertical}
+              <tr key={vertical.id}>
+                <td style={{ textAlign: 'left', padding: '12px 16px', borderBottom: `1px solid ${C.border}`, color: C.ink, fontWeight: 600, fontSize: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{vertical.label}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{vertical.description}</div>
+                  </div>
                 </td>
                 {CHANNELS.map((channel) => {
-                  const ctr = getCtr(vertical, channel);
-                  const sampleSize = getSampleSize(vertical, channel);
+                  const data = getData(vertical.id, channel.id);
+                  const ctr = data?.avg_ctr ?? null;
+                  const sampleSize = data?.sample_size ?? 0;
                   const bgColor = getColor(ctr);
                   const textColor = getTextColor(ctr);
+                  const performanceLabel = getPerformanceLabel(ctr);
 
                   return (
-                    <td key={channel} style={{ textAlign: 'center', padding: '8px', borderBottom: `1px solid ${C.border}`, minWidth: 80 }}>
+                    <td key={channel.id} style={{ textAlign: 'center', padding: '8px', borderBottom: `1px solid ${C.border}`, minWidth: 90 }}>
                       <div
                         style={{
                           backgroundColor: bgColor,
                           color: textColor,
-                          padding: '8px 4px',
-                          borderRadius: 6,
-                          fontSize: 11,
+                          padding: '10px 6px',
+                          borderRadius: 8,
+                          fontSize: 13,
                           fontWeight: 700,
-                          transition: 'transform 0.2s ease',
+                          transition: 'all 0.2s ease',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                          setHoveredCell({ vertical: vertical.id, channel: channel.id });
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'scale(1)';
+                          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                          setHoveredCell(null);
+                        }}
                       >
-                        <div>{ctr != null ? `${(ctr * 100).toFixed(2)}%` : 'N/A'}</div>
+                        <div>{ctr != null ? `${(ctr * 100).toFixed(2)}%` : '—'}</div>
                         {sampleSize > 0 && (
-                          <div style={{ fontSize: 9, opacity: 0.7, fontWeight: 500 }}>n={sampleSize}</div>
+                          <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginTop: 2 }}>
+                            {sampleSize} sprints
+                          </div>
                         )}
                       </div>
                     </td>
@@ -141,8 +182,40 @@ export function VerticalPerformanceHeatmap({ orgId }: { orgId: string | null }) 
         </table>
       </div>
 
-      <div style={{ marginTop: 12, fontSize: 11, color: C.muted, lineHeight: 1.4 }}>
-        <span style={{ fontWeight: 600 }}>CTR</span> by vertical × channel (darker = higher performance)
+      {hoveredCell && (
+        <div style={{ marginTop: 12, padding: 12, background: '#F9FAFB', borderRadius: 8, border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.ink, marginBottom: 4 }}>
+            {VERTICALS.find((v) => v.id === hoveredCell.vertical)?.label} × {CHANNELS.find((c) => c.id === hoveredCell.channel)?.label}
+          </div>
+          <div style={{ fontSize: 11, color: C.muted }}>
+            {getData(hoveredCell.vertical, hoveredCell.channel)?.avg_ctr 
+              ? `Average CTR: ${(getData(hoveredCell.vertical, hoveredCell.channel)!.avg_ctr! * 100).toFixed(2)}%` 
+              : 'No data available'}
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 16, display: 'flex', gap: 16, fontSize: 10, color: C.muted, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: '#0F8A4C' }} />
+          <span>Excellent (≥2%)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: '#22C55E' }} />
+          <span>Good (1.5-2%)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: '#84CC16' }} />
+          <span>Fair (1-1.5%)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: '#EAB308' }} />
+          <span>Poor (0.5-1%)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 3, background: '#DC2626' }} />
+          <span>Critical (&lt;0.5%)</span>
+        </div>
       </div>
     </div>
   );

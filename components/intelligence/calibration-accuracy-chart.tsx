@@ -13,9 +13,9 @@ export function CalibrationAccuracyChart({ orgId }: { orgId: string | null }) {
   useEffect(() => {
     async function fetchSignals() {
       try {
-        const { getRecentSprintSignals } = await import('@/lib/signal-fabric');
-        const recentSignals = await getRecentSprintSignals(100); // Get more for trend analysis
-        setSignals(recentSignals);
+        const response = await fetch('/api/signal/signals?limit=100');
+        const data = await response.json();
+        setSignals(data.signals || []);
       } catch (err) {
         console.error('Failed to fetch sprint signals:', err);
       } finally {

@@ -20,9 +20,9 @@ export function LiveSignalFeed({ orgId }: { orgId: string | null }) {
   useEffect(() => {
     async function fetchSignals() {
       try {
-        const { getRecentSprintSignals } = await import('@/lib/signal-fabric');
-        const recentSignals = await getRecentSprintSignals(20);
-        setSignals(recentSignals);
+        const response = await fetch('/api/signal/signals?limit=20');
+        const data = await response.json();
+        setSignals(data.signals || []);
       } catch (err) {
         console.error('Failed to fetch sprint signals:', err);
       } finally {

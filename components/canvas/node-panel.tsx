@@ -1701,74 +1701,6 @@ function BenchmarksPanel() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Settings Panel
-// ════════════════════════════════════════════════════════════════════════════
-function SettingsPanel() {
-  const { setActiveAccountId, setOrgId } = useAppStore();
-  const [accountId, setAccountId] = useState('');
-  const [token, setToken] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const handleSubmit = async () => {
-    if (!accountId.trim() || !token.trim()) { setError('Both fields required'); return; }
-    setLoading(true); setError(null); setSuccess(null);
-    try {
-      const res = await fetch('/api/accounts/byok', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token: token.trim(), account_id: accountId.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Failed'); return; }
-      setActiveAccountId(data.account.id);
-      if (data.org_id) setOrgId(data.org_id);
-      setSuccess(`Connected: ${data.account.name}`);
-      setAccountId(''); setToken('');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
-    } finally { setLoading(false); }
-  };
-
-  const inputStyle = {
-    width: '100%', background: C.canvas, border: `1px solid ${C.border}`,
-    borderRadius: 8, padding: '8px 10px', fontSize: '0.875rem', color: C.ink,
-    fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' as const,
-  };
-
-  return (
-    <div>
-      <SectionTitle>Settings</SectionTitle>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px' }}>
-        <p style={{ fontWeight: 600, fontSize: '0.9375rem', color: C.ink, marginBottom: 4 }}>Connect Meta Account</p>
-        <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 14 }}>
-          Paste your Meta access token and ad account ID. Verified against the Meta Graph API before saving.
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div>
-            <Label>Ad Account ID</Label>
-            <input value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="act_727146616453623" style={inputStyle} />
-          </div>
-          <div>
-            <Label>Access Token</Label>
-            <textarea value={token} onChange={(e) => setToken(e.target.value)} placeholder="EAAxxxxxxxxxxxxxxx…" rows={3} style={{ ...inputStyle, resize: 'none' }} />
-          </div>
-          {error && <p style={{ fontSize: '0.8125rem', color: C.stop }}>{error}</p>}
-          {success && <p style={{ fontSize: '0.8125rem', color: C.go }}>{success}</p>}
-          <button
-            onClick={handleSubmit} disabled={loading}
-            style={{ height: 34, background: C.ink, border: 'none', borderRadius: 8, color: '#FFF', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-          >
-            {loading && <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" />}
-            {loading ? 'Connecting…' : 'Connect'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 // Integrations — Gmail, Google Sheets, Slack (post-sprint orchestration)
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -3376,7 +3308,6 @@ export function NodePanel({
           />
         );
       case 'benchmarks': return <BenchmarksPanel />;
-      case 'settings':   return <SettingsPanel />;
       case 'external':   return <ExternalFeaturesPanel />;
       default: return null;
     }

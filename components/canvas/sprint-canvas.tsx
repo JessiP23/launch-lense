@@ -14,7 +14,7 @@ import { PipelineEdge, type EdgeState } from './pipeline-edge';
 import {
   AccountsNode, GenomeNode, HealthgateNode, AnglesNode,
   CreativeNode, LandingNode, CampaignNode, VerdictNode, ReportNode,
-  SpreadsheetNode, OutreachNode, SlackNode, SettingsNode,
+  SpreadsheetNode, OutreachNode, SlackNode,
   BudgetNode,
 } from './canvas-nodes';
 import type { Angle, Platform, SprintRecord, SprintState } from '@/lib/agents/types';
@@ -39,7 +39,6 @@ const NODE_TYPES: NodeTypes = {
   spreadsheet: SpreadsheetNode,
   outreach:   OutreachNode,
   slack:      SlackNode,
-  settings:   SettingsNode,
 };
 
 const EDGE_TYPES: EdgeTypes = { pipeline: PipelineEdge };

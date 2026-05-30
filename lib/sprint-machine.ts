@@ -425,7 +425,7 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
 
     // Write sprint signal to Signal Fabric after COMPLETE
     // This is non-blocking — we fire and forget to avoid delaying the response
-    void writeSprintSignal(sprint_id);
+    void writeSprintSignal(sprint);
   } catch (err) {
     await blockSprint(sprint_id, `VerdictAgent failed: ${String(err)}`);
   }
