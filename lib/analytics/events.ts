@@ -17,6 +17,7 @@ export const SprintEventName = {
   SprintCreated: 'sprint_created',
   SprintBlocked: 'sprint_blocked',
   SprintCompleted: 'sprint_completed',
+  SprintRecovered: 'sprint_recovered',
 
   // Agent completions
   GenomeCompleted: 'genome_completed',
@@ -182,6 +183,7 @@ type EventPropsMap = {
   [SprintEventName.ReportShared]: { sprint_id: string; share_token: string };
   [SprintEventName.SprintBlocked]: { reason: string; state: string };
   [SprintEventName.SprintCompleted]: { verdict: string; confidence: number };
+  [SprintEventName.SprintRecovered]: { previous_state: string; action: 'BLOCKED' | 'ADVANCED'; reason?: string; next_state?: string };
   [SprintEventName.CheckoutStarted]: { sprint_id: string; amount_cents: number };
   [SprintEventName.SpreadsheetPrepared]: { valid_contacts: number; icp_filter_applied: boolean };
   [SprintEventName.SlackPosted]: { channel: string | null };

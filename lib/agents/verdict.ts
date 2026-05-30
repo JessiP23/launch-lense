@@ -16,6 +16,7 @@ import type {
 } from './types';
 import { computeDemandValidationScoring } from '@/lib/demand-validation/scoring';
 import { buildDemandValidationMemo } from '@/lib/demand-validation/build-memo';
+import { getVerticalBenchmarks, type BenchmarkRow } from '@/lib/signal-fabric';
 
 // ── Channel-specific CTR thresholds ───────────────────────────────────────
 
@@ -68,9 +69,11 @@ export const CHANNEL_CTR_THRESHOLDS: Record<Platform, ThresholdDef> = {
 
 function scoreChannel(
   channel: Platform,
-  campaign: CampaignAgentOutput
+  campaign: CampaignAgentOutput,
+  dynamicThresholds?: ThresholdDef
 ): ChannelVerdictOutput {
-  const t = CHANNEL_CTR_THRESHOLDS[channel];
+  // Use dynamic thresholds if provided, otherwise fall back to static defaults
+  const t = dynamicThresholds ?? CHANNEL_CTR_THRESHOLDS[channel];
   const angles = campaign.angle_metrics;
 
   // Blended CTR weighted by spend
@@ -164,8 +167,42 @@ export async function runVerdictAgent(
     throw new Error('VerdictAgent: no completed campaigns to score.');
   }
 
+  // Fetch dynamic benchmarks from Signal Fabric
+  const vertical = context?.genome?.market_category?.toLowerCase() || 'other';
+  const benchmarks = await getVerticalBenchmarks(vertical);
+  const benchmarkMap = new Map(benchmarks.map((b) => [b.channel, b]));
+
+  // Determine if we have sufficient benchmark data (sample_size >= 5)
+  const hasSufficientBenchmarkData = benchmarks.some((b) => b.sample_size >= 5);
+  const benchmarkSource: 'signal_fabric' | 'default' = hasSufficientBenchmarkData ? 'signal_fabric' : 'default';
+  const verticalSampleSize = hasSufficientBenchmarkData
+    ? benchmarks.reduce((sum, b) => sum + b.sample_size, 0)
+    : 0;
+
+  // Build dynamic thresholds per channel if benchmark data exists
+  const dynamicThresholdsMap = new Map<Platform, ThresholdDef>();
+  if (hasSufficientBenchmarkData) {
+    for (const [ch, camp] of completed) {
+      const benchmark = benchmarkMap.get(ch);
+      if (benchmark && benchmark.sample_size >= 5 && benchmark.avg_ctr !== null) {
+        // Use benchmark CTR as the GO threshold, with adjustments for other thresholds
+        const baseCtr = benchmark.avg_ctr;
+        dynamicThresholdsMap.set(ch, {
+          go_min_angles_above: 2,
+          go_ctr_threshold: baseCtr,
+          iterate_single_above: baseCtr,
+          iterate_blended_min: baseCtr * 0.5,
+          iterate_blended_max: baseCtr * 0.99,
+          nogo_all_below: baseCtr * 0.5,
+        });
+      }
+    }
+  }
+
   // Per-channel verdicts
-  const perChannel: ChannelVerdictOutput[] = completed.map(([ch, camp]) => scoreChannel(ch, camp));
+  const perChannel: ChannelVerdictOutput[] = completed.map(([ch, camp]) =>
+    scoreChannel(ch, camp, dynamicThresholdsMap.get(ch))
+  );
 
   // Aggregate metrics
   const totalSpend   = perChannel.reduce((s, c) => s + c.total_spend_cents, 0);
@@ -290,5 +327,7 @@ export async function runVerdictAgent(
       data_completeness_factor: dvScoring.data_completeness_factor,
       memo,
     },
+    benchmark_source: benchmarkSource,
+    vertical_sample_size: verticalSampleSize > 0 ? verticalSampleSize : undefined,
   };
 }

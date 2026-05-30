@@ -77,7 +77,7 @@ function StatusPill({ status }: { status: CreativeStatus }) {
 
 // ── Policy summary ────────────────────────────────────────────────────────
 
-function PolicyBlock({ severity, issues }: { severity: PolicySeverity | null; issues: PolicyIssue[] | null }) {
+function PolicyBlock({ severity, issues, score }: { severity: PolicySeverity | null; issues: PolicyIssue[] | null; score?: number | null }) {
   if (!severity) {
     return (
       <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
@@ -86,13 +86,49 @@ function PolicyBlock({ severity, issues }: { severity: PolicySeverity | null; is
     );
   }
   const color = severity === 'block' ? C.stop : severity === 'warn' ? C.warn : C.go;
+
+  // Circular progress indicator for policy score
+  const scoreColor = score != null && score >= 80 ? C.go : score != null && score >= 50 ? C.warn : C.stop;
+  const radius = 12;
+  const circumference = 2 * Math.PI * radius;
+  const offset = score != null ? circumference - (score / 100) * circumference : circumference;
+
+  // Policy rule version indicator
+  const ruleVersion = 'v1.0'; // This could be fetched from the database in a future iteration
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
         <span style={{ fontSize: 11, fontWeight: 800, color: C.ink, textTransform: 'uppercase', letterSpacing: 0.4 }}>
           Policy: {severity}
         </span>
+        <span style={{ fontSize: 10, color: C.muted, marginLeft: 'auto' }}>
+          Rules: {ruleVersion}
+        </span>
+        {score != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+            <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
+              <circle
+                cx={14} cy={14} r={radius}
+                fill="none"
+                stroke="#E8E4DC"
+                strokeWidth={3}
+              />
+              <circle
+                cx={14} cy={14} r={radius}
+                fill="none"
+                stroke={scoreColor}
+                strokeWidth={3}
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={offset}
+                style={{ transition: 'stroke-dashoffset 0.3s ease' }}
+              />
+            </svg>
+            <span style={{ fontSize: 11, fontWeight: 800, color: scoreColor }}>{score}</span>
+          </div>
+        )}
       </div>
       {issues && issues.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
@@ -300,7 +336,7 @@ export function CreativeEditor({
 
       {/* ── policy + actions ────────────────────────────────── */}
       <div style={{ background: C.canvas, borderRadius: 10, padding: 10 }}>
-        <PolicyBlock severity={row?.policy_severity ?? null} issues={row?.policy_issues ?? null} />
+        <PolicyBlock severity={row?.policy_severity ?? null} issues={row?.policy_issues ?? null} score={row?.policy_score ?? null} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
           <button onClick={handleScan} disabled={busy} style={btnSecondary(busy)}>
             {busy ? '…' : 'Scan'}

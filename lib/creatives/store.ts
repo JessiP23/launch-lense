@@ -241,7 +241,8 @@ export async function recordPolicyScan(
   angleId: string,
   platform: Platform,
   severity: PolicySeverity,
-  issues: PolicyIssue[]
+  issues: PolicyIssue[],
+  score: number
 ): Promise<Row> {
   const db = createServiceClient();
   const existing = await getCreative(sprintId, angleId, platform);
@@ -255,6 +256,7 @@ export async function recordPolicyScan(
       policy_severity: severity,
       policy_issues: issues,
       policy_scanned_at: new Date().toISOString(),
+      policy_score: score,
     })
     .eq('id', existing.id)
     .select('*')

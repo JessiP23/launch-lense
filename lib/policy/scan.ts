@@ -27,6 +27,7 @@ import type {
   PolicySeverity,
   SprintCreativeEditable,
 } from '@/lib/agents/types';
+import { createServiceClient } from '@/lib/supabase';
 
 export interface PolicyScanInput extends Partial<SprintCreativeEditable> {
   /** Optional — included only to influence platform-specific rules. */
@@ -39,6 +40,8 @@ export interface PolicyScanResult {
   /** Set to true iff at least one issue has severity 'block'. */
   blocked: boolean;
   scanned_at: string;
+  /** Policy score (0–100): starts at 100, subtracts 30 per error, 10 per warning, floors at 0 */
+  score: number;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -73,6 +76,68 @@ function combinedText(input: PolicyScanInput): string {
 interface Rule {
   code: string;
   run(input: PolicyScanInput): PolicyIssue[];
+}
+
+/** Fetch active policy rules from the database */
+async function fetchActiveRules(): Promise<Rule[]> {
+  try {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from('policy_rules')
+      .select('*')
+      .eq('active', true);
+
+    if (error || !data || data.length === 0) {
+      // Fallback to hardcoded rules if database is empty or unavailable
+      return RULES;
+    }
+
+    // Convert database rules to Rule interface
+    return data.map((dbRule: any) => ({
+      code: dbRule.rule_id,
+      run: (input: PolicyScanInput) => {
+        const definition = dbRule.rule_definition;
+        const severity = dbRule.severity;
+        
+        // Simple pattern matching based on rule definition
+        if (definition.pattern) {
+          const pattern = new RegExp(definition.pattern, definition.flags || 'i');
+          const m = matchField(input, pattern);
+          if (!m) return [];
+          return [
+            {
+              code: dbRule.rule_id,
+              severity,
+              message: definition.message || `Policy violation: ${dbRule.rule_id}`,
+              field: m.field,
+              match: m.match,
+            },
+          ];
+        }
+        
+        return [];
+      },
+    }));
+  } catch (err) {
+    console.warn('[PolicyScan] Failed to fetch active rules from database, using hardcoded rules:', err);
+    return RULES;
+  }
+}
+
+// Cache for active rules to avoid repeated database queries
+let cachedRules: Rule[] | null = null;
+let rulesCacheTime = 0;
+const RULES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getRules(): Promise<Rule[]> {
+  const now = Date.now();
+  if (cachedRules && (now - rulesCacheTime) < RULES_CACHE_TTL) {
+    return cachedRules;
+  }
+  
+  cachedRules = await fetchActiveRules();
+  rulesCacheTime = now;
+  return cachedRules;
 }
 
 const RULES: Rule[] = [
@@ -380,7 +445,7 @@ const RULES: Rule[] = [
 
 // ── Entrypoint ─────────────────────────────────────────────────────────────
 
-export function scanCreative(input: PolicyScanInput): PolicyScanResult {
+export async function scanCreative(input: PolicyScanInput): Promise<PolicyScanResult> {
   // Sanity: skip empty payloads — they get caught by required.* rules.
   if (!input || combinedText(input).length === 0 && !input.image_url && !input.video_url) {
     return {
@@ -394,11 +459,15 @@ export function scanCreative(input: PolicyScanInput): PolicyScanResult {
       ],
       blocked: true,
       scanned_at: new Date().toISOString(),
+      score: 0,
     };
   }
 
+  // Fetch active rules from database (with fallback to hardcoded rules)
+  const rules = await getRules();
+
   const issues: PolicyIssue[] = [];
-  for (const rule of RULES) {
+  for (const rule of rules) {
     try {
       issues.push(...rule.run(input));
     } catch (err) {
@@ -414,10 +483,16 @@ export function scanCreative(input: PolicyScanInput): PolicyScanResult {
         ? 'warn'
         : 'clean';
 
+  // Compute policy score: start at 100, subtract 30 per error, 10 per warning, floor at 0
+  const errorCount = issues.filter((i) => i.severity === 'block').length;
+  const warningCount = issues.filter((i) => i.severity === 'warn').length;
+  const score = Math.max(0, 100 - (errorCount * 30) - (warningCount * 10));
+
   return {
     severity,
     issues,
     blocked: severity === 'block',
     scanned_at: new Date().toISOString(),
+    score,
   };
 }

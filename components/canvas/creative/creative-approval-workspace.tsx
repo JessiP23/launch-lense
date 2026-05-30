@@ -30,7 +30,7 @@ import { DeployGate } from './deploy-gate';
 const C = {
   ink: '#111110', muted: '#8C8880', border: '#E8E4DC',
   surface: '#FFFFFF', canvas: '#FAFAF8', faint: '#F3F0EB',
-  go: '#0F8A4C',
+  go: '#0F8A4C', warn: '#B17D00', stop: '#DC2626',
 };
 
 export interface CreativeSelectionSnapshot {
@@ -202,6 +202,28 @@ export function CreativeApprovalWorkspace({
         <span>{activeAngle.archetype}</span>
         <span style={{ width: 3, height: 3, borderRadius: '50%', background: C.border }} />
         <span>{activeAngle.emotional_lever}</span>
+        {/* Policy score badge */}
+        {(() => {
+          const row = controller.byKey.get(`${activeAngle.id}::${activeChannel}`);
+          const score = row?.policy_score;
+          if (score == null) return null;
+          const scoreColor = score >= 80 ? C.go : score >= 50 ? C.warn : C.stop;
+          return (
+            <>
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: C.border }} />
+              <span style={{
+                padding: '2px 6px',
+                borderRadius: 999,
+                background: score >= 80 ? '#DFF6E7' : score >= 50 ? '#FFF7DB' : '#FCE3E3',
+                color: scoreColor,
+                fontSize: 10,
+                fontWeight: 800,
+              }}>
+                Policy: {score}/100
+              </span>
+            </>
+          );
+        })()}
       </div>
 
       {controller.error && (

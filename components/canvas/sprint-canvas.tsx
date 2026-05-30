@@ -780,7 +780,14 @@ function buildNodes(sprint: SprintRecord | null, creativeDrafts: CreativeDrafts,
 
     // Verdict
     { id: 'verdict', type: 'verdict', position: { x: X.verdict, y: layout.standardTop },
-      data: { verdict: v?.verdict, confidence: v?.confidence, stage: sprintStageFor('verdict', s, sprint) } },
+      data: {
+        verdict: v?.verdict,
+        confidence: v?.confidence,
+        stage: sprintStageFor('verdict', s, sprint),
+        benchmark_source: v?.benchmark_source,
+        vertical_sample_size: v?.vertical_sample_size,
+      }
+    },
 
     // Report
     { id: 'report', type: 'report', position: { x: X.report, y: layout.standardTop },
@@ -1483,9 +1490,10 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
     if (state === 'COMPLETE') setPipelineRunning(false);
 
     // Auto-continue: trigger next stage when intermediate states land
+    // Note: Autonomous runner handles the full pipeline, so we only trigger from IDLE
     if (state === 'GENOME_DONE' || state === 'HEALTHGATE_DONE') {
-      fetch(`/api/sprint/${id}/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-        .catch((err) => console.warn('[canvas] auto-continue /run failed:', err));
+      fetch(`/api/sprint/${id}/run-autonomous`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .catch((err) => console.warn('[canvas] auto-continue /run-autonomous failed:', err));
     }
   }, [sprintData?.state, sprintData?.sprint_id, sprintData?.active_channels]);
 
@@ -1596,19 +1604,19 @@ function CanvasInner({ initialPanel, initialSprint, openNew }: CanvasProps) {
         return;
       }
 
-      // ── Server-orchestrated pipeline ────────────────────────────────────
-      // Single call to /run — server drives Genome → Healthgate → Angles.
+      // ── Server-orchestrated autonomous pipeline ────────────────────────────
+      // Single call to /run-autonomous — server drives full pipeline autonomously.
       // Canvas observes state transitions via Supabase Realtime subscription.
       // The Realtime handler below (useSprintRealtime) updates sprintData & panels.
       if (['IDLE', 'GENOME_DONE', 'GENOME_RUNNING', 'HEALTHGATE_DONE', 'HEALTHGATE_RUNNING'].includes(current.state)) {
         setActivePanel('genome');
-        const res = await fetch(`/api/sprint/${id}/run`, { method: 'POST' });
+        const res = await fetch(`/api/sprint/${id}/run-autonomous`, { method: 'POST' });
         if (res.status === 402) { setActivePanel('budget'); return; }
         if (res.status === 409) {
           // Already running or in terminal state — load latest
           current = await loadSprintDetail(id);
         } else if (!res.ok) {
-          throw new Error(await readApiError(res, 'Pipeline start failed'));
+          throw new Error(await readApiError(res, 'Autonomous pipeline start failed'));
         }
         // Realtime subscription drives the rest — no sequential polling needed
         return;

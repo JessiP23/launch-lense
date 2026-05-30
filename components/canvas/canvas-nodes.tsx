@@ -58,11 +58,13 @@ interface CardProps {
   width?: number;
   height?: number;
   children?: ReactNode;
+  badge?: string | null;
+  badgeColor?: 'green' | 'gray' | 'yellow';
 }
 
 function NodeCard({
   label, metric, metricLabel, sublabel,
-  stage, hasLeft = true, hasRight = true, selected = false, width = 192, height, children,
+  stage, hasLeft = true, hasRight = true, selected = false, width = 192, height, children, badge, badgeColor,
 }: CardProps) {
   const border = stageBorder(stage);
   const isRunning = stage === 'running';
@@ -186,6 +188,24 @@ function NodeCard({
       )}
       {metricLabel && (
         <p style={{ fontSize: '0.625rem', color: C.muted, margin: 0, fontWeight: 700 }}>{metricLabel}</p>
+      )}
+      {badge && (
+        <div style={{
+          marginTop: 6,
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: '3px 8px',
+          borderRadius: 999,
+          fontSize: '0.5625rem',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em',
+          background: badgeColor === 'green' ? '#dcfce7' : badgeColor === 'yellow' ? '#fef9c3' : '#f3f4f6',
+          color: badgeColor === 'green' ? '#166534' : badgeColor === 'yellow' ? '#854d0e' : '#4b5563',
+          border: `1px solid ${badgeColor === 'green' ? '#86efac' : badgeColor === 'yellow' ? '#fde047' : '#d1d5db'}`,
+        }}>
+          {badge}
+        </div>
       )}
       {sublabel && !metric && (
         <p style={{ fontSize: '0.8125rem', fontWeight: 800, color: stageColor(stage), margin: 0 }}>{sublabel}</p>
@@ -472,15 +492,25 @@ export const CampaignNode = memo(({ data, selected }: NodeProps<CampaignNodeType
 ));
 CampaignNode.displayName = 'CampaignNode';
 
-export type VerdictNodeData  = { verdict?: string; confidence?: number; stage: NodeStage };
+export type VerdictNodeData  = { verdict?: string; confidence?: number; stage: NodeStage; benchmark_source?: 'signal_fabric' | 'default'; vertical_sample_size?: number };
 export type VerdictNodeType  = Node<VerdictNodeData, 'verdict'>;
-export const VerdictNode = memo(({ data, selected }: NodeProps<VerdictNodeType>) => (
-  <NodeCard
-    label="Verdict" stage={data.stage} selected={!!selected}
-    metric={data.verdict ?? (data.stage === 'running' ? '…' : '—')}
-    metricLabel={data.confidence != null ? `${data.confidence}% confidence` : 'aggregate'}
-  />
-));
+export const VerdictNode = memo(({ data, selected }: NodeProps<VerdictNodeType>) => {
+  const benchmarkBadge = data.benchmark_source === 'signal_fabric'
+    ? `Calibrated against ${data.vertical_sample_size ?? 0} real sprints`
+    : data.benchmark_source === 'default'
+    ? 'Using default benchmarks'
+    : null;
+
+  return (
+    <NodeCard
+      label="Verdict" stage={data.stage} selected={!!selected}
+      metric={data.verdict ?? (data.stage === 'running' ? '…' : '—')}
+      metricLabel={data.confidence != null ? `${data.confidence}% confidence` : 'aggregate'}
+      badge={benchmarkBadge}
+      badgeColor={data.benchmark_source === 'signal_fabric' ? 'green' : 'gray'}
+    />
+  );
+});
 VerdictNode.displayName = 'VerdictNode';
 
 export type ReportNodeData  = { stage: NodeStage; ready?: boolean };

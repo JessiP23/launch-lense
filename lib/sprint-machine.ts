@@ -22,6 +22,7 @@ import type {
 import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
 import { hasCompletedPayment } from '@/lib/payments/db';
 import { seedSprintCreatives } from '@/lib/creatives/seed';
+import { writeSprintSignal } from '@/lib/signal-fabric';
 
 // ── State helpers ──────────────────────────────────────────────────────────
 
@@ -46,11 +47,11 @@ export async function patchSprint(
     .eq('id', sprint_id);
 }
 
-async function transitionState(sprint_id: string, next: SprintState): Promise<void> {
+export async function transitionState(sprint_id: string, next: SprintState): Promise<void> {
   await patchSprint(sprint_id, { state: next });
 }
 
-async function blockSprint(sprint_id: string, reason: string): Promise<void> {
+export async function blockSprint(sprint_id: string, reason: string): Promise<void> {
   await patchSprint(sprint_id, { state: 'BLOCKED', blocked_reason: reason });
 }
 
@@ -421,6 +422,10 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
       benchmark_avg_cpc_cents: benchRow?.avg_cpa_cents != null ? Number(benchRow.avg_cpa_cents) : null,
     });
     await patchSprint(sprint_id, { verdict, state: 'COMPLETE', campaign: completedCampaigns });
+
+    // Write sprint signal to Signal Fabric after COMPLETE
+    // This is non-blocking — we fire and forget to avoid delaying the response
+    void writeSprintSignal(sprint_id);
   } catch (err) {
     await blockSprint(sprint_id, `VerdictAgent failed: ${String(err)}`);
   }

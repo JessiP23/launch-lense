@@ -2,9 +2,19 @@
 
 ## Executive Summary
 
-LaunchLense is evolving from a Meta-focused validation tool into an agentic launch validation canvas. The current product combines market research, account readiness checks, creative generation, landing page preparation, campaign simulation or launch, verdict reporting, and post-sprint outreach in one workflow.
+LaunchLense is an agentic launch validation canvas that turns a startup idea into research, channel readiness, creative, landing, campaign evidence, verdict, report, and post-sprint activation. The product has evolved significantly from its Meta-focused origins into a comprehensive validation operating system with multi-channel support, intelligent calibration, and real-time monitoring.
 
 The strongest direction is the canvas-based workflow. It makes the product feel like an operating system for validating startup ideas rather than a form-based campaign builder. The main product risk is complexity: the user experience must keep the workflow visually clear, explain what each agent is doing, and avoid exposing implementation friction like OAuth setup, blocked states, or raw CSV semantics without strong guidance.
+
+**Major recent additions:**
+- Creative approval system with policy scanning and state machine
+- Intelligence dashboard with calibration, accuracy tracking, and verdict analytics
+- Demand validation system with deterministic scoring
+- Video brief generation for TikTok
+- Payment/checkout flow with Stripe integration
+- Real-time sprint monitoring via cron jobs
+- PostHog analytics integration
+- Server-side orchestrator for fault-tolerant pipeline execution
 
 ---
 
@@ -27,41 +37,62 @@ flowchart TB
     Canvas["Sprint canvas — React Flow"]
     Panel["Node panel"]
     Store["Zustand — UI state"]
+    Intel["Intelligence dashboard"]
   end
   subgraph edge["Edge — Route Handlers"]
     SprintAPI["/api/sprint/*"]
     IntegAPI["/api/integrations/google/*"]
     CronAPI["/api/cron/*"]
+    IntelAPI["/api/intelligence/*"]
+    PaymentAPI["/api/sprint/*/checkout"]
   end
   subgraph data["Data"]
     SB[(Supabase PostgreSQL)]
     Events[sprint_events]
+    Creatives[sprint_creatives]
+    IntelData[intelligence_views]
   end
   subgraph agents["Agents — lib/agents/*"]
     Genome[GenomeAgent]
     HG[Healthgate]
     Angle[AngleAgent]
+    Video[VideoBrief]
     Verdict[VerdictAgent]
     Sheet[SpreadsheetAgent]
     OutReach[Outreach]
     SlackA[Slack]
+  end
+  subgraph systems["Systems — lib/*"]
+    Policy[Policy scanner]
+    Demand[Demand validation]
+    Orch[Orchestrator]
+    Analytics[PostHog events]
   end
   subgraph ext["External APIs"]
     Groq[Groq LLM]
     Serp[SerpAPI search]
     MetaG[Meta Graph / Ad Library]
     GoogleAP[Gmail and Sheets]
+    Stripe[Stripe payments]
   end
   Canvas --> SprintAPI
   Panel --> SprintAPI
+  Intel --> IntelAPI
   SprintAPI --> SB
   SprintAPI --> agents
+  SprintAPI --> Policy
+  SprintAPI --> Demand
+  SprintAPI --> Orch
+  SprintAPI --> PaymentAPI
   agents --> Groq
   Genome --> Serp
   Genome --> MetaG
   Sheet --> GoogleAP
   OutReach --> GoogleAP
+  PaymentAPI --> Stripe
   SprintAPI --> Events
+  SprintAPI --> Creatives
+  agents --> Analytics
 ```
 
 ### Technology stack
@@ -70,25 +101,51 @@ flowchart TB
 | --- | --- |
 | App | Next.js App Router, React, TypeScript |
 | Canvas | `@xyflow/react`, custom nodes/edges, light Framer Motion |
-| Client state | React state + Zustand (`lib/store.ts`) |
+| Client state | React state + Zustand (`lib/store.ts`) + SWR for creatives/intelligence |
 | Database | Supabase / Postgres; server uses service client |
 | LLM | Groq (`lib/groq.ts`) for agent JSON |
 | Research | `lib/market-research.ts` — SerpAPI + Meta Ad Library |
 | Google | OAuth (`lib/google/*`), Sheets (`fetch-sheet`), Gmail (`send-gmail`), encrypted tokens |
 | Meta | Auth callbacks, webhooks, uploads (`lib/meta.ts`, related routes) |
+| Payments | Stripe (`lib/stripe-server.ts`, checkout flow) |
+| Policy | `lib/policy/scan.ts` — ad compliance scanner for Meta/Google/LinkedIn/TikTok |
+| Demand validation | `lib/demand-validation/*` — deterministic scoring, memo building |
+| Analytics | PostHog (`lib/analytics/*`) — event tracking, intelligence data |
+| Orchestrator | `lib/orchestrator.ts` — server-side fault-tolerant pipeline execution |
+| Creative store | `lib/creatives/store.ts` — status state machine, CRUD operations |
+| Intelligence | `components/intelligence/*` — calibration charts, accuracy tracking, verdict analytics |
+| Video brief | `lib/agents/video-brief.ts` — TikTok content generation |
+| Cron jobs | `app/api/cron/*` — health, metrics, sprint monitoring, verdict dispatch |
 
 ### Sprint state machine
 
 States (`SprintState` in `lib/agents/types.ts`):  
-`IDLE` → Genome → Healthgate → Angles → Landing → Campaign (`CAMPAIGN_RUNNING` / `CAMPAIGN_MONITORING`) → Verdict → `COMPLETE`; **`BLOCKED`** halts with `blocked_reason`.
+`IDLE` → `GENOME_RUNNING` → `GENOME_DONE` → `HEALTHGATE_RUNNING` → `HEALTHGATE_DONE` → `PAYMENT_PENDING` → `ANGLES_RUNNING` → `ANGLES_DONE` → `USER_REVIEW_REQUIRED` → `CREATIVE_APPROVED` → `LANDING_RUNNING` → `LANDING_DONE` → `CAMPAIGN_CREATING` → `CAMPAIGN_RUNNING` → `CAMPAIGN_MONITORING` → `VERDICT_GENERATING` → `COMPLETE`; **`BLOCKED`** halts with `blocked_reason`.
 
-Server orchestration primitives: `lib/sprint-machine.ts` (`dispatchGenome`, `dispatchHealthgate`, `dispatchAngles`, …). The UI may invoke routes in sequence; durable server-side job queues remain a roadmap upgrade.
+**Key new states:**
+- `PAYMENT_PENDING`: Pauses workflow until Stripe checkout completes
+- `USER_REVIEW_REQUIRED`: v10 approval gate — user must approve at least one creative per active channel
+- `CREATIVE_APPROVED`: Unlocks landing and campaign deployment steps
+
+Server orchestration primitives: `lib/sprint-machine.ts` (`dispatchGenome`, `dispatchHealthgate`, `dispatchAngles`, …) and `lib/orchestrator.ts` (server-side fault-tolerant pipeline). The UI may invoke routes in sequence; durable server-side job queues remain a roadmap upgrade.
 
 ### Data model (conceptual)
 
 One **`sprints`** row holds scalars (`idea`, `state`, `active_channels`, `budget_cents`, …) plus JSON blobs: **`genome`**, **`healthgate`**, **`angles`**, **`landing`**, **`campaign`**, **`verdict`**, **`report`**, **`integrations`**, **`post_sprint`**.
 
 **`sprint_events`** stores audit rows (agent, event_type, payload) for timelines and integration logs.
+
+**`sprint_creatives`** stores one row per (sprint, angle, platform) with:
+- Editable fields: `headline`, `primary_text`, `description`, `cta`, `image_url`, `video_url`
+- Status state machine: `draft` → `reviewing` → `approved` → `deploying` → `deployed`/`failed`
+- Policy scan results: `policy_severity`, `policy_issues`
+- Metadata: `meta` (free-form extension data)
+
+**Intelligence views** (materialized or query-based) power the analytics dashboard:
+- Sprint-level verdict distribution
+- Genome accuracy over time
+- Per-vertical performance
+- Calibration scatter plot data
 
 Trade-off: flexible JSON speeds iteration; cap large inline assets (e.g. creative images) to avoid PATCH/DB failures — prefer blob storage at scale.
 
@@ -99,9 +156,10 @@ Trade-off: flexible JSON speeds iteration; cap large inline assets (e.g. creativ
 | GenomeAgent | Pre-screen idea (scores, composite, GO/ITERATE/STOP, risks) | `genome` |
 | Healthgate | Per-channel readiness | `healthgate` |
 | AngleAgent | Channel-aware messaging angles | `angles` |
+| VideoBrief | TikTok video content generation (script, hook, broll ideas) | `angles` (video brief data) |
 | Landing flow | Landing narrative / deploy | `landing` |
 | Campaign | Spend / monitoring semantics | `campaign` |
-| VerdictAgent | Aggregate channel verdict | `verdict` |
+| VerdictAgent | Aggregate channel verdict + demand validation | `verdict`, `demand_validation` |
 | Report | Summary artifact readiness | `report` |
 | SpreadsheetAgent | Sheet or CSV → contacts | `post_sprint`, client session for edits |
 | Outreach | Gmail sends + logs | `post_sprint`, events |
@@ -109,9 +167,15 @@ Trade-off: flexible JSON speeds iteration; cap large inline assets (e.g. creativ
 
 ### HTTP API inventory (representative)
 
-**Core sprint**: `GET`/`POST` `/api/sprint`; `GET`/`PATCH` `/api/sprint/[id]`; `POST` `.../genome`, `.../healthgate`, `.../angles`, `.../override-stop`, `.../campaign/start`, `.../demo-complete`, `.../verdict`.
+**Core sprint**: `GET`/`POST` `/api/sprint`; `GET`/`PATCH` `/api/sprint/[id]`; `POST` `.../genome`, `.../healthgate`, `.../angles`, `.../override-stop`, `.../campaign/start`, `.../demo-complete`, `.../verdict`, `.../video-brief`.
+
+**Creative approval**: `GET`/`PATCH` `/api/sprint/[id]/creatives`; `POST` `.../creatives/[angle_id]/[platform]/scan`, `.../approve`, `.../reject`, `.../regenerate`.
+
+**Payment**: `POST` `/api/sprint/[id]/checkout`; `GET` `/api/sprint/[id]/payment-status`.
 
 **Post-sprint**: `.../post-sprint/prepare-sheet`, `send-outreach`, `post-slack`.
+
+**Intelligence**: `GET` `/api/intelligence` (with org_id param); `GET` `/api/intelligence/predictions/*`.
 
 **Google**: `/api/integrations/google/start`, `callback`, `status`, `disconnect`.
 
@@ -126,12 +190,17 @@ Dynamic landing delivery may live under `app/lp/[test_id]/route.ts`.
 - **`/canvas`** — empty hub; **`/canvas/[id]`** — deep-link sprint.
 - **`sprint-canvas.tsx`** — graph layout, progressive visibility, edges, toolbar wiring.
 - **`canvas-nodes.tsx`** — node visuals and stages.
-- **`node-panel.tsx`** — Genome logs, creatives, integrations, outreach, spreadsheet UX.
+- **`node-panel.tsx`** — Genome logs, creatives, integrations, outreach, spreadsheet UX, creative approval workspace.
 - **`canvas-toolbar.tsx`** — sprint selector, new sprint, global panels.
+- **`intelligence-dashboard.tsx`** — analytics dashboard with calibration charts, accuracy tracking, verdict distribution, live verdict feed.
+- **`creative-approval-workspace.tsx`** — single-source creative approval UI with angle/channel tabs, policy scanning, approve/reject/regenerate actions.
+- **`creative-editor.tsx`** — per (angle, platform) creative editing form with field limits, policy block, scan/approve actions.
 
 ### Metrics vocabulary (product language)
 
 Terms aligned with positioning: **CTR, CPM, CPC, CPA, ROAS**, impressions, spend, frequency — tied to campaign/verdict storytelling where implemented — alongside workflow terms (**composite**, **signal**, **healthgate**, **verdict**, **GO / ITERATE / STOP / NO-GO**).
+
+**Demand validation terms**: **confidence_score**, **ctr_score**, **conversion_score**, **consistency_score**, **efficiency_score**, **market_signal_strength** (WEAK/MODERATE/STRONG), **data_completeness_factor**, **benchmark_comparison** (ctr_position, conversion_position, cpc_position).
 
 ### Security and compliance (summary)
 
@@ -245,6 +314,154 @@ Recommended direction:
 - Extract repeated panel UI primitives only when they reduce real duplication.
 
 ## Feature Analysis
+
+### Creative Approval System
+
+Purpose:
+
+- Provides a structured approval workflow for creatives before campaign deployment
+- Enforces policy compliance scanning across Meta, Google, LinkedIn, and TikTok
+- Implements a status state machine (draft → reviewing → approved → deploying → deployed/failed)
+- Seeds creative rows automatically when angles are generated
+- Locks angle selection to the selected angle from the angles node
+
+Strengths:
+
+- Single source of truth for creative state in `sprint_creatives` table
+- Status state machine prevents invalid transitions
+- Policy scanner catches common ad rejections before API quota is burned
+- Angle selection locking prevents user confusion between angles node and creative panel
+- Optimistic editing with debounced PATCH requests for smooth UX
+- Angle selection locked to angles node selection ensures consistency
+
+Risk:
+
+- Large base64 creative images can overload persistence
+- Policy scanner rules may need continuous updates as platform policies change
+- User may not understand why certain creatives are blocked by policy
+
+Recommendation:
+
+- Move large creative assets to object storage at scale
+- Keep policy rules specific and well-documented
+- Show clear policy issue explanations in the UI
+- Continue using the sprint's selected_angle_id for image upload to ensure consistency
+
+### Intelligence Dashboard
+
+Purpose:
+
+- Provides analytics and calibration data across all sprints
+- Shows Genome accuracy over time
+- Displays verdict distribution (GO/ITERATE/NO-GO breakdown)
+- Provides per-vertical performance analysis
+- Shows calibration scatter plot for predicted vs actual outcomes
+- Live verdict feed for real-time sprint completion visibility
+
+Strengths:
+
+- Enables data-driven decision making about validation accuracy
+- Helps users understand system performance and trustworthiness
+- Calibration scatter plot shows correlation between predictions and outcomes
+- Paywall can monetize advanced analytics features
+
+Risk:
+
+- Requires sufficient sprint volume for meaningful analytics
+- May reveal accuracy issues that could hurt trust if not managed well
+- Performance concerns with large sprint datasets
+
+Recommendation:
+
+- Show confidence intervals and sample sizes for all metrics
+- Use paywall strategically for advanced features while keeping basic insights accessible
+- Implement caching and pagination for intelligence queries
+- Continue adding calibration features to improve prediction accuracy over time
+
+### Demand Validation System
+
+Purpose:
+
+- Provides deterministic scoring for campaign performance
+- Computes CTR, conversion, consistency, and efficiency scores
+- Generates demand validation memo with benchmark comparisons
+- Determines aggregate verdict (GO/ITERATE/NO-GO) based on confidence scores
+- Classifies market signal strength (WEAK/MODERATE/STRONG)
+
+Strengths:
+
+- Deterministic rules ensure consistency and reproducibility
+- Multi-factor scoring (CTR, conversion, consistency, efficiency) provides nuanced assessment
+- Benchmark comparisons contextualize performance
+- Data completeness factor accounts for partial spend scenarios
+- Clear confidence thresholds for verdict determination
+
+Risk:
+
+- Thresholds may need calibration based on actual campaign data
+- Benchmark data may not be available for all verticals
+- Deterministic rules may not capture edge cases
+
+Recommendation:
+
+- Continuously calibrate thresholds based on real campaign outcomes
+- Allow users to provide custom benchmarks when available
+- Monitor verdict accuracy and adjust scoring rules as needed
+- Keep scoring logic transparent and well-documented
+
+### Video Brief Agent
+
+Purpose:
+
+- Generates TikTok video content including 30s script, hook, broll ideas, and Spark Ads notes
+- Provides creative direction for TikTok campaigns
+- Leverages angle copy to generate platform-specific content
+
+Strengths:
+
+- Extends creative generation to video format
+- Provides actionable creative direction for TikTok
+- Integrates with existing angle system
+
+Risk:
+
+- Limited to TikTok platform (not yet expanded to other video platforms)
+- Quality depends on LLM output consistency
+- May require human review before production use
+
+Recommendation:
+
+- Expand to other video platforms (LinkedIn Video, YouTube Shorts) in future
+- Add human review step before video production
+- Track video performance to improve prompts over time
+
+### Payment/Checkout Flow
+
+Purpose:
+
+- Integrates Stripe for payment processing
+- Pauses workflow at PAYMENT_PENDING state until checkout completes
+- Provides payment status tracking
+- Enables monetization of validation sprints
+
+Strengths:
+
+- Enables revenue generation from validation services
+- Clean integration with existing state machine
+- Payment status tracking provides visibility
+
+Risk:
+
+- Stripe integration adds complexity and dependency
+- Payment friction may reduce conversion rate for validation
+- Need to handle payment failures gracefully
+
+Recommendation:
+
+- Provide clear value proposition before payment gate
+- Offer free tier or trial for new users
+- Handle payment failures with helpful error messages and recovery paths
+- Consider subscription model for frequent validators
 
 ### GenomeAgent
 
@@ -432,22 +649,31 @@ Important constraint:
 
 ### Data Layer
 
-Supabase stores sprint state, events, integrations, and agent outputs. The sprint record acts as the workflow state machine source of truth.
+Supabase stores sprint state, events, integrations, creatives, and agent outputs. The sprint record acts as the workflow state machine source of truth.
+
+**Tables:**
+- `sprints` — main sprint state machine
+- `sprint_events` — audit rows for timelines and integration logs
+- `sprint_creatives` — one row per (sprint, angle, platform) with creative state and policy scan results
+- Intelligence views — materialized or query-based views for analytics dashboard
 
 Strengths:
 
 - JSON fields allow fast iteration on agent outputs.
 - `sprint_events` provides auditability and agent logs.
+- `sprint_creatives` table provides structured creative state with status machine.
 - Server routes can update state incrementally.
 
 Risks:
 
 - Large JSON payloads can cause API or database failures.
 - Too much state in one sprint record can become difficult to manage.
+- Base64 creative images in sprint_creatives can bloat storage.
 
 Recommendations:
 
-- Keep large assets out of sprint JSON.
+- Keep large assets out of sprint JSON and sprint_creatives.
+- Move creative images to object storage at scale.
 - Continue using event rows for logs.
 - Consider separate tables for large outreach batches if scale increases.
 
@@ -455,43 +681,84 @@ Recommendations:
 
 The product uses Next.js API routes for sprint orchestration and integrations.
 
-Important routes:
-
+**Important routes:**
 - `POST /api/sprint` creates a sprint.
 - `GET /api/sprint` lists sprints.
 - `GET /api/sprint/[sprint_id]` loads sprint detail.
 - `POST /api/sprint/[sprint_id]/genome` runs GenomeAgent.
 - `POST /api/sprint/[sprint_id]/healthgate` runs Healthgate.
 - `POST /api/sprint/[sprint_id]/angles` runs AngleAgent.
+- `POST /api/sprint/[sprint_id]/video-brief` runs VideoBrief.
+- `GET /api/sprint/[sprint_id]/creatives` lists creatives.
+- `PATCH /api/sprint/[sprint_id]/creatives/[angle_id]/[platform]` updates creative.
+- `POST /api/sprint/[sprint_id]/creatives/[angle_id]/[platform]/scan` runs policy scanner.
+- `POST /api/sprint/[sprint_id]/creatives/[angle_id]/[platform]/approve` approves creative.
+- `POST /api/sprint/[sprint_id]/creatives/[angle_id]/[platform]/reject` rejects creative.
+- `POST /api/sprint/[sprint_id]/creatives/[angle_id]/[platform]/regenerate` regenerates creative.
+- `POST /api/sprint/[sprint_id]/checkout` initiates Stripe checkout.
+- `GET /api/sprint/[sprint_id]/payment-status` checks payment status.
 - `POST /api/sprint/[sprint_id]/post-sprint/prepare-sheet` runs SpreadsheetAgent.
 - `POST /api/sprint/[sprint_id]/post-sprint/send-outreach` runs OutreachAgent.
+- `GET /api/intelligence` loads intelligence dashboard data.
 
 Recommendations:
 
 - Keep every API error JSON-shaped so the client never fails on empty responses.
 - Persist enough failure context for users to understand what happened.
 - Avoid silently simulating real sends unless the UI marks simulation mode clearly.
+- Implement rate limiting for intelligence queries to prevent abuse.
 
 ### OAuth and External APIs
 
-Integrations include Google OAuth, Gmail API, Google Sheets API, Meta APIs, Serper or live search signals, and Slack.
+Integrations include Google OAuth, Gmail API, Google Sheets API, Meta APIs, Serper or live search signals, Slack, and Stripe.
 
 Strengths:
 
 - User-scoped Google connection creates a practical real-world workflow.
 - Gmail sending and Sheets reading are high-value post-sprint features.
+- Stripe integration enables monetization.
+- Policy scanner pre-validates creatives against platform rules.
 
 Risks:
 
 - Google verification and sensitive scopes can block production access.
 - OAuth token scope is currently org/sprint oriented, not necessarily per-user.
 - Meta app review can block production campaign creation.
+- Stripe integration adds payment complexity and compliance requirements.
+- Policy scanner rules require ongoing maintenance as platform policies change.
 
 Recommendations:
 
 - Finish Google OAuth publishing and test-user setup.
 - Decide whether Gmail tokens are org-scoped or user-scoped.
 - Keep setup state visible in the UI, not hidden in documentation.
+- Implement Stripe webhook handling for payment confirmation.
+- Establish a process for updating policy scanner rules regularly.
+
+### Server-Side Orchestrator
+
+The `lib/orchestrator.ts` provides fault-tolerant, resumable pipeline execution on the server.
+
+Strengths:
+
+- Resumable: starts from current sprint state, skips completed stages
+- Fault-tolerant: each stage catches errors and writes BLOCKED
+- Observable: writes sprint_events for every transition
+- Idempotent: safe to call multiple times on the same sprint
+- Separates orchestration from client-side sequencing
+
+Risks:
+
+- Still depends on client to initiate orchestration in many cases
+- Long-running pipelines may time out in serverless environments
+- No durable job queue yet (roadmap item)
+
+Recommendations:
+
+- Move more orchestration to server-side cron triggers
+- Consider Inngest or Supabase Queues for durable job execution
+- Implement timeout handling and retry logic
+- Add observability for orchestrator execution
 
 ## Performance Analysis
 
@@ -502,6 +769,9 @@ Primary performance risks:
 - Large base64 creative images persisted or sent through PATCH.
 - Frequent React Flow node updates from measured dimensions.
 - Panel remount animations when clicking between nodes.
+- Intelligence dashboard queries with large sprint datasets.
+- Policy scanner running on every creative scan.
+- Creative approval workspace rendering multiple angle/channel combinations.
 
 Current mitigations:
 
@@ -509,6 +779,9 @@ Current mitigations:
 - Panel switching is simpler and avoids unnecessary entry animation.
 - Sent email preview uses lightweight stored text.
 - Node layout merges avoid unnecessary updates.
+- SWR caching for creatives and intelligence data with refresh intervals.
+- Debounced PATCH requests for creative field edits (350ms).
+- Angle selection locking reduces unnecessary re-renders.
 
 Recommended next improvements:
 
@@ -516,6 +789,10 @@ Recommended next improvements:
 - Memoize expensive preview computations.
 - Move repeated inline styles into shared primitives only where it reduces code.
 - Keep edge animations minimal.
+- Implement pagination for intelligence dashboard queries.
+- Cache policy scan results to avoid redundant scans.
+- Consider materialized views for intelligence analytics to improve query performance.
+- Add request debouncing for intelligence API calls.
 
 ## Deep Canvas Efficiency and Optimization Audit
 
@@ -757,11 +1034,20 @@ Highest-priority UX improvements:
 | --- | --- | --- | --- |
 | OAuth | Google app not verified | Users cannot connect Gmail/Sheets | Publish consent screen, configure test users, verify sensitive scopes |
 | Campaigns | Meta app review incomplete | Real campaign launch blocked | Show live/demo state clearly |
-| Data | Large JSON payloads | API/database failures | Store large assets externally |
+| Data | Large JSON payloads | API/database failures | Store large assets externally, move creative images to object storage |
 | UI | Canvas overcrowding | Workflow becomes hard to read | Dynamic spacing by node size and channel count |
 | Outreach | Gmail failures unclear | Users do not trust sends | Persist per-contact error reasons |
 | Contacts | Large lists | Browser lag | Add pagination or virtualization |
 | Product | Too many agent details | Users feel overwhelmed | Keep summaries in nodes, details in panels |
+| Creative approval | Policy scanner outdated | Creatives blocked incorrectly | Establish regular policy rule update process |
+| Creative approval | Angle selection confusion | Users upload to wrong angle | Lock angle selection to angles node selection (already implemented) |
+| Intelligence | Low sprint volume | Analytics not meaningful | Show sample sizes and confidence intervals |
+| Intelligence | Performance issues with large datasets | Slow dashboard load | Implement pagination, caching, materialized views |
+| Payment | Stripe integration complexity | Payment failures | Implement webhook handling, clear error messages, recovery paths |
+| Payment | Payment friction | Reduced conversion | Offer free tier/trial, clear value proposition |
+| Demand validation | Threshold mis-calibrated | Incorrect verdicts | Continuously calibrate based on real outcomes, allow custom benchmarks |
+| Video brief | LLM output inconsistency | Poor video quality | Add human review step, track performance to improve prompts |
+| Orchestrator | Long-running pipelines timeout | Incomplete sprints | Implement timeout handling, retry logic, durable job queues |
 
 ## Recommended Roadmap
 
@@ -771,6 +1057,8 @@ Highest-priority UX improvements:
 - Tune workflow spacing visually across different channel counts.
 - Ensure new sprint creation always starts the visible workflow.
 - Keep sent email preview visible in Spreadsheet after Outreach sends.
+- Move creative images to object storage to prevent bloat in sprint_creatives.
+- Implement Stripe webhook handling for payment confirmation.
 
 ### Near Term
 
@@ -778,6 +1066,9 @@ Highest-priority UX improvements:
 - Add clearer live/demo labels for external integrations.
 - Add more explicit blocked-state recovery UX.
 - Consolidate repeated panel UI patterns.
+- Implement pagination for intelligence dashboard queries.
+- Add materialized views for intelligence analytics to improve query performance.
+- Establish regular policy scanner rule update process.
 
 ### Mid Term
 
@@ -785,6 +1076,10 @@ Highest-priority UX improvements:
 - Add per-user Google token scoping if multi-user orgs are important.
 - Add production Slack OAuth flow.
 - Add better workflow run orchestration server-side so long-running steps do not depend on a single client session.
+- Implement durable job queues (Inngest or Supabase Queues) for orchestrator.
+- Expand video brief generation to other platforms (LinkedIn Video, YouTube Shorts).
+- Add custom benchmark input for demand validation.
+- Implement continuous calibration of demand validation thresholds based on real outcomes.
 
 ### Long Term
 
@@ -792,7 +1087,46 @@ Highest-priority UX improvements:
 - Add cross-channel budget recommendations.
 - Add workspace-level reporting across multiple validation sprints.
 - Add an AI analyst layer that can answer questions from campaign, landing, and outreach data.
+- Implement live signal ingestion from Reddit, Telegram, HN, Product Hunt for continuous demand monitoring.
+- Add per-niche embedding memory for similar idea comparison.
+- Build ICP discovery engine to generate ranked lists of specific people/communities.
+- Add keyboard-first command palette for terminal-like UX.
+- Implement watchlist/alerts system for signal shifts.
 
 ## Final Assessment
 
-LaunchLense has a strong product shape: an agentic validation canvas that turns a startup idea into research, channel readiness, creative, landing, campaign evidence, verdict, report, and outreach. The UI direction is compelling, but it must stay disciplined. The best version of the product is not a dense automation dashboard; it is a clean workflow where each agent produces visible evidence and the user always understands what happened, why it happened, and what to do next.
+LaunchLense has evolved significantly from its Meta-focused origins into a comprehensive validation operating system. The product now includes:
+
+**Core Validation Pipeline:** Genome → Healthgate → Angles → Creative Approval → Landing → Campaign → Verdict → Report, with optional post-sprint activation (Spreadsheet → Outreach → Slack).
+
+**Major New Capabilities:**
+- **Creative Approval System:** Structured workflow with policy scanning, status state machine, and angle selection locking
+- **Intelligence Dashboard:** Analytics and calibration with accuracy tracking, verdict distribution, and live verdict feed
+- **Demand Validation:** Deterministic scoring with CTR, conversion, consistency, and efficiency metrics
+- **Video Brief Generation:** TikTok content generation with scripts, hooks, and broll ideas
+- **Payment/Checkout Flow:** Stripe integration for monetization
+- **Real-time Monitoring:** Cron jobs for health, metrics, sprint monitoring, and verdict dispatch
+- **PostHog Analytics:** Event tracking and intelligence data
+- **Server-side Orchestrator:** Fault-tolerant, resumable pipeline execution
+
+**Product Positioning:**
+The canvas-based workflow makes LaunchLense feel like an operating system for validating startup ideas rather than a form-based campaign builder. The strongest direction is to continue building toward the "Bloomberg terminal for startup validation" vision with live signal ingestion, learning loops, and terminal-grade UX.
+
+**Key Architectural Strengths:**
+- Single source of truth in Supabase with sprint state machine
+- Structured creative store with status state machine
+- Policy scanner prevents wasted API quota on rejected creatives
+- Demand validation provides deterministic, explainable verdicts
+- Intelligence dashboard enables data-driven trust and calibration
+- Server-side orchestrator improves reliability over client-driven sequencing
+
+**Critical Success Factors:**
+1. Keep the workflow visually clear and explain what each agent is doing
+2. Maintain policy scanner accuracy with regular rule updates
+3. Continuously calibrate demand validation thresholds based on real outcomes
+4. Scale intelligence queries with pagination and materialized views
+5. Move to durable job queues for long-running pipelines
+6. Implement live signal ingestion for continuous demand monitoring
+7. Build toward terminal-grade UX with watchlists, alerts, and command palette
+
+The best version of the product is not a dense automation dashboard; it is a clean workflow where each agent produces visible evidence and the user always understands what happened, why it happened, and what to do next. The recent additions—creative approval, intelligence dashboard, demand validation—move the product significantly closer to this vision while maintaining the core canvas metaphor.

@@ -149,6 +149,10 @@ export interface GenomeAgentOutput {
   } | null;
   data_source: 'real' | 'llm_estimate';
   elapsed_ms: number;
+  /** Source of benchmark data used for pre-screen: 'signal_fabric' or 'default' */
+  benchmark_source?: 'signal_fabric' | 'default';
+  /** Minimum acceptable CTR threshold from benchmarks (if available) */
+  benchmark_min_ctr?: number | null;
 }
 
 // ── Agent 2: HealthgateAgent (per channel) ────────────────────────────────
@@ -430,6 +434,10 @@ export interface VerdictAgentOutput {
     data_completeness_factor: number;
     memo: DemandValidationMemo;
   };
+  /** Source of benchmark data used for verdict: 'signal_fabric' or 'default' */
+  benchmark_source?: 'signal_fabric' | 'default';
+  /** Number of sprints in the benchmark sample (when benchmark_source is 'signal_fabric') */
+  vertical_sample_size?: number;
 }
 
 // ── Agent 7: ReportAgent ──────────────────────────────────────────────────
@@ -540,6 +548,7 @@ export interface SprintCreative {
   policy_severity: PolicySeverity | null;
   policy_issues: PolicyIssue[] | null;
   policy_scanned_at: string | null;
+  policy_score: number | null;
 
   approved_at: string | null;
   approved_by: string | null;

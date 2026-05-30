@@ -48,7 +48,7 @@ export async function POST(
     video_url_length: row.video_url?.length,
   });
 
-  const result = scanCreative({
+  const result = await scanCreative({
     platform: channel,
     headline: row.headline ?? undefined,
     primary_text: row.primary_text ?? undefined,
@@ -69,7 +69,8 @@ export async function POST(
       angle_id,
       channel,
       result.severity,
-      result.issues
+      result.issues,
+      result.score
     );
 
     void emitSprintEvent(sprint_id, SprintEventName.CreativePolicyScanned, {
@@ -78,6 +79,7 @@ export async function POST(
       severity: result.severity,
       issue_count: result.issues.length,
       blocked: result.blocked,
+      score: result.score,
     });
 
     return Response.json({
@@ -86,6 +88,7 @@ export async function POST(
       issues: result.issues,
       blocked: result.blocked,
       scanned_at: result.scanned_at,
+      score: result.score,
     });
   } catch (err) {
     return Response.json(

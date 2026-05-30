@@ -6,6 +6,7 @@
 import { callGroqJSON } from '@/lib/groq';
 import { fetchRealMarketData } from '@/lib/market-research';
 import type { GenomeAgentOutput, GenomeScores } from './types';
+import { getVerticalBenchmarks, type BenchmarkRow } from '@/lib/signal-fabric';
 
 // ── Weights per axis ───────────────────────────────────────────────────────
 const WEIGHTS: Record<keyof GenomeScores, number> = {
@@ -86,6 +87,11 @@ export async function runGenomeAgent(idea: string): Promise<GenomeAgentOutput> {
   // 1. Fetch live market data in parallel
   const realData = await fetchRealMarketData(idea.trim());
   const hasReal = !!(realData.serper || realData.meta_ads);
+
+  // 2. Fetch benchmarks from Signal Fabric (will be used after market_category is known)
+  let benchmarks: BenchmarkRow[] = [];
+  let benchmarkSource: 'signal_fabric' | 'default' = 'default';
+  let benchmarkMinCtr: number | null = null;
 
   const g = realData.serper;
   const m = realData.meta_ads;
@@ -175,6 +181,23 @@ Return ONLY this JSON:
   const composite = computeComposite(scores);
   const signal = signalFromComposite(composite);
 
+  // 3. Fetch benchmarks from Signal Fabric for the market_category
+  const vertical = String(raw.market_category ?? '').toLowerCase() || 'other';
+  try {
+    benchmarks = await getVerticalBenchmarks(vertical);
+    const hasSufficientBenchmarkData = benchmarks.some((b) => b.sample_size >= 5);
+    if (hasSufficientBenchmarkData) {
+      benchmarkSource = 'signal_fabric';
+      // Use the minimum avg_ctr across channels as the threshold (conservative)
+      const validBenchmarks = benchmarks.filter((b) => b.sample_size >= 5 && b.avg_ctr !== null);
+      if (validBenchmarks.length > 0) {
+        benchmarkMinCtr = Math.min(...validBenchmarks.map((b) => b.avg_ctr!));
+      }
+    }
+  } catch (err) {
+    console.warn('[GenomeAgent] Failed to fetch benchmarks, using default thresholds:', err);
+  }
+
   // 3. ICP flag — if ICP < 40, risks must include it regardless of composite
   const risks: string[] = Array.isArray(raw.risks) ? raw.risks.slice(0, 5) : [];
   if (scores.icp < 40 && !risks.some((r) => /icp|buyer|customer|audience/i.test(r))) {
@@ -210,6 +233,8 @@ Return ONLY this JSON:
     } : null,
     data_source: hasReal ? 'real' : 'llm_estimate',
     elapsed_ms: Date.now() - t0,
+    benchmark_source: benchmarkSource,
+    benchmark_min_ctr: benchmarkMinCtr,
   };
 
   return output;
