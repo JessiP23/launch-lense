@@ -1458,6 +1458,51 @@ function CampaignPanel({
   const channels = (sprint?.active_channels?.length ? sprint.active_channels : ['meta', 'google', 'linkedin', 'tiktok']) as Platform[];
   const [launching, setLaunching] = useState(false);
   const [launchMessage, setLaunchMessage] = useState<string | null>(null);
+  const [autopilotConfig, setAutopilotConfig] = useState<any>(null);
+  const [autopilotEnabled, setAutopilotEnabled] = useState(false);
+  const [autopilotDecisions, setAutopilotDecisions] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!sprint) return;
+    const fetchAutopilotData = async () => {
+      try {
+        const [configRes, decisionsRes] = await Promise.all([
+          fetch(`/api/sprint/${sprint.sprint_id}/autopilot/config`),
+          fetch(`/api/sprint/${sprint.sprint_id}/autopilot/decisions?limit=5`),
+        ]);
+        const config = await configRes.json().catch(() => null);
+        const decisions = await decisionsRes.json().catch(() => null);
+        if (config?.config) {
+          setAutopilotConfig(config.config);
+          setAutopilotEnabled(config.config.enabled ?? false);
+        }
+        if (decisions?.decisions) {
+          setAutopilotDecisions(decisions.decisions);
+        }
+      } catch (err) {
+        console.error('[CampaignPanel] Failed to fetch autopilot data:', err);
+      }
+    };
+    fetchAutopilotData();
+  }, [sprint]);
+
+  const toggleAutopilot = async () => {
+    if (!sprint) return;
+    try {
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}/autopilot/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autopilotEnabled }),
+      });
+      const data = await res.json().catch(() => null);
+      if (data?.config) {
+        setAutopilotConfig(data.config);
+        setAutopilotEnabled(data.config.enabled ?? false);
+      }
+    } catch (err) {
+      console.error('[CampaignPanel] Failed to toggle autopilot:', err);
+    }
+  };
 
   const startCampaign = async () => {
     if (!sprint) return;
@@ -1552,6 +1597,59 @@ function CampaignPanel({
         )}
       </div>
       {launchMessage && <p style={{ margin: '0 0 12px', color: launchMessage.startsWith('Campaign deployed') ? C.ink : C.stop, fontSize: '0.8125rem' }}>{launchMessage}</p>}
+
+      {/* Autopilot Section */}
+      {sprint && (sprint.state === 'CAMPAIGN_RUNNING' || sprint.state === 'CAMPAIGN_MONITORING') && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Label>Autopilot</Label>
+            <button
+              onClick={toggleAutopilot}
+              style={{
+                height: 24,
+                padding: '0 8px',
+                border: `1px solid ${autopilotEnabled ? C.go : C.border}`,
+                background: autopilotEnabled ? `${C.go}10` : 'transparent',
+                borderRadius: 6,
+                fontSize: '0.75rem',
+                color: autopilotEnabled ? C.go : C.muted,
+                cursor: 'pointer',
+              }}
+            >
+              {autopilotEnabled ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+          {autopilotConfig && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+              <div style={{ background: C.faint, borderRadius: 8, padding: '8px 10px' }}>
+                <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, margin: '0 0 3px' }}>Max Budget</p>
+                <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: C.ink, margin: 0 }}>
+                  ${autopilotConfig.max_budget_cents ? (autopilotConfig.max_budget_cents / 100).toFixed(0) : '—'}
+                </p>
+              </div>
+              <div style={{ background: C.faint, borderRadius: 8, padding: '8px 10px' }}>
+                <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, margin: '0 0 3px' }}>Min CTR</p>
+                <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: C.ink, margin: 0 }}>
+                  {autopilotConfig.min_ctr ? (autopilotConfig.min_ctr * 100).toFixed(1) + '%' : '—'}
+                </p>
+              </div>
+            </div>
+          )}
+          {autopilotDecisions.length > 0 && (
+            <div>
+              <p style={{ fontSize: '0.6875rem', fontWeight: 600, color: C.muted, marginBottom: 6 }}>Recent Decisions</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {autopilotDecisions.slice(0, 3).map((d) => (
+                  <div key={d.id} style={{ fontSize: '0.75rem', color: C.ink, padding: '6px 8px', background: C.faint, borderRadius: 6 }}>
+                    <span style={{ fontWeight: 600 }}>{d.action}</span> · {d.channel} · {new Date(d.created_at).toLocaleString()}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {channel
         ? renderChannel(channel as Platform)
         : channels.map(renderChannel)}
@@ -1604,6 +1702,65 @@ function VerdictPanel({ sprint }: { sprint?: SprintRecord | null }) {
           );
         })}
       </div>
+
+      {/* ICP Discovery */}
+      {(sprint as any).icp_discovery && (sprint as any).icp_discovery.segments && (sprint as any).icp_discovery.segments.length > 0 && (
+        <div style={{ marginTop: 16, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px' }}>
+          <Label>ICP Discovery</Label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            {(sprint as any).icp_discovery.segments.map((segment: any, i: number) => (
+              <div key={i} style={{ background: C.faint, borderRadius: 8, padding: '10px 12px' }}>
+                <p style={{ fontWeight: 600, fontSize: '0.8125rem', color: C.ink, margin: '0 0 6px' }}>{segment.segment_name}</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: '0 0 4px' }}>{segment.why_they_fit}</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: '0 0 4px' }}>Where to find: {segment.where_to_find_them}</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: '0 0 4px' }}>Size: {segment.estimated_segment_size}</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: '0 0 4px', fontStyle: 'italic' }}>{segment.urgency_signal}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* GTM Package */}
+      {(sprint as any).gtm_package && (
+        <div style={{ marginTop: 16, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px' }}>
+          <Label>GTM Starter Package</Label>
+          <div style={{ marginTop: 8 }}>
+            {(sprint as any).gtm_package.thirty_day_plan && (sprint as any).gtm_package.thirty_day_plan.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <p style={{ fontWeight: 600, fontSize: '0.8125rem', color: C.ink, margin: '0 0 6px' }}>Next 30 Days</p>
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {(sprint as any).gtm_package.thirty_day_plan.map((action: string, i: number) => (
+                    <li key={i} style={{ fontSize: '0.75rem', color: C.ink, paddingLeft: 12, position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 0, color: C.muted }}>·</span>
+                      {action}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(sprint as any).gtm_package.primary_channel && (
+              <div style={{ marginBottom: 12 }}>
+                <p style={{ fontWeight: 600, fontSize: '0.8125rem', color: C.ink, margin: '0 0 4px' }}>Primary Channel</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: 0 }}>{(sprint as any).gtm_package.primary_channel}</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: '2px 0 0' }}>{(sprint as any).gtm_package.primary_channel_reason}</p>
+              </div>
+            )}
+            {(sprint as any).gtm_package.the_beachhead && (
+              <div style={{ marginBottom: 12 }}>
+                <p style={{ fontWeight: 600, fontSize: '0.8125rem', color: C.ink, margin: '0 0 4px' }}>The Beachhead</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: 0 }}>{(sprint as any).gtm_package.the_beachhead}</p>
+              </div>
+            )}
+            {(sprint as any).gtm_package.competitive_wedge && (
+              <div>
+                <p style={{ fontWeight: 600, fontSize: '0.8125rem', color: C.ink, margin: '0 0 4px' }}>Competitive Wedge</p>
+                <p style={{ fontSize: '0.75rem', color: C.muted, margin: 0 }}>{(sprint as any).gtm_package.competitive_wedge}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1643,7 +1800,7 @@ function ReportPanel({ sprint }: { sprint?: SprintRecord | null }) {
         )}
       </div>
       <a
-        href={`/api/reports/${sprint.sprint_id}`}
+        href={`/api/sprint/${sprint.sprint_id}/report/pdf`}
         target="_blank"
         rel="noreferrer"
         style={{ display: 'block', width: '100%', textAlign: 'center', padding: '10px', background: C.ink, color: '#FFF', borderRadius: 10, fontSize: '0.875rem', fontWeight: 600, textDecoration: 'none' }}

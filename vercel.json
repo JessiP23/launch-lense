@@ -15,6 +15,18 @@
     {
       "path": "/api/cron/sprint-monitor",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/autopilot",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/autopilot-backfill",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/nurture",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

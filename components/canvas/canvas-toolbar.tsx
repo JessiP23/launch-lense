@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
+import { Mail } from 'lucide-react';
 
 const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
@@ -18,7 +19,23 @@ interface Props {
 export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPanel }: Props) {
   const { setCmdkOpen } = useAppStore();
   const [open, setOpen] = useState(false);
+  const [leadsCount, setLeadsCount] = useState(0);
   const active = sprints.find((s) => s.id === activeSprint);
+
+  useEffect(() => {
+    const fetchLeadsCount = async () => {
+      try {
+        const res = await fetch('/api/nurture/leads');
+        const data = await res.json().catch(() => null);
+        if (data?.total != null) {
+          setLeadsCount(data.total);
+        }
+      } catch (err) {
+        console.error('[CanvasToolbar] Failed to fetch leads count:', err);
+      }
+    };
+    fetchLeadsCount();
+  }, []);
 
   return (
     <div
@@ -134,6 +151,32 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
           {label}
         </button>
       ))}
+
+      {/* Leads Indicator */}
+      <button
+        onClick={() => onOpenPanel('leads')}
+        style={{
+          height: 30, padding: '0 10px',
+          background: leadsCount > 0 ? `${C.ink}08` : 'transparent',
+          border: `1px solid ${leadsCount > 0 ? C.ink : C.border}`,
+          borderRadius: 8, fontSize: '0.8125rem', color: leadsCount > 0 ? C.ink : C.muted,
+          cursor: 'pointer', flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        <Mail style={{ width: 14, height: 14 }} />
+        <span>Leads</span>
+        {leadsCount > 0 && (
+          <span style={{
+            background: C.ink, color: '#FFF',
+            borderRadius: 99, padding: '0 6px',
+            fontSize: '0.6875rem', fontWeight: 700,
+            minWidth: 18, textAlign: 'center',
+          }}>
+            {leadsCount}
+          </span>
+        )}
+      </button>
     </div>
   );
 }

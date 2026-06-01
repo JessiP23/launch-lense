@@ -23,6 +23,10 @@ import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
 import { hasCompletedPayment } from '@/lib/payments/db';
 import { seedSprintCreatives } from '@/lib/creatives/seed';
 import { writeSprintSignal } from '@/lib/signal-fabric';
+import { runICPDiscovery } from '@/lib/agents/icp-discovery';
+import { generateGTMPackage } from '@/lib/agents/gtm-package';
+import { initAutopilotPool } from '@/lib/autopilot/engine';
+import { autoEnrollLeadsFromSprint } from '@/lib/agents/nurture/orchestrator';
 
 // ── State helpers ──────────────────────────────────────────────────────────
 
@@ -325,6 +329,19 @@ export async function dispatchCampaignLaunch(
       angles: { ...(pre.angles as object), _meta_adset_map: result.adsetMap } as unknown as typeof pre.angles,
       state: 'CAMPAIGN_RUNNING',
     });
+
+    // Initialize autopilot creative pool if autopilot is enabled
+    const db = createServiceClient();
+    const { data: autopilotConfig } = await db
+      .from('autopilot_configs')
+      .select('*')
+      .eq('sprint_id', sprint_id)
+      .eq('enabled', true)
+      .maybeSingle();
+
+    if (autopilotConfig) {
+      void initAutopilotPool(sprint_id).catch(err => console.error('[sprint-machine] initAutopilotPool failed:', err));
+    }
   } catch (err) {
     await blockSprint(sprint_id, `dispatchCampaignLaunch failed: ${String(err)}`);
   }
@@ -426,6 +443,15 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
     // Write sprint signal to Signal Fabric after COMPLETE
     // This is non-blocking — we fire and forget to avoid delaying the response
     void writeSprintSignal(sprint);
+
+    // Run ICP Discovery after COMPLETE (non-blocking)
+    void runICPDiscovery(sprint_id).catch(err => console.error('[sprint-machine] runICPDiscovery failed:', err));
+
+    // Run GTM Package after COMPLETE (non-blocking)
+    void generateGTMPackage(sprint_id).catch(err => console.error('[sprint-machine] generateGTMPackage failed:', err));
+
+    // Auto-enroll leads in retention sequence after COMPLETE (non-blocking)
+    void autoEnrollLeadsFromSprint(sprint_id).catch(err => console.error('[sprint-machine] autoEnrollLeadsFromSprint failed:', err));
   } catch (err) {
     await blockSprint(sprint_id, `VerdictAgent failed: ${String(err)}`);
   }
