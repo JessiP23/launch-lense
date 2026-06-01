@@ -319,10 +319,11 @@ const LANDING_VISIBLE: SprintState[] = [
   'VERDICT_GENERATING', 'COMPLETE',
 ];
 
-/** Campaign nodes: only visible once campaign starts. */
+/** Campaign nodes: visible from ANGLES_DONE onward */
 const CAMPAIGN_VISIBLE: SprintState[] = [
-  'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
-  'VERDICT_GENERATING', 'COMPLETE',
+  'ANGLES_DONE', 'USER_REVIEW_REQUIRED', 'CREATIVE_APPROVED',
+  'LANDING_RUNNING', 'LANDING_DONE', 'CAMPAIGN_CREATING', 'CAMPAIGN_RUNNING', 'CAMPAIGN_MONITORING',
+  'VERDICT_GENERATING', 'COMPLETE', 'BLOCKED',
 ];
 
 /** Verdict node: only visible once verdict is being generated. */
