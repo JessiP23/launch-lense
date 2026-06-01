@@ -23,6 +23,8 @@ import { isStripePaymentGateEnabled } from '@/lib/payment-gate';
 import { hasCompletedPayment } from '@/lib/payments/db';
 import { seedSprintCreatives } from '@/lib/creatives/seed';
 import { writeSprintSignal } from '@/lib/signal-fabric';
+import { runICPDiscovery } from '@/lib/agents/icp-discovery';
+import { generateGTMPackage } from '@/lib/agents/gtm-package';
 
 // ── State helpers ──────────────────────────────────────────────────────────
 
@@ -426,6 +428,17 @@ export async function dispatchVerdict(sprint_id: string): Promise<SprintRecord> 
     // Write sprint signal to Signal Fabric after COMPLETE
     // This is non-blocking — we fire and forget to avoid delaying the response
     void writeSprintSignal(sprint);
+
+    // Run ICP Discovery and GTM Package after COMPLETE
+    // These are automatic post-sprint analyses that don't block the verdict
+    void (async () => {
+      try {
+        await runICPDiscovery(sprint_id);
+        await generateGTMPackage(sprint_id);
+      } catch (err) {
+        console.warn(`[dispatchVerdict] Post-sprint analysis failed for ${sprint_id}:`, err);
+      }
+    })();
   } catch (err) {
     await blockSprint(sprint_id, `VerdictAgent failed: ${String(err)}`);
   }

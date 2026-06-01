@@ -38,7 +38,10 @@ export async function GET(request: NextRequest) {
 
     if (error) return Response.json({ error: error.message }, { status: 500 });
 
-    return Response.json({ sprints: sprints ?? [], hasAccess: true });
+    return Response.json({ 
+      sprints: sprints ?? [], 
+      hasAccess: true,
+    });
   } catch (err) {
     console.error('[GET /api/intelligence]', err);
     return Response.json({ error: 'Failed to fetch intelligence data' }, { status: 500 });

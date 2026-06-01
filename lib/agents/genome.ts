@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // GenomeAgent — 5-axis startup pre-screening
-// Runs first in every sprint. Composite < 40 → STOP (no ad spend).
+// Runs first in every sprint. Composite < 30 → STOP (no ad spend).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { callGroqJSON } from '@/lib/groq';
@@ -29,7 +29,7 @@ export function computeComposite(scores: GenomeScores): number {
 
 function signalFromComposite(composite: number): GenomeAgentOutput['signal'] {
   if (composite >= 70) return 'GO';
-  if (composite >= 40) return 'ITERATE';
+  if (composite >= 30) return 'ITERATE';
   return 'STOP';
 }
 
