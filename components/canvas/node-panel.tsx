@@ -743,8 +743,12 @@ function CreativePreviewPanel({
   const angles = sprint?.angles?.angles ?? [];
   const [selectedId, setSelectedId] = useState<Angle['id'] | null>(null);
   const [channel, setChannel] = useState<Platform>((panelChannel ?? sprint?.active_channels?.[0] ?? 'meta') as Platform);
+  const [brandName, setBrandName] = useState('Your Brand');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [savingBrand, setSavingBrand] = useState(false);
+  const brandNameTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const savedSelected = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id;
@@ -757,13 +761,59 @@ function CreativePreviewPanel({
 
   const selected = angles.find((angle) => angle.id === selectedId) ?? angles[0];
   const channels = (sprint?.active_channels?.length ? sprint.active_channels : ['meta', 'google', 'linkedin', 'tiktok']) as Platform[];
-  const lockedChannel = (panelChannel && channels.includes(panelChannel as Platform)) ? panelChannel as Platform : undefined;
-  const activeChannel = lockedChannel ?? (channels.includes(channel) ? channel : channels[0]);
+  const activeChannel = channels.includes(channel) ? channel : channels[0];
   const copy = selected?.copy[activeChannel];
+  const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string }>> } | undefined)?.creative_assets;
 
   const controller = useCreatives(sprint?.sprint_id ?? null, { activeChannels: channels });
   const activeRow = selected ? controller.byKey.get(`${selected.id}::${activeChannel}`) : null;
   const image = activeRow?.image_url ?? null;
+
+  const hasBrandName = Boolean(creativeAssets?.[activeChannel]?.brand_name && creativeAssets[activeChannel].brand_name !== 'Your Brand');
+  const hasImage = Boolean(image);
+
+  useEffect(() => {
+    setBrandName(creativeAssets?.[activeChannel]?.brand_name ?? 'Your Brand');
+  }, [activeChannel, creativeAssets]);
+
+  // Auto-save brand name when it changes
+  const saveBrandName = async (name: string) => {
+    if (!sprint?.angles || name === brandName) return;
+    setSavingBrand(true);
+    try {
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          angles: {
+            ...sprint.angles,
+            creative_assets: {
+              ...creativeAssets,
+              [activeChannel]: { brand_name: name },
+            },
+          },
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to save brand name');
+      const data = await res.json().catch(() => null) as { sprint?: unknown } | null;
+      if (data?.sprint) onSprintPatched?.(data.sprint);
+    } catch (err) {
+      // Silent fail - user can still proceed
+    } finally {
+      setSavingBrand(false);
+    }
+  };
+
+  const handleBrandNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = event.target.value;
+    setBrandName(newName);
+    // Clear previous timeout
+    if (brandNameTimeoutRef.current) {
+      clearTimeout(brandNameTimeoutRef.current);
+    }
+    // Debounce save
+    brandNameTimeoutRef.current = setTimeout(() => saveBrandName(newName), 500);
+  };
 
   if (!angles.length || !selected || !copy) {
     return (
@@ -788,6 +838,10 @@ function CreativePreviewPanel({
           angles: {
             ...sprint.angles,
             selected_angle_id: selected.id,
+            creative_assets: {
+              ...creativeAssets,
+              [activeChannel]: { brand_name: brandName },
+            },
           },
         }),
       });
@@ -800,6 +854,48 @@ function CreativePreviewPanel({
       setMessage(err instanceof Error ? err.message : 'Failed to approve creative');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const uploadImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selected) return;
+    setUploading(true);
+    setMessage(null);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const dataUrl = String(reader.result);
+          const targetAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id ?? selected.id;
+          
+          // Upload to the active channel first
+          controller.editField(targetAngleId, activeChannel, 'image_url', dataUrl);
+          await controller.saveNow(targetAngleId, activeChannel);
+          
+          setMessage('Image uploaded successfully');
+        } catch (err) {
+          setMessage(err instanceof Error ? err.message : 'Failed to upload image');
+        } finally {
+          setUploading(false);
+        }
+      };
+      reader.onerror = () => {
+        setMessage('Failed to read image file');
+        setUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to upload image');
+      setUploading(false);
+    }
+  };
+
+  const removeImage = () => {
+    if (!selected) return;
+    const targetAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id ?? selected.id;
+    for (const ch of channels) {
+      controller.editField(targetAngleId, ch, 'image_url', null);
     }
   };
 
@@ -823,29 +919,51 @@ function CreativePreviewPanel({
   const copyPreview = getCopyPreview();
 
   return (
-    <div>
-      <SectionTitle>Creative · {activeChannel}</SectionTitle>
-      <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 16 }}>
-        Ad creatives are auto-generated based on your selected angle. Review and approve to proceed.
-      </p>
+    <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <SectionTitle>Creative Studio</SectionTitle>
+      
+      {/* Show warning if brand or image is missing */}
+      {!hasBrandName || !hasImage ? (
+        <div style={{
+          background: '#FFF4E5',
+          border: '1px solid #FFB84D',
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 16,
+        }}>
+          <p style={{ margin: 0, fontSize: '0.8125rem', color: '#B45309', fontWeight: 600 }}>
+            {!hasBrandName && !hasImage ? 'Brand name and image are required' : 
+             !hasBrandName ? 'Brand name is required' : 'Brand image is required'}
+          </p>
+          <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#B45309' }}>
+            Please provide the missing information below to complete your creative.
+          </p>
+        </div>
+      ) : (
+        <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 20 }}>
+          Your ad creative is ready. Customize below or approve as-is.
+        </p>
+      )}
 
-      {/* Channel selector */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+      {/* Channel tabs - full width */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, padding: 4, background: C.faint, borderRadius: 10 }}>
         {channels.map((ch) => (
           <button
             key={ch}
             onClick={() => setChannel(ch)}
             style={{
-              height: 30,
-              padding: '0 10px',
-              border: `1px solid ${activeChannel === ch ? C.ink : C.border}`,
+              flex: 1,
+              height: 40,
+              border: 'none',
               borderRadius: 8,
-              background: activeChannel === ch ? C.ink : C.surface,
-              color: activeChannel === ch ? '#FFF' : C.muted,
+              background: activeChannel === ch ? C.surface : 'transparent',
+              color: activeChannel === ch ? C.ink : C.muted,
               cursor: 'pointer',
-              fontSize: '0.75rem',
-              fontWeight: 700,
+              fontSize: '0.8125rem',
+              fontWeight: activeChannel === ch ? 800 : 600,
               textTransform: 'capitalize',
+              transition: 'all 0.2s ease',
+              boxShadow: activeChannel === ch ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
             }}
           >
             {ch}
@@ -853,82 +971,178 @@ function CreativePreviewPanel({
         ))}
       </div>
 
-      {/* Creative preview card */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          {/* Image preview */}
-          <div style={{ width: 120, height: 120, background: C.faint, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
-            {image ? (
-              <img src={image} alt="Creative" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <span style={{ fontSize: '0.75rem', color: C.muted }}>No image</span>
-            )}
-          </div>
+      {/* Main preview - large and prominent */}
+      <div style={{
+        flex: 1,
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderRadius: 16,
+        padding: 24,
+        marginBottom: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 20,
+        minHeight: 400,
+      }}>
+        {/* Large image preview */}
+        <div style={{
+          width: '100%',
+          aspectRatio: '16/9',
+          background: C.faint,
+          borderRadius: 12,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          border: `1px solid ${C.border}`,
+          position: 'relative',
+        }}>
+          {image ? (
+            <img src={image} alt="Creative" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
+              <span style={{ fontSize: '0.875rem', color: C.muted }}>No image yet</span>
+            </div>
+          )}
+        </div>
 
-          {/* Copy preview */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, marginBottom: 6 }}>
-              {copyPreview.headline}
-            </div>
-            <div style={{ fontSize: '0.8125rem', color: C.muted, lineHeight: 1.4 }}>
-              {copyPreview.body}
-            </div>
+        {/* Copy preview - larger text */}
+        <div style={{ background: C.canvas, borderRadius: 12, padding: 20, border: `1px solid ${C.border}` }}>
+          <div style={{ fontWeight: 800, fontSize: '1.25rem', color: C.ink, marginBottom: 12, lineHeight: 1.3 }}>
+            {copyPreview.headline}
+          </div>
+          <div style={{ fontSize: '1rem', color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>
+            {copyPreview.body}
+          </div>
+          <div style={{ fontSize: '0.875rem', color: C.ink, fontWeight: 700, opacity: 0.7 }}>
+            {brandName}
           </div>
         </div>
       </div>
 
-      {/* Angle selector */}
-      {angles.length > 1 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 8 }}><Label>Select Angle</Label></div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {angles.map((angle) => {
-              const isSelected = selectedId === angle.id;
-              return (
-                <button
-                  key={angle.id}
-                  onClick={() => setSelectedId(angle.id)}
-                  style={{
-                    padding: '8px 12px',
-                    border: `1px solid ${isSelected ? C.ink : C.border}`,
-                    borderRadius: 8,
-                    background: isSelected ? C.ink : C.surface,
-                    color: isSelected ? '#FFF' : C.muted,
-                    cursor: 'pointer',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  {angle.archetype}
-                </button>
-              );
-            })}
-          </div>
+      {/* Simple controls - not overwhelming */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+        {/* Brand name */}
+        <div>
+          <Label>Brand {!hasBrandName && <span style={{ color: '#B45309' }}>*</span>}</Label>
+          <input
+            value={brandName}
+            onChange={handleBrandNameChange}
+            style={{
+              width: '100%',
+              marginTop: 6,
+              padding: '12px',
+              border: `1px solid ${!hasBrandName ? '#FFB84D' : C.border}`,
+              borderRadius: 10,
+              background: !hasBrandName ? '#FFF9F0' : C.surface,
+              color: C.ink,
+              fontSize: '0.9375rem',
+              outline: 'none',
+            }}
+            placeholder="Enter your brand name"
+          />
         </div>
-      )}
 
-      {/* Approve button */}
+        {/* Image upload */}
+        <div>
+          <Label>Image {!hasImage && <span style={{ color: '#B45309' }}>*</span>}</Label>
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginTop: 6,
+            height: 48,
+            border: `1px dashed ${!hasImage ? '#FFB84D' : C.border}`,
+            borderRadius: 10,
+            background: !hasImage ? '#FFF9F0' : C.surface,
+            color: C.ink,
+            cursor: uploading ? 'default' : 'pointer',
+            fontSize: '0.875rem',
+            fontWeight: 700,
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => !uploading && (e.currentTarget.style.borderColor = C.ink)}
+          onMouseLeave={(e) => e.currentTarget.style.borderColor = !hasImage ? '#FFB84D' : C.border}
+          >
+            {uploading ? 'Uploading...' : image ? 'Change Image' : 'Upload Image'}
+            <input type="file" accept="image/*" onChange={uploadImage} disabled={uploading} style={{ display: 'none' }} />
+          </label>
+        </div>
+
+        {/* Angle selector */}
+        {angles.length > 1 ? (
+          <div>
+            <Label>Angle</Label>
+            <select
+              value={selectedId ?? ''}
+              onChange={(e) => setSelectedId(e.target.value as Angle['id'])}
+              style={{
+                width: '100%',
+                marginTop: 6,
+                height: 48,
+                padding: '0 12px',
+                border: `1px solid ${C.border}`,
+                borderRadius: 10,
+                background: C.surface,
+                color: C.ink,
+                fontSize: '0.9375rem',
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {angles.map((angle) => (
+                <option key={angle.id} value={angle.id}>
+                  {angle.archetype}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div>
+            <Label>Angle</Label>
+            <div style={{
+              marginTop: 6,
+              height: 48,
+              padding: '0 12px',
+              border: `1px solid ${C.border}`,
+              borderRadius: 10,
+              background: C.canvas,
+              color: C.muted,
+              fontSize: '0.9375rem',
+              display: 'flex',
+              alignItems: 'center',
+            }}>
+              {selected?.archetype}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Approve button - prominent */}
       <button
         onClick={handleApproveCreative}
-        disabled={saving}
+        disabled={saving || !hasBrandName || !hasImage}
         style={{
           width: '100%',
-          height: 40,
+          height: 52,
           border: 'none',
-          borderRadius: 10,
-          background: C.ink,
-          color: '#FFF',
-          cursor: saving ? 'default' : 'pointer',
-          fontSize: '0.875rem',
+          borderRadius: 12,
+          background: !hasBrandName || !hasImage ? C.faint : C.ink,
+          color: !hasBrandName || !hasImage ? C.muted : '#FFF',
+          cursor: saving || !hasBrandName || !hasImage ? 'default' : 'pointer',
+          fontSize: '1rem',
           fontWeight: 800,
           opacity: saving ? 0.7 : 1,
+          transition: 'all 0.2s',
+          boxShadow: !hasBrandName || !hasImage ? 'none' : '0 4px 16px rgba(17, 17, 16, 0.2)',
         }}
       >
-        {saving ? 'Approving...' : 'Approve Creative'}
+        {!hasBrandName || !hasImage ? 'Complete brand and image to continue' : saving ? 'Approving...' : 'Approve & Continue'}
       </button>
 
       {message && (
-        <p style={{ marginTop: 12, fontSize: '0.8125rem', color: message.startsWith('Creative approved') ? C.go : C.stop }}>
+        <p style={{ marginTop: 16, fontSize: '0.875rem', color: message.startsWith('Creative approved') ? C.go : C.stop, textAlign: 'center' }}>
           {message}
         </p>
       )}
