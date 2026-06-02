@@ -33,7 +33,7 @@ export type PanelId =
   | 'integrations_sheet'
   | 'integrations_outreach'
   | 'integrations_slack'
-  | 'benchmarks' | 'settings' | 'external' | null;
+  | 'benchmarks' | 'settings' | 'external' | 'autopilot' | 'signal-fabric' | 'leads' | null;
 
 /** Scroll nested panel body explicitly (`scrollIntoView` misses inner overflow containers under motion wrappers). */
 function scrollIntoScrollParent(scrollParent: HTMLElement, target: HTMLElement, paddingTop = 14) {
@@ -137,6 +137,9 @@ const PANEL_TITLES: Record<NonNullable<PanelId>, string> = {
   benchmarks:             'Benchmarks',
   settings:               'Settings',
   external:               'External Features',
+  autopilot:              'Autopilot',
+  'signal-fabric':        'Signal Fabric',
+  leads:                  'Leads',
 };
 
 function panelTitle(panel: NonNullable<PanelId>, channel?: string): string {
@@ -594,7 +597,7 @@ function HealthgatePanel({ sprint, channel }: { sprint?: SprintRecord | null; ch
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Angles Panel
+// Angles Panel (Simplified - Autonomous Mode)
 // ════════════════════════════════════════════════════════════════════════════
 function AnglesPanel({
   sprint,
@@ -608,228 +611,97 @@ function AnglesPanel({
   workflowRunning?: boolean;
 }) {
   const a = sprint?.angles;
-  const [selectedId, setSelectedId] = useState<Angle['id']>('angle_A');
-  const [activeChannel, setActiveChannel] = useState<Platform>('meta');
-  const [drafts, setDrafts] = useState<Record<string, Angle>>({});
-  const [savingAngles, setSavingAngles] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<Angle['id'] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const savedSelected = (a as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id;
     if (savedSelected) setSelectedId(savedSelected);
   }, [a]);
 
-  if (!a?.angles?.length) return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Angles have not been generated yet.</p>;
+  if (!a?.angles?.length) {
+    return (
+      <div>
+        <SectionTitle>Ad Angles</SectionTitle>
+        <p style={{ fontSize: '0.875rem', color: C.muted }}>
+          Generating ad angles based on your idea...
+        </p>
+      </div>
+    );
+  }
 
-  const selectedAngle = drafts[selectedId] ?? a.angles.find((angle) => angle.id === selectedId) ?? a.angles[0];
-  const availableChannels = (sprint?.active_channels?.length ? sprint.active_channels : ['meta', 'google', 'linkedin', 'tiktok']) as Platform[];
-  const channel = availableChannels.includes(activeChannel) ? activeChannel : availableChannels[0];
-  const copy = selectedAngle.copy[channel];
-
-  const updateAngle = (updater: (angle: Angle) => Angle) => {
-    setDrafts((prev) => {
-      const base = prev[selectedAngle.id] ?? selectedAngle;
-      return { ...prev, [selectedAngle.id]: updater(base) };
-    });
-  };
-
-  const updateCopy = (field: string, value: string) => {
-    updateAngle((angle) => ({
-      ...angle,
-      copy: {
-        ...angle.copy,
-        [channel]: {
-          ...angle.copy[channel],
-          [field]: value,
-        },
-      },
-    }));
-  };
-
-  const handleSaveAngles = async () => {
-    if (!sprint) return false;
-    setSavingAngles(true);
-    setSaveMessage(null);
+  const handleSelectAngle = async (angleId: Angle['id']) => {
+    if (!sprint) return;
+    setSelectedId(angleId);
+    setSaving(true);
+    setMessage(null);
     try {
-      const editedAngles = a.angles.map((angle) => drafts[angle.id] ?? angle);
       const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ angles: { ...a, selected_angle_id: selectedAngle.id, angles: editedAngles } }),
+        body: JSON.stringify({ angles: { ...a, selected_angle_id: angleId } }),
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Save failed');
-      }
+      if (!res.ok) throw new Error('Failed to select angle');
       const data = await res.json().catch(() => null) as { sprint?: unknown } | null;
       if (data?.sprint) onSprintPatched?.(data.sprint);
-      setSaveMessage('Saved. This selected angle now drives the creative nodes and the single landing page.');
-      return true;
+      setMessage('Angle selected. Proceeding to creatives...');
+      setTimeout(() => onContinue?.(sprint.sprint_id), 1000);
     } catch (err) {
-      setSaveMessage(err instanceof Error ? err.message : 'Save failed');
-      return false;
+      setMessage(err instanceof Error ? err.message : 'Failed to select angle');
     } finally {
-      setSavingAngles(false);
+      setSaving(false);
     }
-  };
-
-  const renderEditor = () => {
-    const input = (label: string, field: string, value: string, limit: number, multiline = false) => (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-          <Label>{label}</Label>
-          <span style={{ fontFamily: 'monospace', fontSize: '0.6875rem', color: value.length > limit ? C.warn : C.muted }}>{value.length}/{limit}</span>
-        </div>
-        {multiline ? (
-          <textarea
-            value={value}
-            onChange={(event) => updateCopy(field, event.target.value)}
-            rows={3}
-            style={{ width: '100%', boxSizing: 'border-box', resize: 'none', border: `1px solid ${value.length > limit ? C.warn : C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }}
-          />
-        ) : (
-          <input
-            value={value}
-            onChange={(event) => updateCopy(field, event.target.value)}
-            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${value.length > limit ? C.warn : C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }}
-          />
-        )}
-      </div>
-    );
-
-    if (channel === 'meta') {
-      const meta = copy as Angle['copy']['meta'];
-      return (
-        <>
-          {input('Headline', 'headline', meta.headline, 40)}
-          {input('Body', 'body', meta.body, 125, true)}
-        </>
-      );
-    }
-    if (channel === 'google') {
-      const google = copy as Angle['copy']['google'];
-      return (
-        <>
-          {input('Headline 1', 'headline1', google.headline1, 30)}
-          {input('Headline 2', 'headline2', google.headline2, 30)}
-          {input('Description', 'description', google.description, 90, true)}
-        </>
-      );
-    }
-    if (channel === 'linkedin') {
-      const linkedin = copy as Angle['copy']['linkedin'];
-      return (
-        <>
-          {input('Intro', 'intro', linkedin.intro, 70)}
-          {input('Headline', 'headline', linkedin.headline, 25)}
-          {input('Body', 'body', linkedin.body, 150, true)}
-        </>
-      );
-    }
-    const tiktok = copy as Angle['copy']['tiktok'];
-    return (
-      <>
-        {input('Hook', 'hook', tiktok.hook, 100, true)}
-        {input('Overlay', 'overlay', tiktok.overlay, 80)}
-      </>
-    );
   };
 
   return (
     <div>
       <SectionTitle>Ad Angles</SectionTitle>
       <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 16 }}>
-        ICP: <strong style={{ color: C.ink }}>{a.icp}</strong>
+        Based on your idea, we've generated {a.angles.length} ad angle options. Select the one that best matches your vision.
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 14 }}>
-        {a.angles.map((angle) => (
-          <button
-            key={angle.id}
-            onClick={() => setSelectedId(angle.id)}
-            style={{
-              border: `1px solid ${selectedAngle.id === angle.id ? C.ink : C.border}`,
-              background: selectedAngle.id === angle.id ? C.ink : C.surface,
-              color: selectedAngle.id === angle.id ? '#FFF' : C.ink,
-              borderRadius: 10,
-              padding: '10px 8px',
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
-          >
-            <span style={{ display: 'block', fontFamily: 'monospace', fontWeight: 700, fontSize: '0.6875rem' }}>{angle.id.replace('angle_', '')}</span>
-            <span style={{ display: 'block', marginTop: 4, fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.75 }}>{angle.archetype}</span>
-          </button>
-        ))}
+      <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 20 }}>
+        <strong>ICP:</strong> {a.icp}
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {a.angles.map((angle, idx) => {
+          const isSelected = selectedId === angle.id || (!selectedId && idx === 0);
+          return (
+            <button
+              key={angle.id}
+              onClick={() => handleSelectAngle(angle.id)}
+              disabled={saving}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '16px',
+                background: isSelected ? `${C.ink}08` : C.surface,
+                border: `2px solid ${isSelected ? C.ink : C.border}`,
+                borderRadius: 12,
+                cursor: saving ? 'default' : 'pointer',
+                opacity: saving ? 0.7 : 1,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, marginBottom: 6 }}>
+                {angle.archetype || `Angle ${String.fromCharCode(65 + idx)}`}
+              </div>
+              <div style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 8 }}>
+                {angle.emotional_lever}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: C.muted, background: C.faint, padding: '6px 10px', borderRadius: 6, display: 'inline-block' }}>
+                {angle.cta}
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      <div style={{ background: C.ink, borderRadius: 14, padding: 16, marginBottom: 14 }}>
-        <Label><span style={{ color: '#FFFFFF80' }}>Selected Angle</span></Label>
-        <p style={{ color: '#FFF', fontWeight: 800, fontSize: '1rem', margin: '4px 0 4px' }}>{selectedAngle.archetype} · {selectedAngle.emotional_lever}</p>
-        <p style={{ color: '#FFFFFF99', fontSize: '0.8125rem', margin: 0 }}>Edit the copy per channel before the landing and campaign agents consume it.</p>
-      </div>
-
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {availableChannels.map((item) => (
-          <button
-            key={item}
-            onClick={() => setActiveChannel(item)}
-            style={{
-              height: 30,
-              padding: '0 10px',
-              border: `1px solid ${channel === item ? C.ink : C.border}`,
-              borderRadius: 8,
-              background: channel === item ? C.ink : C.surface,
-              color: channel === item ? '#FFF' : C.muted,
-              cursor: 'pointer',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              textTransform: 'capitalize',
-            }}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>
-        {renderEditor()}
-        <div>
-          <Label>CTA</Label>
-          <input
-            value={selectedAngle.cta}
-            onChange={(event) => updateAngle((angle) => ({ ...angle, cta: event.target.value.slice(0, 40) }))}
-            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }}
-          />
-        </div>
-        <button
-          onClick={handleSaveAngles}
-          disabled={savingAngles}
-          style={{ height: 36, border: 'none', borderRadius: 10, background: C.ink, color: '#FFF', cursor: savingAngles ? 'default' : 'pointer', fontSize: '0.8125rem', fontWeight: 700, opacity: savingAngles ? 0.7 : 1 }}
-        >
-          {savingAngles ? 'Saving Copy' : 'Save Angle Copy'}
-        </button>
-        {saveMessage && (
-          <p style={{ margin: 0, fontSize: '0.75rem', color: saveMessage.startsWith('Saved') ? C.go : C.stop }}>{saveMessage}</p>
-        )}
-        {sprint?.state === 'ANGLES_DONE' && onContinue && (
-          <button
-            onClick={async () => {
-              const saved = await handleSaveAngles();
-              if (saved) onContinue(sprint.sprint_id);
-            }}
-            disabled={workflowRunning}
-            style={{ height: 38, border: `1px solid ${C.ink}`, borderRadius: 10, background: C.ink, color: '#FFF', cursor: workflowRunning ? 'default' : 'pointer', fontSize: '0.8125rem', fontWeight: 800, opacity: workflowRunning ? 0.7 : 1 }}
-          >
-            {workflowRunning ? 'Opening Creative Nodes' : 'Approve Selected Angle'}
-          </button>
-        )}
-      </div>
-
-      <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
-        <p style={{ margin: 0, color: C.muted, fontSize: '0.8125rem', lineHeight: 1.5 }}>
-          Only this selected angle continues into the creative nodes. The other generated angles stay as alternatives until you select and save one.
+      {message && (
+        <p style={{ marginTop: 16, fontSize: '0.8125rem', color: message.startsWith('Angle selected') ? C.go : C.stop }}>
+          {message}
         </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -869,19 +741,10 @@ function CreativePreviewPanel({
   workflowRunning?: boolean;
 }) {
   const angles = sprint?.angles?.angles ?? [];
-  const [selectedId, setSelectedId] = useState<Angle['id']>('angle_A');
+  const [selectedId, setSelectedId] = useState<Angle['id'] | null>(null);
   const [channel, setChannel] = useState<Platform>((panelChannel ?? sprint?.active_channels?.[0] ?? 'meta') as Platform);
-  const [brandName, setBrandName] = useState('Your Brand');
-  const [drafts, setDrafts] = useState<Record<string, Angle>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [videoBrief, setVideoBrief] = useState<{
-    script_30s: string;
-    hook: string;
-    broll_ideas: string[];
-    spark_ad_notes: string;
-  } | null>(null);
-  const [videoBriefLoading, setVideoBriefLoading] = useState(false);
 
   useEffect(() => {
     const savedSelected = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id;
@@ -892,90 +755,32 @@ function CreativePreviewPanel({
     if (panelChannel) setChannel(panelChannel as Platform);
   }, [panelChannel]);
 
-  const selected =
-    drafts[selectedId] ??
-    angles.find((angle) => angle.id === selectedId) ??
-    creativeDraft?.angle ??
-    angles[0];
+  const selected = angles.find((angle) => angle.id === selectedId) ?? angles[0];
   const channels = (sprint?.active_channels?.length ? sprint.active_channels : ['meta', 'google', 'linkedin', 'tiktok']) as Platform[];
   const lockedChannel = (panelChannel && channels.includes(panelChannel as Platform)) ? panelChannel as Platform : undefined;
   const activeChannel = lockedChannel ?? (channels.includes(channel) ? channel : channels[0]);
   const copy = selected?.copy[activeChannel];
-  const creativeAssets = (sprint?.angles as { creative_assets?: Partial<Record<Platform, { brand_name?: string }>> } | undefined)?.creative_assets;
 
-  // sprint_creatives is the canonical source for image_url. We DERIVE the
-  // displayed image directly from the controller row instead of keeping a
-  // local mirror — the previous mirror created a bidirectional sync with
-  // `creativeDraft` that React couldn't always reconcile, producing an
-  // infinite update loop on the parent canvas.
   const controller = useCreatives(sprint?.sprint_id ?? null, { activeChannels: channels });
-  const activeRow = controller.byKey.get(`${selectedId}::${activeChannel}`);
+  const activeRow = selected ? controller.byKey.get(`${selected.id}::${activeChannel}`) : null;
   const image = activeRow?.image_url ?? null;
-  const allChannelsHaveImage = channels.length > 0 && channels.every((ch) =>
-    Boolean(controller.byKey.get(`${selectedId}::${ch}`)?.image_url)
-  );
-
-  // Brand name is local-only and initialised once per (channel) from the
-  // persisted sprint assets. We deliberately do NOT re-sync from
-  // `creativeDraft` — doing so created a write-then-read loop with the
-  // emit effect below. User edits flow OUT to the parent; the parent
-  // never writes brand name back.
-  useEffect(() => {
-    setBrandName(creativeAssets?.[activeChannel]?.brand_name ?? 'Your Brand');
-  }, [activeChannel, creativeAssets]);
-
-  // Emit the canvas-node live-preview snapshot. This is a one-way push.
-  // Deps reference only primitive/stable values so the effect can't be
-  // restarted by the parent echoing our own update back to us.
-  const selectedAngleId = selected?.id;
-  useEffect(() => {
-    if (!selected || !copy) return;
-    onCreativeDraftChange?.({
-      channel: activeChannel,
-      angleId: selected.id,
-      angle: selected,
-      brandName,
-      image,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `selected`/`copy`
-  // are derived objects whose identity flips on every controller refetch;
-  // depending on them caused the very loop this effect now avoids. The
-  // primitives below are sufficient — we re-emit when *content* changes,
-  // not when references do.
-  }, [activeChannel, brandName, image, onCreativeDraftChange, selectedAngleId]);
 
   if (!angles.length || !selected || !copy) {
-    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Creative previews appear after AngleAgent generates copy.</p>;
+    return (
+      <div>
+        <SectionTitle>Creative</SectionTitle>
+        <p style={{ color: C.muted, fontSize: '0.875rem' }}>
+          Generating ad creatives based on your selected angle...
+        </p>
+      </div>
+    );
   }
 
-  const updateCopy = (field: string, value: string) => {
-    setDrafts((prev) => {
-      const base = prev[selected.id] ?? selected;
-      return {
-        ...prev,
-        [selected.id]: {
-          ...base,
-          copy: {
-            ...base.copy,
-            [activeChannel]: {
-              ...base.copy[activeChannel],
-              [field]: value,
-            },
-          },
-        },
-      };
-    });
-  };
-
-  // Persists the angle selection + brand name only. The image is written
-  // directly to sprint_creatives by `uploadImage` (and so is the per-field
-  // copy by the workspace), so this no longer needs to touch creative copy.
-  const saveCreative = async () => {
-    if (!sprint?.angles) return;
+  const handleApproveCreative = async () => {
+    if (!sprint || !selected) return;
     setSaving(true);
     setMessage(null);
     try {
-      const editedAngles = sprint.angles.angles.map((angle) => drafts[angle.id] ?? angle);
       const res = await fetch(`/api/sprint/${sprint.sprint_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -983,262 +788,150 @@ function CreativePreviewPanel({
           angles: {
             ...sprint.angles,
             selected_angle_id: selected.id,
-            creative_assets: nextBrandAssets(creativeAssets, activeChannel, brandName),
-            angles: editedAngles,
           },
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error('Failed to approve creative');
       const data = await res.json().catch(() => null) as { sprint?: unknown } | null;
       if (data?.sprint) onSprintPatched?.(data.sprint);
-      setMessage(`${activeChannel} brand saved.`);
+      setMessage('Creative approved. Proceeding to landing page...');
+      setTimeout(() => onContinue?.(sprint.sprint_id), 1000);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Save failed');
+      setMessage(err instanceof Error ? err.message : 'Failed to approve creative');
     } finally {
       setSaving(false);
     }
   };
 
-  // Image upload writes straight to sprint_creatives.image_url for every
-  // active channel of the selected angle. The displayed image is derived
-  // from the controller row, so this single write updates the preview,
-  // the canvas node, and unblocks the policy scanner in one step.
-  const uploadImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = String(reader.result);
-      // Use the sprint's selected_angle_id to ensure we upload to the correct angle
-      const targetAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id ?? selected.id;
-      for (const ch of channels) {
-        controller.editField(targetAngleId, ch, 'image_url', dataUrl);
-      }
-      // Immediately save to ensure the image is persisted before any scan
-      for (const ch of channels) {
-        await controller.saveNow(targetAngleId, ch);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeImage = () => {
-    // Use the sprint's selected_angle_id to ensure we remove from the correct angle
-    const targetAngleId = (sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id ?? selected.id;
-    for (const ch of channels) {
-      controller.editField(targetAngleId, ch, 'image_url', null);
-    }
-  };
-
-  const renderCopyEditor = () => {
-    const field = (label: string, key: string, value: string, limit: number, multiline = false) => (
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <Label>{label}</Label>
-          <span style={{ color: value.length > limit ? C.warn : C.muted, fontSize: '0.6875rem', fontFamily: 'monospace' }}>{value.length}/{limit}</span>
-        </div>
-        {multiline ? (
-          <textarea value={value} onChange={(event) => updateCopy(key, event.target.value)} rows={3} style={{ width: '100%', boxSizing: 'border-box', resize: 'none', border: `1px solid ${value.length > limit ? C.warn : C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }} />
-        ) : (
-          <input value={value} onChange={(event) => updateCopy(key, event.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${value.length > limit ? C.warn : C.border}`, borderRadius: 10, background: C.canvas, color: C.ink, padding: '9px 10px', fontSize: '0.8125rem', outline: 'none' }} />
-        )}
-      </div>
-    );
-
+  const getCopyPreview = () => {
     if (activeChannel === 'meta') {
       const meta = copy as Angle['copy']['meta'];
-      return <>{field('Headline', 'headline', meta.headline, 40)}{field('Body', 'body', meta.body, 125, true)}</>;
+      return { headline: meta.headline, body: meta.body };
     }
     if (activeChannel === 'google') {
       const google = copy as Angle['copy']['google'];
-      return <>{field('Headline 1', 'headline1', google.headline1, 30)}{field('Headline 2', 'headline2', google.headline2, 30)}{field('Description', 'description', google.description, 90, true)}</>;
+      return { headline: `${google.headline1} | ${google.headline2}`, body: google.description };
     }
     if (activeChannel === 'linkedin') {
       const linkedin = copy as Angle['copy']['linkedin'];
-      return <>{field('Intro', 'intro', linkedin.intro, 70)}{field('Headline', 'headline', linkedin.headline, 25)}{field('Body', 'body', linkedin.body, 150, true)}</>;
+      return { headline: linkedin.headline, body: linkedin.intro };
     }
     const tiktok = copy as Angle['copy']['tiktok'];
-    return <>{field('Hook', 'hook', tiktok.hook, 100, true)}{field('Overlay', 'overlay', tiktok.overlay, 80)}</>;
+    return { headline: 'TikTok Video', body: tiktok.hook };
   };
+
+  const copyPreview = getCopyPreview();
 
   return (
     <div>
       <SectionTitle>Creative · {activeChannel}</SectionTitle>
-      <p style={{ color: C.muted, fontSize: '0.8125rem', marginBottom: 14, lineHeight: 1.45 }}>
-        Pick an angle, fine-tune the copy, and approve it. The canvas node preview tracks your selection in real time.
+      <p style={{ fontSize: '0.875rem', color: C.muted, marginBottom: 16 }}>
+        Ad creatives are auto-generated based on your selected angle. Review and approve to proceed.
       </p>
 
-      {/* Brand + image upload (drives canvas-node live preview + legacy save) */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Label>Brand</Label>
-            <input
-              value={brandName}
-              onChange={(event) => setBrandName(event.target.value)}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                border: `1px solid ${C.border}`, borderRadius: 10,
-                background: C.canvas, color: C.ink,
-                padding: '9px 10px', fontSize: '0.8125rem', outline: 'none',
-              }}
-            />
-          </div>
-          <div style={{ width: 140 }}>
-            <Label>Image</Label>
-            <label style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              height: 36, border: `1px dashed ${C.border}`, borderRadius: 10,
-              background: C.canvas, color: C.ink, cursor: 'pointer',
-              fontSize: '0.75rem', fontWeight: 800,
-            }}>
-              {image ? 'Replace' : 'Upload'}
-              <input type="file" accept="image/*" onChange={uploadImage} style={{ display: 'none' }} />
-            </label>
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+      {/* Channel selector */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        {channels.map((ch) => (
           <button
-            onClick={saveCreative}
-            disabled={saving}
+            key={ch}
+            onClick={() => setChannel(ch)}
             style={{
-              height: 30, padding: '0 12px',
-              border: `1px solid ${C.border}`, borderRadius: 8,
-              background: C.surface, color: C.ink,
-              fontSize: 12, fontWeight: 800,
-              cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1,
-            }}>
-            {saving ? 'Saving…' : 'Save brand & image'}
+              height: 30,
+              padding: '0 10px',
+              border: `1px solid ${activeChannel === ch ? C.ink : C.border}`,
+              borderRadius: 8,
+              background: activeChannel === ch ? C.ink : C.surface,
+              color: activeChannel === ch ? '#FFF' : C.muted,
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              textTransform: 'capitalize',
+            }}
+          >
+            {ch}
           </button>
-          {image && (
-            <button type="button" onClick={removeImage} style={{
-              height: 30, padding: '0 10px', border: 'none', background: 'transparent',
-              color: C.muted, cursor: 'pointer', fontSize: 11, fontWeight: 700,
-            }}>
-              Remove image
-            </button>
-          )}
-        </div>
-        {message && (
-          <p style={{ margin: '6px 0 0', color: message.includes('saved') ? C.ink : C.stop, fontSize: '0.75rem' }}>
-            {message}
-          </p>
-        )}
+        ))}
       </div>
 
-      {/* v10 Approval workspace — single source of truth for copy + status */}
-      {sprint?.sprint_id && angles.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <CreativeApprovalWorkspace
-            sprintId={sprint.sprint_id}
-            angles={angles}
-            activeChannels={(sprint.active_channels?.length ? sprint.active_channels : ['meta']) as Platform[]}
-            initialAngleId={selected.id}
-            lockedAngleId={(sprint?.angles as { selected_angle_id?: Angle['id'] } | undefined)?.selected_angle_id}
-            onActivated={() => onContinue?.(sprint.sprint_id)}
-            onSelectionChange={(snap: CreativeSelectionSnapshot) => {
-              setSelectedId(snap.angle.id);
-              setChannel(snap.channel);
-              // Mirror the user's edits into the legacy draft so the canvas
-              // node preview tracks them. We splice the snapshot into the
-              // current angle so other channels stay untouched.
-              setDrafts((prev) => {
-                const base = prev[snap.angle.id] ?? snap.angle;
-                const channelCopy =
-                  snap.channel === 'meta'
-                    ? { headline: snap.copy.headline, body: snap.copy.primary_text }
-                    : base.copy[snap.channel];
-                return {
-                  ...prev,
-                  [snap.angle.id]: {
-                    ...base,
-                    copy: { ...base.copy, [snap.channel]: channelCopy },
-                  },
-                };
-              });
-            }}
-          />
-        </div>
-      )}
-      {activeChannel === 'tiktok' && sprint && (
-        <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-          <Label>TikTok video brief (VideoCreativeAgent)</Label>
-          <p style={{ fontSize: '0.75rem', color: C.muted, margin: '0 0 10px', lineHeight: 1.45 }}>
-            Generates a 30s script, B-roll ideas, and Spark Ads notes from your TikTok hook using Groq.
-          </p>
-          <button
-            type="button"
-            onClick={async () => {
-              setVideoBriefLoading(true);
-              try {
-                const res = await fetch(`/api/sprint/${sprint.sprint_id}/video-brief`, { method: 'POST' });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Brief failed');
-                setVideoBrief((data as { brief: typeof videoBrief }).brief ?? null);
-              } catch (e) {
-                setMessage(e instanceof Error ? e.message : 'Video brief failed');
-              } finally {
-                setVideoBriefLoading(false);
-              }
-            }}
-            disabled={videoBriefLoading}
-            style={{ ...btnPrimary(), width: '100%', background: C.ink, color: '#FFF' }}
-          >
-            {videoBriefLoading ? 'Generating…' : 'Generate TikTok brief'}
-          </button>
-          {videoBrief && (
-            <div style={{ marginTop: 12, fontSize: '0.8125rem', lineHeight: 1.5, color: C.ink }}>
-              <p style={{ margin: '0 0 8px', fontWeight: 800 }}>Hook: {videoBrief.hook}</p>
-              <pre style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{videoBrief.script_30s}</pre>
-              <p style={{ margin: '0 0 4px', fontWeight: 700 }}>B-roll</p>
-              <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
-                {videoBrief.broll_ideas.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-              <p style={{ margin: 0, color: C.muted }}>{videoBrief.spark_ad_notes}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    void navigator.clipboard.writeText(
-                      `${videoBrief.hook}\n\n${videoBrief.script_30s}\n\n${videoBrief.broll_ideas.join('\n')}\n\n${videoBrief.spark_ad_notes}`,
-                    );
-                  } catch {
-                    /* ignore */
-                  }
-                }}
-                style={{ marginTop: 10, height: 32, padding: '0 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
-              >
-                Copy full brief
-              </button>
+      {/* Creative preview card */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          {/* Image preview */}
+          <div style={{ width: 120, height: 120, background: C.faint, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+            {image ? (
+              <img src={image} alt="Creative" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <span style={{ fontSize: '0.75rem', color: C.muted }}>No image</span>
+            )}
+          </div>
+
+          {/* Copy preview */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: C.ink, marginBottom: 6 }}>
+              {copyPreview.headline}
             </div>
-          )}
+            <div style={{ fontSize: '0.8125rem', color: C.muted, lineHeight: 1.4 }}>
+              {copyPreview.body}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Angle selector */}
+      {angles.length > 1 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}><Label>Select Angle</Label></div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {angles.map((angle) => {
+              const isSelected = selectedId === angle.id;
+              return (
+                <button
+                  key={angle.id}
+                  onClick={() => setSelectedId(angle.id)}
+                  style={{
+                    padding: '8px 12px',
+                    border: `1px solid ${isSelected ? C.ink : C.border}`,
+                    borderRadius: 8,
+                    background: isSelected ? C.ink : C.surface,
+                    color: isSelected ? '#FFF' : C.muted,
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {angle.archetype}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
-        <Label>Creative Gate</Label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '6px 0 12px' }}>
-          {channels.map((item) => {
-            const saved = Boolean(creativeAssets?.[item]);
-            return (
-              <span key={item} style={{ border: `1px solid ${saved ? C.ink : C.border}`, borderRadius: 999, padding: '4px 8px', background: saved ? C.ink : C.faint, color: saved ? '#FFF' : C.muted, fontSize: '0.6875rem', fontWeight: 800, textTransform: 'capitalize' }}>
-                {item} {saved ? 'saved' : 'pending'}
-              </span>
-            );
-          })}
-        </div>
-        <button
-          onClick={() => sprint && onContinue?.(sprint.sprint_id)}
-          disabled={!allChannelsHaveImage || workflowRunning}
-          style={{ width: '100%', height: 38, border: `1px solid ${allChannelsHaveImage ? C.ink : C.border}`, borderRadius: 10, background: allChannelsHaveImage ? C.ink : C.faint, color: allChannelsHaveImage ? '#FFF' : C.muted, cursor: allChannelsHaveImage && !workflowRunning ? 'pointer' : 'default', fontSize: '0.8125rem', fontWeight: 900, opacity: workflowRunning ? 0.7 : 1 }}
-        >
-          {workflowRunning ? 'Running Demo Workflow' : allChannelsHaveImage ? 'Run' : 'Upload an image to enable Run'}
-        </button>
-        <p style={{ margin: '8px 0 0', color: C.muted, fontSize: '0.75rem', lineHeight: 1.45 }}>
-          Demo mode will generate campaign results, verdict, landing page, and report from the selected angle.
+
+      {/* Approve button */}
+      <button
+        onClick={handleApproveCreative}
+        disabled={saving}
+        style={{
+          width: '100%',
+          height: 40,
+          border: 'none',
+          borderRadius: 10,
+          background: C.ink,
+          color: '#FFF',
+          cursor: saving ? 'default' : 'pointer',
+          fontSize: '0.875rem',
+          fontWeight: 800,
+          opacity: saving ? 0.7 : 1,
+        }}
+      >
+        {saving ? 'Approving...' : 'Approve Creative'}
+      </button>
+
+      {message && (
+        <p style={{ marginTop: 12, fontSize: '0.8125rem', color: message.startsWith('Creative approved') ? C.go : C.stop }}>
+          {message}
         </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -1807,6 +1500,254 @@ function ReportPanel({ sprint }: { sprint?: SprintRecord | null }) {
       >
         PDF Report
       </a>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Autopilot Panel
+// ════════════════════════════════════════════════════════════════════════════
+function AutopilotPanel({ sprint, onSprintPatched }: { sprint?: SprintRecord | null; onSprintPatched?: (rawSprint: unknown) => void }) {
+  const [autopilotConfig, setAutopilotConfig] = useState<any>(null);
+  const [autopilotDecisions, setAutopilotDecisions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!sprint) {
+      setLoading(false);
+      return;
+    }
+    const fetchAutopilotData = async () => {
+      try {
+        const [configRes, decisionsRes] = await Promise.all([
+          fetch(`/api/sprint/${sprint.sprint_id}/autopilot/config`),
+          fetch(`/api/sprint/${sprint.sprint_id}/autopilot/decisions?limit=10`),
+        ]);
+        const config = await configRes.json().catch(() => null);
+        const decisions = await decisionsRes.json().catch(() => null);
+        setAutopilotConfig(config);
+        setAutopilotDecisions(decisions?.decisions || []);
+      } catch (err) {
+        console.error('[AutopilotPanel] Failed to fetch autopilot data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAutopilotData();
+  }, [sprint]);
+
+  const toggleAutopilot = async () => {
+    if (!sprint || !autopilotConfig) return;
+    try {
+      const res = await fetch(`/api/sprint/${sprint.sprint_id}/autopilot/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autopilotConfig.enabled }),
+      });
+      const data = await res.json().catch(() => null);
+      if (data?.config) {
+        setAutopilotConfig(data.config);
+      }
+    } catch (err) {
+      console.error('[AutopilotPanel] Failed to toggle autopilot:', err);
+    }
+  };
+
+  if (loading) {
+    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Loading autopilot data...</p>;
+  }
+
+  if (!sprint) {
+    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>No sprint selected.</p>;
+  }
+
+  const enabled = autopilotConfig?.enabled ?? false;
+
+  return (
+    <div>
+      <SectionTitle>Autopilot</SectionTitle>
+      <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 16 }}>
+        Autopilot automatically manages campaign spend, pauses underperforming channels, and rotates creatives.
+      </p>
+
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Label>Status</Label>
+          <button
+            onClick={toggleAutopilot}
+            style={{
+              height: 24,
+              padding: '0 8px',
+              border: `1px solid ${enabled ? C.go : C.border}`,
+              background: enabled ? `${C.go}10` : 'transparent',
+              borderRadius: 6,
+              fontSize: '0.75rem',
+              color: enabled ? C.go : C.muted,
+              cursor: 'pointer',
+            }}
+          >
+            {enabled ? 'Enabled' : 'Disabled'}
+          </button>
+        </div>
+        {autopilotConfig && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ background: C.faint, borderRadius: 8, padding: '8px 10px' }}>
+              <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, margin: '0 0 3px' }}>Daily Budget</p>
+              <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: C.ink, margin: 0 }}>
+                ${autopilotConfig.daily_budget_cents ? (autopilotConfig.daily_budget_cents / 100).toFixed(0) : '—'}
+              </p>
+            </div>
+            <div style={{ background: C.faint, borderRadius: 8, padding: '8px 10px' }}>
+              <p style={{ fontSize: '0.625rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: C.muted, margin: '0 0 3px' }}>Total Budget</p>
+              <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: C.ink, margin: 0 }}>
+                ${autopilotConfig.total_budget_cents ? (autopilotConfig.total_budget_cents / 100).toFixed(0) : '—'}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {autopilotDecisions.length > 0 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px' }}>
+          <Label>Recent Decisions</Label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            {autopilotDecisions.map((d) => (
+              <div key={d.id} style={{ fontSize: '0.75rem', color: C.ink, padding: '8px 10px', background: C.faint, borderRadius: 6 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>{d.action}</div>
+                <div style={{ color: C.muted }}>{d.reasoning}</div>
+                <div style={{ fontSize: '0.6875rem', color: C.muted, marginTop: 4 }}>
+                  {new Date(d.created_at).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Signal Fabric Panel
+// ════════════════════════════════════════════════════════════════════════════
+function SignalFabricPanel() {
+  const [benchmarks, setBenchmarks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchBenchmarks = async () => {
+      try {
+        const res = await fetch('/api/intelligence/benchmarks');
+        const data = await res.json().catch(() => null);
+        setBenchmarks(data || []);
+      } catch (err) {
+        console.error('[SignalFabricPanel] Failed to fetch benchmarks:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchBenchmarks();
+  }, []);
+
+  if (loading) {
+    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Loading Signal Fabric data...</p>;
+  }
+
+  return (
+    <div>
+      <SectionTitle>Signal Fabric</SectionTitle>
+      <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 16 }}>
+        Cross-sprint learning layer that aggregates performance data into benchmarks used for Genome and Verdict predictions.
+      </p>
+
+      {benchmarks.length === 0 ? (
+        <p style={{ color: C.muted, fontSize: '0.875rem' }}>No benchmark data available yet.</p>
+      ) : (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+            <thead>
+              <tr style={{ background: C.faint, borderBottom: `1px solid ${C.border}` }}>
+                <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: C.ink }}>Vertical</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: C.ink }}>Avg CTR</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: C.ink }}>Avg CPA</th>
+                <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, color: C.ink }}>Sample Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {benchmarks.map((b) => (
+                <tr key={b.vertical} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '10px 12px', color: C.ink }}>{b.vertical}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace', color: C.ink }}>
+                    {b.avg_ctr ? (b.avg_ctr * 100).toFixed(2) + '%' : '—'}
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace', color: C.ink }}>
+                    {b.avg_cpa_cents ? '$' + (b.avg_cpa_cents / 100).toFixed(2) : '—'}
+                  </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace', color: C.ink }}>
+                    {b.sample_size?.toLocaleString() || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Leads Panel
+// ════════════════════════════════════════════════════════════════════════════
+function LeadsPanel() {
+  const [leads, setLeads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLeads = async () => {
+      try {
+        const res = await fetch('/api/nurture/leads');
+        const data = await res.json().catch(() => null);
+        setLeads(data?.leads || []);
+      } catch (err) {
+        console.error('[LeadsPanel] Failed to fetch leads:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLeads();
+  }, []);
+
+  if (loading) {
+    return <p style={{ color: C.muted, fontSize: '0.875rem' }}>Loading leads...</p>;
+  }
+
+  return (
+    <div>
+      <SectionTitle>Leads</SectionTitle>
+      <p style={{ fontSize: '0.8125rem', color: C.muted, marginBottom: 16 }}>
+        Inbound leads captured from campaigns, webhooks, and manual entry.
+      </p>
+
+      {leads.length === 0 ? (
+        <p style={{ color: C.muted, fontSize: '0.875rem' }}>No leads yet. Leads will appear here as they are captured.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {leads.map((lead) => (
+            <div key={lead.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.875rem', color: C.ink, marginBottom: 4 }}>
+                {lead.email}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: C.muted }}>
+                Source: {lead.source} · Status: {lead.status}
+              </div>
+              <div style={{ fontSize: '0.6875rem', color: C.muted, marginTop: 4 }}>
+                {new Date(lead.created_at).toLocaleString()}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -3466,6 +3407,9 @@ export function NodePanel({
         );
       case 'benchmarks': return <BenchmarksPanel />;
       case 'external':   return <ExternalFeaturesPanel />;
+      case 'autopilot':  return <AutopilotPanel sprint={sprint} onSprintPatched={onSprintPatched} />;
+      case 'signal-fabric': return <SignalFabricPanel />;
+      case 'leads':      return <LeadsPanel />;
       default: return null;
     }
   };

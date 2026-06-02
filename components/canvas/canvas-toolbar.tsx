@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
-import { Mail } from 'lucide-react';
+import { Mail, Zap, BarChart3 } from 'lucide-react';
 
 const C = { ink: '#111110', muted: '#8C8880', border: '#E8E4DC', surface: '#FFFFFF', faint: '#F3F0EB' };
 
@@ -151,6 +151,38 @@ export function CanvasToolbar({ sprints, activeSprint, onSelect, onNew, onOpenPa
           {label}
         </button>
       ))}
+
+      {/* Autopilot Indicator */}
+      <button
+        onClick={() => onOpenPanel('autopilot')}
+        style={{
+          height: 30, padding: '0 10px',
+          background: 'transparent',
+          border: `1px solid ${C.border}`,
+          borderRadius: 8, fontSize: '0.8125rem', color: C.muted,
+          cursor: 'pointer', flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        <Zap style={{ width: 14, height: 14 }} />
+        <span>Autopilot</span>
+      </button>
+
+      {/* Signal Fabric Indicator */}
+      <button
+        onClick={() => onOpenPanel('signal-fabric')}
+        style={{
+          height: 30, padding: '0 10px',
+          background: 'transparent',
+          border: `1px solid ${C.border}`,
+          borderRadius: 8, fontSize: '0.8125rem', color: C.muted,
+          cursor: 'pointer', flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        <BarChart3 style={{ width: 14, height: 14 }} />
+        <span>Signal Fabric</span>
+      </button>
 
       {/* Leads Indicator */}
       <button

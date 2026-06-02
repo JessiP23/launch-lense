@@ -327,7 +327,7 @@ const CAMPAIGN_VISIBLE: SprintState[] = [
 ];
 
 /** Verdict node: only visible once verdict is being generated. */
-const VERDICT_VISIBLE: SprintState[] = ['VERDICT_GENERATING', 'COMPLETE'];
+const VERDICT_VISIBLE: SprintState[] = ['COMPLETE'];
 
 /** Report / post-sprint nodes: only after sprint is fully complete. */
 const REPORT_VISIBLE: SprintState[] = ['COMPLETE'];
